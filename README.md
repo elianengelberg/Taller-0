@@ -24,16 +24,20 @@ preguntas sobre cada reunión**. Paleta de marca: naranja claro, negro y blanco.
 - **Historial** (`/historial`): lista de reuniones pasadas con su chat, transcripción y
   video grabado (reproducible y descargable desde ahí).
 - **IA por reunión**: desde el detalle de cada reunión en el historial, se le puede
-  preguntar a una IA cosas como "¿qué dijo Germán?" y responde **solo** en base a lo que
-  se dijo en esa reunión (nunca inventa ni usa conocimiento externo).
+  preguntar a una IA cosas como "¿qué dijo Germán?", pedirle un informe completo de la
+  reunión (temas, decisiones, pendientes) o estadísticas (quién participó más, cuántos
+  mensajes hubo, duración). Responde **solo** en base a lo que se dijo en esa reunión
+  (nunca inventa ni usa conocimiento externo) y usa números ya calculados por el servidor
+  para que las cantidades sean exactas, no estimadas.
 
 ## Stack
 
 - **Servidor** (`/server`): Node.js + Express + Socket.io. Mantiene el estado de cada
   reunión en memoria mientras está en curso (roles, participantes, chat, transcripción) y
-  actúa como servidor de señalización WebRTC y de traducción (proxy a una API gratuita).
-  Opcionalmente persiste todo en Postgres, sube grabaciones a Cloudflare R2 y responde
-  preguntas con la API de Anthropic — ver "Guardado permanente" abajo.
+  actúa como servidor de señalización WebRTC y de traducción (Claude o, sin API key, un
+  proveedor gratuito de respaldo). Opcionalmente persiste todo en Postgres, sube
+  grabaciones a Cloudflare R2 y responde preguntas con la API de Anthropic — ver "Guardado
+  permanente" abajo.
 - **Cliente** (`/client`): React + TypeScript + Vite + Tailwind CSS. WebRTC en malla
   (`simple-peer`) para audio/video, `SpeechRecognition` del navegador para la
   transcripción, `MediaRecorder` + Web Audio API para grabar.
@@ -76,9 +80,12 @@ IA. Para activar el guardado permanente hacen falta 3 cuentas gratis (variables 
    propio). Completá `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
    `R2_BUCKET_NAME` y `R2_PUBLIC_URL`.
 3. **IA** — una API key de [Anthropic Console](https://console.anthropic.com) (tiene costo
-   por uso, aunque para preguntas cortas es muy bajo). Completá `ANTHROPIC_API_KEY`. Por
-   defecto usa `claude-opus-4-8`; se puede cambiar a un modelo más económico con
-   `ANTHROPIC_MODEL=claude-haiku-4-5`.
+   por uso, aunque para preguntas cortas es muy bajo). Completá `ANTHROPIC_API_KEY`. Esta
+   misma key también activa la traducción rápida por Claude (ver "Traducción de texto" más
+   abajo) — sin ella, la IA de preguntas queda desactivada y la traducción usa el
+   proveedor gratuito más lento. Por defecto la IA de preguntas usa `claude-opus-4-8` (se
+   puede cambiar con `ANTHROPIC_MODEL`) y la traducción usa `claude-haiku-4-5` (se puede
+   cambiar con `ANTHROPIC_TRANSLATE_MODEL`).
 
 Cada una de las tres es independiente: podés activar solo la base de datos (para guardar
 mensajes) sin activar R2 (grabaciones) ni la IA, por ejemplo.
@@ -95,10 +102,11 @@ mensajes) sin activar R2 (grabaciones) ni la IA, por ejemplo.
   (peer-to-peer), lo cual es ideal para grupos chicos (hasta 6-8 personas
   aproximadamente). Para reuniones más grandes convendría migrar a un SFU (ej. LiveKit,
   mediasoup).
-- **Traducción de texto** (chat/subtítulos): usa la API gratuita y sin clave de MyMemory
-  (`server/src/translate.ts`), que tiene límites de uso diarios. Para un uso más intensivo,
-  se puede reemplazar por otro proveedor (DeepL, Google Cloud Translation) cambiando solo
-  ese archivo.
+- **Traducción de texto** (chat/subtítulos): si `ANTHROPIC_API_KEY` está configurada, usa
+  Claude Haiku (rápido, pensado para no atrasar una conversación en vivo). Si no, usa como
+  respaldo la API gratuita y sin clave de MyMemory (`server/src/translate.ts`), que es más
+  lenta y tiene límites de uso diarios. Para otro proveedor (DeepL, Google Cloud
+  Translation) alcanza con cambiar ese archivo.
 - **Grabación**: usa `getDisplayMedia`, así que el usuario tiene que elegir manualmente qué
   compartir (recomendado: "esta pestaña", con la casilla de audio de la pestaña tildada,
   para capturar también el audio de los demás participantes).
