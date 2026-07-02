@@ -6,11 +6,13 @@ import ControlBar from "../components/ControlBar";
 import LiveCaption from "../components/LiveCaption";
 import Logo from "../components/Logo";
 import ParticipantsPanel from "../components/ParticipantsPanel";
+import RecordingBanner from "../components/RecordingBanner";
 import TranscriptPanel from "../components/TranscriptPanel";
 import VideoGrid from "../components/VideoGrid";
 import { useMeeting } from "../context/MeetingContext";
 import { useLocalMedia } from "../hooks/useLocalMedia";
 import { ORIGINAL_LANG, useLineTranslations } from "../hooks/useLineTranslations";
+import { useRecorder } from "../hooks/useRecorder";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { useWebRTC } from "../hooks/useWebRTC";
 import { getSocket } from "../lib/socket";
@@ -98,6 +100,15 @@ export default function Meeting() {
 
   const { getTranslation } = useLineTranslations(meeting?.transcript ?? [], targetLang);
 
+  const recorder = useRecorder({ micStream: media.stream, meetingDbId: meeting?.dbId ?? null });
+  function toggleRecording() {
+    if (recorder.status === "recording") {
+      recorder.stop();
+    } else if (recorder.status === "idle" || recorder.status === "error") {
+      void recorder.start();
+    }
+  }
+
   function togglePanel(panel: PanelKey) {
     setActivePanel((current) => (current === panel ? null : panel));
     if (panel === "chat") setChatUnread(0);
@@ -155,6 +166,13 @@ export default function Meeting() {
               captionsOn && lastTranscriptLine ? getTranslation(lastTranscriptLine.id) : undefined
             }
           />
+          <RecordingBanner
+            status={recorder.status}
+            uploadStatus={recorder.uploadStatus}
+            error={recorder.error}
+            resultUrl={recorder.resultUrl}
+            onDismiss={recorder.reset}
+          />
         </main>
 
         {activePanel === "participants" && <ParticipantsPanel onClose={() => setActivePanel(null)} />}
@@ -185,6 +203,8 @@ export default function Meeting() {
         onToggleParticipants={() => togglePanel("participants")}
         transcriptOpen={activePanel === "transcript"}
         onToggleTranscript={() => togglePanel("transcript")}
+        recording={recorder.status === "recording"}
+        onToggleRecording={toggleRecording}
         onLeave={handleLeave}
       />
     </div>

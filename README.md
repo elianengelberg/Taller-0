@@ -2,7 +2,8 @@
 
 Una app de videollamadas al estilo Zoom pensada para reuniones con **roles asignables en
 vivo**, **transcripción con nombre de quien habla** y **traducción automática** del chat y
-de los subtítulos. Paleta de marca: naranja claro, negro y blanco.
+de los subtítulos, con **grabación**, **historial permanente** y una **IA que responde
+preguntas sobre cada reunión**. Paleta de marca: naranja claro, negro y blanco.
 
 ## Funcionalidad
 
@@ -12,22 +13,30 @@ de los subtítulos. Paleta de marca: naranja claro, negro y blanco.
 - **Videollamada**: grilla de video en vivo (WebRTC punto a punto, sin servidor de medios)
   con controles de micrófono/cámara, nombre y rol de cada persona sobre su video.
 - **Transcripción en vivo**: usa el reconocimiento de voz del navegador para ir anotando
-  quién dijo qué, con formato `Nombre (Rol): texto`, y permite traducir toda la
-  transcripción a otro idioma con un selector.
+  quién dijo qué, y **traduce automáticamente todo al idioma que cada persona configuró al
+  unirse** (subtítulo flotante en vivo + panel de transcripción completo).
 - **Chat en vivo**: mensajería lateral, colapsada por defecto (con contador de no leídos) y
   expandible para leer cómodo, con opción de traducir automáticamente cada mensaje al
   idioma del anfitrión.
-- **Subtítulos en vivo**: además del panel de transcripción completo, se muestra la última
-  frase dicha como subtítulo flotante sobre el video.
+- **Grabación**: botón para grabar la reunión (pantalla compartida + audio propio y de los
+  demás, mezclados). Al terminar, se puede descargar al toque y —si está configurado el
+  guardado permanente— queda subida al historial.
+- **Historial** (`/historial`): lista de reuniones pasadas con su chat, transcripción y
+  video grabado (reproducible y descargable desde ahí).
+- **IA por reunión**: desde el detalle de cada reunión en el historial, se le puede
+  preguntar a una IA cosas como "¿qué dijo Germán?" y responde **solo** en base a lo que
+  se dijo en esa reunión (nunca inventa ni usa conocimiento externo).
 
 ## Stack
 
 - **Servidor** (`/server`): Node.js + Express + Socket.io. Mantiene el estado de cada
-  reunión en memoria (roles, participantes, chat, transcripción) y actúa como servidor de
-  señalización WebRTC y de traducción (proxy a una API gratuita).
+  reunión en memoria mientras está en curso (roles, participantes, chat, transcripción) y
+  actúa como servidor de señalización WebRTC y de traducción (proxy a una API gratuita).
+  Opcionalmente persiste todo en Postgres, sube grabaciones a Cloudflare R2 y responde
+  preguntas con la API de Anthropic — ver "Guardado permanente" abajo.
 - **Cliente** (`/client`): React + TypeScript + Vite + Tailwind CSS. WebRTC en malla
   (`simple-peer`) para audio/video, `SpeechRecognition` del navegador para la
-  transcripción.
+  transcripción, `MediaRecorder` + Web Audio API para grabar.
 
 ## Cómo correrlo
 
@@ -46,45 +55,77 @@ npm run dev:client   # http://localhost:5173
 Variables de entorno opcionales:
 
 - `server/.env` → `PORT` (default 4000), `CLIENT_ORIGIN` (default
-  `http://localhost:5173`, usado para CORS).
+  `http://localhost:5173`, usado para CORS). Ver también "Guardado permanente" abajo.
 - `client/.env` → `VITE_SERVER_URL` (default `http://localhost:4000`).
 
 Para probarlo con más de una persona en la misma máquina, abrí dos pestañas o navegadores
 distintos en `http://localhost:5173`.
+
+## Guardado permanente (opcional)
+
+Sin configurar nada de esto, la app funciona igual para hacer videollamadas — sólo que la
+grabación se puede descargar pero no queda guardada en el servidor, y no hay historial ni
+IA. Para activar el guardado permanente hacen falta 3 cuentas gratis (variables en
+`server/.env`, ver `server/.env.example`):
+
+1. **Base de datos** — [Neon](https://neon.tech) (Postgres gratis). Creá un proyecto,
+   copiá el "connection string" y pegalo en `DATABASE_URL`.
+2. **Almacenamiento de videos** — [Cloudflare R2](https://dash.cloudflare.com) (10 GB
+   gratis, sin costo de salida de datos). Creá un bucket, un API token con permisos de
+   lectura/escritura, y habilitá el acceso público (subdominio `r2.dev` o un dominio
+   propio). Completá `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
+   `R2_BUCKET_NAME` y `R2_PUBLIC_URL`.
+3. **IA** — una API key de [Anthropic Console](https://console.anthropic.com) (tiene costo
+   por uso, aunque para preguntas cortas es muy bajo). Completá `ANTHROPIC_API_KEY`. Por
+   defecto usa `claude-opus-4-8`; se puede cambiar a un modelo más económico con
+   `ANTHROPIC_MODEL=claude-haiku-4-5`.
+
+Cada una de las tres es independiente: podés activar solo la base de datos (para guardar
+mensajes) sin activar R2 (grabaciones) ni la IA, por ejemplo.
 
 ## Limitaciones a tener en cuenta
 
 - **Transcripción por voz**: usa la Web Speech API, que hoy solo está disponible en
   navegadores basados en Chromium (Chrome, Edge). En Firefox/Safari el botón de subtítulos
   queda deshabilitado automáticamente.
-- **Cámara/micrófono en producción**: los navegadores solo permiten `getUserMedia` en
-  `localhost` o sobre HTTPS. Si despliegan esto en un dominio real, necesitan certificado
-  TLS.
+- **Cámara/micrófono/pantalla en producción**: los navegadores solo permiten
+  `getUserMedia`/`getDisplayMedia` en `localhost` o sobre HTTPS. Si despliegan esto en un
+  dominio real, necesitan certificado TLS (Vercel y Render ya lo dan gratis).
 - **Videollamada en malla**: cada participante se conecta directo con todos los demás
   (peer-to-peer), lo cual es ideal para grupos chicos (hasta 6-8 personas
   aproximadamente). Para reuniones más grandes convendría migrar a un SFU (ej. LiveKit,
   mediasoup).
-- **Traducción**: usa la API gratuita y sin clave de MyMemory
+- **Traducción de texto** (chat/subtítulos): usa la API gratuita y sin clave de MyMemory
   (`server/src/translate.ts`), que tiene límites de uso diarios. Para un uso más intensivo,
   se puede reemplazar por otro proveedor (DeepL, Google Cloud Translation) cambiando solo
   ese archivo.
-- **Estado en memoria**: el servidor no usa base de datos; si se reinicia, se pierden las
-  reuniones activas.
+- **Grabación**: usa `getDisplayMedia`, así que el usuario tiene que elegir manualmente qué
+  compartir (recomendado: "esta pestaña", con la casilla de audio de la pestaña tildada,
+  para capturar también el audio de los demás participantes).
+- **Sin guardado permanente configurado**: el estado de una reunión en curso vive en
+  memoria del servidor; si se reinicia mientras hay reuniones activas, se pierden. Con
+  `DATABASE_URL` configurado, el chat y la transcripción quedan guardados igual aunque el
+  servidor se reinicie.
 
 ## Estructura
 
 ```
 server/
   src/
-    index.ts            servidor Express + Socket.io + endpoint de traducción
-    socketHandlers.ts    eventos de sockets (crear/unir reunión, roles, chat, señalización)
-    meetingStore.ts      estado en memoria de las reuniones
-    translate.ts         proveedor de traducción (reemplazable)
+    index.ts             servidor Express + Socket.io + endpoints REST
+    socketHandlers.ts     eventos de sockets (crear/unir reunión, roles, chat, señalización)
+    meetingStore.ts       estado en memoria de las reuniones en curso
+    translate.ts          proveedor de traducción de texto (reemplazable)
+    db.ts                 persistencia en Postgres (historial), opcional
+    storage.ts             subida de grabaciones a Cloudflare R2, opcional
+    ai.ts                  preguntas a la IA sobre una reunión (Anthropic), opcional
 client/
   src/
-    pages/               Home, HostSetup (creador de roles), JoinForm, Meeting
-    components/          VideoGrid, ControlBar, ParticipantsPanel, ChatPanel,
-                          TranscriptPanel, RoleBadge, LiveCaption…
-    hooks/                useLocalMedia, useWebRTC (malla), useSpeechRecognition
-    context/              MeetingContext (estado global + eventos de socket)
+    pages/                Home, HostSetup (creador de roles), JoinForm, Meeting,
+                           History (historial), MeetingDetail (detalle + IA)
+    components/           VideoGrid, ControlBar, ParticipantsPanel, ChatPanel,
+                           TranscriptPanel, RoleBadge, LiveCaption, RecordingBanner…
+    hooks/                 useLocalMedia, useWebRTC (malla), useSpeechRecognition,
+                           useLineTranslations, useRecorder
+    context/               MeetingContext (estado global + eventos de socket)
 ```

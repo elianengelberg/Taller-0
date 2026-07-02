@@ -120,3 +120,36 @@ export function GlobeIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function RecordIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor">
+      <circle cx="12" cy="12" r="7" />
+    </svg>
+  );
+}
+
+export function StopIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor">
+      <rect x="7" y="7" width="10" height="10" rx="1.5" />
+    </svg>
+  );
+}
+
+export function DownloadIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...common}>
+      <path d="M12 4v11m0 0 4-4m-4 4-4-4M5 19h14" />
+    </svg>
+  );
+}
+
+export function SparklesIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor">
+      <path d="M11 2.5c.3 2.5 1.2 4.3 2.6 5.4A7 7 0 0 0 19 10c-2.5.3-4.3 1.2-5.4 2.6A7 7 0 0 0 12 18c-.3-2.5-1.2-4.3-2.6-5.4A7 7 0 0 0 5 10c2.5-.3 4.3-1.2 5.4-2.6C11.1 6.1 11 4.5 11 2.5Z" />
+      <path d="M18.5 14.5c.15 1.2.6 2 1.3 2.6.7.6 1.5.9 2.7 1-1.2.15-2 .6-2.6 1.3-.6.7-.9 1.5-1 2.7-.15-1.2-.6-2-1.3-2.6-.7-.6-1.5-.9-2.7-1 1.2-.15 2-.6 2.6-1.3.6-.7.9-1.5 1-2.7Z" />
+    </svg>
+  );
+}

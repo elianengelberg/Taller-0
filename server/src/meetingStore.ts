@@ -1,4 +1,6 @@
+import { randomUUID } from "crypto";
 import { customAlphabet } from "nanoid";
+import * as db from "./db";
 import { ChatMessage, Meeting, Participant, Role, TranscriptLine } from "./types";
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous chars
@@ -18,10 +20,12 @@ function generateMeetingCode(): string {
 export function createMeeting(): Meeting {
   const meeting: Meeting = {
     id: generateMeetingCode(),
+    dbId: randomUUID(),
     hostId: "",
     createdAt: Date.now(),
     roles: [],
     participants: new Map(),
+    historicalParticipants: new Map(),
     chat: [],
     transcript: [],
   };
@@ -58,6 +62,7 @@ export function scheduleMeetingCleanupIfEmpty(meetingId: string): void {
     pendingCleanups.delete(meetingId);
     const current = meetings.get(meetingId);
     if (current && current.participants.size === 0) {
+      void db.finalizeMeeting(current.dbId);
       meetings.delete(meetingId);
     }
   }, CLEANUP_GRACE_MS);
@@ -92,6 +97,10 @@ export function addParticipant(
     joinedAt: Date.now(),
   };
   meeting.participants.set(socketId, participant);
+  // Same object reference on purpose: later mutations (role changes, mute
+  // state) apply to both maps automatically, and this entry survives even
+  // after the person leaves and is removed from `participants`.
+  meeting.historicalParticipants.set(socketId, participant);
   if (isHost) {
     meeting.hostId = socketId;
   }

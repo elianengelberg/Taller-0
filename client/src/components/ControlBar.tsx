@@ -10,6 +10,8 @@ import {
   MicOffIcon,
   PeopleIcon,
   PhoneOffIcon,
+  RecordIcon,
+  StopIcon,
   TranscriptIcon,
 } from "./icons";
 
@@ -29,6 +31,8 @@ interface ControlBarProps {
   onToggleParticipants: () => void;
   transcriptOpen: boolean;
   onToggleTranscript: () => void;
+  recording: boolean;
+  onToggleRecording: () => void;
   onLeave: () => void;
 }
 
@@ -48,6 +52,8 @@ export default function ControlBar({
   onToggleParticipants,
   transcriptOpen,
   onToggleTranscript,
+  recording,
+  onToggleRecording,
   onLeave,
 }: ControlBarProps) {
   const [copied, setCopied] = useState(false);
@@ -100,6 +106,13 @@ export default function ControlBar({
         </IconButton>
         <IconButton label="Chat" active={chatOpen} badge={chatUnread} onClick={onToggleChat}>
           <ChatIcon className="h-5 w-5" />
+        </IconButton>
+        <IconButton
+          label={recording ? "Detener grabación" : "Grabar la reunión"}
+          danger={recording}
+          onClick={onToggleRecording}
+        >
+          {recording ? <StopIcon className="h-5 w-5" /> : <RecordIcon className="h-5 w-5" />}
         </IconButton>
       </div>
 

@@ -37,6 +37,7 @@ export interface TranscriptLine {
 
 export interface MeetingSnapshot {
   id: string;
+  dbId: string;
   hostId: string;
   roles: Role[];
   participants: Participant[];

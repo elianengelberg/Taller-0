@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import Button from "../components/Button";
 import Logo from "../components/Logo";
 import { cardClass } from "../lib/ui";
@@ -8,8 +8,11 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen flex-col bg-ink-950">
-      <header className="px-6 py-6 sm:px-10">
+      <header className="flex items-center justify-between px-6 py-6 sm:px-10">
         <Logo />
+        <Link to="/historial" className="text-sm font-medium text-ink-300 hover:text-white">
+          Ver historial
+        </Link>
       </header>
 
       <main className="flex flex-1 items-center justify-center px-6 pb-16">

@@ -1,4 +1,5 @@
 import { Server, Socket } from "socket.io";
+import * as db from "./db";
 import {
   addChatMessage,
   addParticipant,
@@ -22,6 +23,28 @@ function roomName(meetingId: string): string {
 
 function requireHost(meeting: Meeting, socketId: string): boolean {
   return meeting.hostId === socketId;
+}
+
+function roleNameFor(meeting: Meeting, roleId: string | null): string | null {
+  if (!roleId) return null;
+  return meeting.roles.find((r) => r.id === roleId)?.name ?? null;
+}
+
+// Fire-and-forget: the DB layer swallows its own errors (see db.ts `safe()`),
+// so this never throws or delays the real-time socket path it's called from.
+function persistParticipants(meeting: Meeting): void {
+  // Persist the full historical roster (not just who's still connected) so
+  // the saved meeting keeps everyone who was ever in it, roles included,
+  // even after they've left.
+  void db.updateParticipantsSnapshot(
+    meeting.dbId,
+    Array.from(meeting.historicalParticipants.values()).map((p) => ({
+      id: p.id,
+      name: p.name,
+      roleId: p.roleId,
+      isHost: p.isHost,
+    }))
+  );
 }
 
 export function registerSocketHandlers(io: Server, socket: Socket): void {
@@ -50,6 +73,14 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
 
         currentMeetingId = meeting.id;
         socket.join(roomName(meeting.id));
+
+        void db.createMeetingRecord({
+          id: meeting.dbId,
+          joinCode: meeting.id,
+          hostName,
+          roles: meeting.roles,
+        });
+        persistParticipants(meeting);
 
         ack?.({ ok: true, meeting: toSnapshot(meeting), selfId: socket.id });
       } catch (err) {
@@ -84,6 +115,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
         const participant = addParticipant(meeting, socket.id, name, language, becomesHost);
         currentMeetingId = meeting.id;
         socket.join(roomName(meeting.id));
+        persistParticipants(meeting);
 
         socket.to(roomName(meeting.id)).emit("participant-joined", { participant });
 
@@ -109,6 +141,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
     if (!name) return ack?.({ ok: false, error: "El rol necesita un nombre." });
 
     const role = addRole(meeting, name);
+    void db.updateMeetingRoles(meeting.dbId, meeting.roles);
     io.to(roomName(meeting.id)).emit("role-added", { role });
     ack?.({ ok: true, role });
   });
@@ -130,6 +163,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       }
 
       participant.roleId = roleId;
+      persistParticipants(meeting);
       io.to(roomName(meeting.id)).emit("role-assigned", {
         participantId: participant.id,
         roleId,
@@ -147,6 +181,14 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
     if (!text) return ack?.({ ok: false, error: "Mensaje vacío." });
 
     const message = addChatMessage(meeting, sender, text);
+    void db.recordMessage({
+      meetingId: meeting.dbId,
+      kind: "chat",
+      senderName: sender.name,
+      roleName: roleNameFor(meeting, sender.roleId),
+      text: message.text,
+      sourceLang: message.sourceLang,
+    });
     io.to(roomName(meeting.id)).emit("chat-message", { message });
     ack?.({ ok: true });
   });
@@ -160,6 +202,14 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
     if (!text) return;
 
     const line = addTranscriptLine(meeting, speaker, text, payload?.lang || speaker.language);
+    void db.recordMessage({
+      meetingId: meeting.dbId,
+      kind: "transcript",
+      senderName: speaker.name,
+      roleName: roleNameFor(meeting, speaker.roleId),
+      text: line.text,
+      sourceLang: line.sourceLang,
+    });
     io.to(roomName(meeting.id)).emit("transcript-line", { line });
   });
 
@@ -204,6 +254,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       }
     }
 
+    persistParticipants(meeting);
     scheduleMeetingCleanupIfEmpty(meeting.id);
   }
 }
