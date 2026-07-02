@@ -21,12 +21,12 @@ export default function JoinForm() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center bg-sand-100 px-6 py-10">
+    <div className="flex min-h-screen flex-col items-center bg-ink-950 px-6 py-10">
       <div className="w-full max-w-md">
         <Logo className="mb-8" />
         <div className={cardClass}>
-          <h1 className="text-2xl font-bold text-ink-900">Unirme a una reunión</h1>
-          <p className="mt-1 text-sm text-ink-500">
+          <h1 className="text-2xl font-bold text-white">Unirme a una reunión</h1>
+          <p className="mt-1 text-sm text-ink-300">
             Ingresá el código que te compartió el anfitrión.
           </p>
 

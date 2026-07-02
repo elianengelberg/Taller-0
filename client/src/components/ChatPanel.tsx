@@ -56,7 +56,7 @@ export default function ChatPanel({ onClose }: { onClose: () => void }) {
       title="Chat"
       onClose={onClose}
       headerExtra={
-        <label className="flex items-center gap-1.5 pr-1 text-[11px] font-medium leading-tight text-ink-500">
+        <label className="flex items-center gap-1.5 pr-1 text-[11px] font-medium leading-tight text-ink-300">
           <input
             type="checkbox"
             className="h-3.5 w-3.5 accent-brand-500"
@@ -89,7 +89,7 @@ export default function ChatPanel({ onClose }: { onClose: () => void }) {
       }
     >
       {chat.length === 0 ? (
-        <p className="mt-6 text-center text-sm text-ink-500">
+        <p className="mt-6 text-center text-sm text-ink-400">
           Todavía no hay mensajes. ¡Escribí el primero!
         </p>
       ) : (
@@ -100,22 +100,22 @@ export default function ChatPanel({ onClose }: { onClose: () => void }) {
             const translated = translations[message.id];
             return (
               <li key={message.id} className={`flex flex-col ${isSelf ? "items-end" : "items-start"}`}>
-                <div className="flex items-center gap-1.5 text-xs text-ink-500">
-                  <span className="font-semibold text-ink-800">
+                <div className="flex items-center gap-1.5 text-xs text-ink-400">
+                  <span className="font-semibold text-ink-100">
                     {isSelf ? "Vos" : message.senderName}
                   </span>
                   {role && <RoleBadge role={role} size="sm" />}
                 </div>
                 <div
                   className={`mt-1 max-w-[85%] rounded-2xl px-3.5 py-2 text-sm ${
-                    isSelf ? "bg-brand-500 text-white" : "bg-sand-200 text-ink-900"
+                    isSelf ? "bg-brand-500 text-white" : "bg-ink-700 text-white"
                   }`}
                 >
                   <p className="whitespace-pre-wrap break-words">{message.text}</p>
                   {translated && (
                     <p
                       className={`mt-1 flex items-start gap-1 whitespace-pre-wrap break-words border-t pt-1 text-xs italic ${
-                        isSelf ? "border-white/30 text-white/80" : "border-ink-300/40 text-ink-500"
+                        isSelf ? "border-white/30 text-white/80" : "border-ink-500/40 text-ink-300"
                       }`}
                     >
                       <GlobeIcon className="mt-0.5 h-3 w-3 shrink-0" />

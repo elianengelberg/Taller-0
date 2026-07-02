@@ -28,7 +28,22 @@ export function useLocalMedia(): LocalMediaState {
     }
 
     navigator.mediaDevices
-      .getUserMedia({ video: true, audio: true })
+      .getUserMedia({
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 },
+        },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          // Match Opus's native rate so the browser doesn't resample and
+          // lose quality before it ever reaches the encoder.
+          sampleRate: { ideal: 48000 },
+          channelCount: { ideal: 1 },
+        },
+      })
       .then((mediaStream) => {
         if (cancelled) {
           mediaStream.getTracks().forEach((track) => track.stop());

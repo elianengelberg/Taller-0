@@ -48,7 +48,7 @@ export default function TranscriptPanel({ onClose }: { onClose: () => void }) {
       onClose={onClose}
       headerExtra={
         <select
-          className="rounded-lg border border-sand-300 bg-white px-2 py-1 text-xs text-ink-800 focus:border-brand-400 focus:outline-none"
+          className="rounded-lg border border-ink-600 bg-ink-800 px-2 py-1 text-xs text-white focus:border-brand-400 focus:outline-none"
           value={targetLang}
           onChange={(e) => setTargetLang(e.target.value)}
         >
@@ -62,7 +62,7 @@ export default function TranscriptPanel({ onClose }: { onClose: () => void }) {
       }
     >
       {transcript.length === 0 ? (
-        <p className="mt-6 text-center text-sm text-ink-500">
+        <p className="mt-6 text-center text-sm text-ink-400">
           Activá los subtítulos (ícono de "CC") para empezar a registrar quién dice qué.
         </p>
       ) : (
@@ -72,9 +72,9 @@ export default function TranscriptPanel({ onClose }: { onClose: () => void }) {
             const key = `${line.id}:${targetLang}`;
             const translated = targetLang !== ORIGINAL ? translations[key] : undefined;
             return (
-              <li key={line.id} className="rounded-xl border border-sand-200 p-3">
-                <div className="flex flex-wrap items-center gap-1.5 text-xs text-ink-500">
-                  <span className="font-semibold text-ink-900">{line.speakerName}</span>
+              <li key={line.id} className="rounded-xl border border-ink-700 bg-ink-800/60 p-3">
+                <div className="flex flex-wrap items-center gap-1.5 text-xs text-ink-400">
+                  <span className="font-semibold text-white">{line.speakerName}</span>
                   {role && <RoleBadge role={role} size="sm" />}
                   <span className="ml-auto shrink-0 text-[11px] text-ink-400">
                     {new Date(line.timestamp).toLocaleTimeString([], {
@@ -83,9 +83,9 @@ export default function TranscriptPanel({ onClose }: { onClose: () => void }) {
                     })}
                   </span>
                 </div>
-                <p className="mt-1.5 text-sm text-ink-900">{line.text}</p>
+                <p className="mt-1.5 text-sm text-ink-100">{line.text}</p>
                 {translated && (
-                  <p className="mt-1 flex items-start gap-1 text-sm italic text-brand-700">
+                  <p className="mt-1 flex items-start gap-1 text-sm italic text-brand-300">
                     <GlobeIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     {translated}
                   </p>

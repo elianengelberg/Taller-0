@@ -45,12 +45,12 @@ export default function HostSetup() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center bg-sand-100 px-6 py-10">
+    <div className="flex min-h-screen flex-col items-center bg-ink-950 px-6 py-10">
       <div className="w-full max-w-lg">
         <Logo className="mb-8" />
         <div className={cardClass}>
-          <h1 className="text-2xl font-bold text-ink-900">Crear una reunión</h1>
-          <p className="mt-1 text-sm text-ink-500">
+          <h1 className="text-2xl font-bold text-white">Crear una reunión</h1>
+          <p className="mt-1 text-sm text-ink-300">
             Definí los roles disponibles antes de arrancar. Vas a poder asignarlos a cada
             participante durante la reunión (y también agregar más roles en el momento).
           </p>
@@ -87,7 +87,7 @@ export default function HostSetup() {
                   </option>
                 ))}
               </select>
-              <p className="mt-1.5 text-xs text-ink-500">
+              <p className="mt-1.5 text-xs text-ink-400">
                 Se usa para traducir automáticamente el chat a tu idioma cuando alguien active
                 esa opción.
               </p>
@@ -135,7 +135,7 @@ export default function HostSetup() {
                   })}
                 </div>
               ) : (
-                <p className="mt-2 text-xs text-ink-500">
+                <p className="mt-2 text-xs text-ink-400">
                   Todavía no agregaste roles. Podés dejarlo vacío y crearlos más tarde.
                 </p>
               )}

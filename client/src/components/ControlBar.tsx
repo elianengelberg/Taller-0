@@ -63,11 +63,11 @@ export default function ControlBar({
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-sand-200 bg-white px-4 py-3 sm:px-6">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-700 bg-ink-900 px-4 py-3 sm:px-6">
       <button
         type="button"
         onClick={copyCode}
-        className="flex items-center gap-2 rounded-xl border border-sand-300 px-3 py-2 text-sm font-medium text-ink-700 hover:border-brand-400"
+        className="flex items-center gap-2 rounded-xl border border-ink-600 px-3 py-2 text-sm font-medium text-ink-200 hover:border-brand-400"
         title="Copiar código de la reunión"
       >
         <CopyIcon className="h-4 w-4" />

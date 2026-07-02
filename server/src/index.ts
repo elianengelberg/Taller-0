@@ -33,6 +33,12 @@ app.post("/api/translate", async (req, res) => {
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { origin: CLIENT_ORIGIN },
+  // Backgrounded/throttled browser tabs can delay the heartbeat past the
+  // default 20s pingTimeout, which reads as a real disconnect and (without
+  // this) used to make the meeting "disappear" out from under the host.
+  // Give it a lot more slack before giving up on a connection.
+  pingTimeout: 60_000,
+  pingInterval: 25_000,
 });
 
 io.on("connection", (socket) => {

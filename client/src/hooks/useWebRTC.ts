@@ -1,6 +1,7 @@
 import SimplePeer from "simple-peer";
 import { useEffect, useRef, useState } from "react";
 import { Socket } from "socket.io-client";
+import { boostOpusAudio } from "../lib/sdp";
 
 interface UseWebRTCOptions {
   socket: Socket;
@@ -36,6 +37,7 @@ export function useWebRTC({ socket, selfId, peerIds, localStream, enabled }: Use
       initiator,
       trickle: true,
       stream: localStream ?? undefined,
+      sdpTransform: boostOpusAudio,
     });
 
     peer.on("signal", (data) => {
