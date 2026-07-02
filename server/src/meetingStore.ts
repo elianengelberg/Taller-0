@@ -94,6 +94,7 @@ export function addParticipant(
     language,
     muted: false,
     cameraOff: false,
+    sharingScreen: false,
     joinedAt: Date.now(),
   };
   meeting.participants.set(socketId, participant);

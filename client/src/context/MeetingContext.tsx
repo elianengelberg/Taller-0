@@ -29,6 +29,7 @@ type MeetingAction =
   | { type: "CHAT_MESSAGE"; message: ChatMessage }
   | { type: "TRANSCRIPT_LINE"; line: TranscriptLine }
   | { type: "MEDIA_STATE"; participantId: string; muted: boolean; cameraOff: boolean }
+  | { type: "SCREEN_SHARE"; participantId: string; sharingScreen: boolean }
   | { type: "HOST_CHANGED"; hostId: string }
   | { type: "RESET" };
 
@@ -68,6 +69,13 @@ function meetingReducer(state: MeetingSnapshot | null, action: MeetingAction): M
             : p
         ),
       };
+    case "SCREEN_SHARE":
+      return {
+        ...state,
+        participants: state.participants.map((p) =>
+          p.id === action.participantId ? { ...p, sharingScreen: action.sharingScreen } : p
+        ),
+      };
     case "HOST_CHANGED":
       return {
         ...state,
@@ -100,6 +108,7 @@ interface MeetingContextValue {
   addRole: (name: string) => Promise<Role | null>;
   sendTranscriptLine: (text: string, lang: string) => void;
   setMediaState: (muted: boolean, cameraOff: boolean) => void;
+  setSharingScreen: (sharing: boolean) => void;
   leaveMeeting: () => void;
 }
 
@@ -143,6 +152,12 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "MEDIA_STATE", ...payload });
       }
     );
+    socket.on(
+      "screen-share",
+      (payload: { participantId: string; sharingScreen: boolean }) => {
+        dispatch({ type: "SCREEN_SHARE", ...payload });
+      }
+    );
     socket.on("host-changed", ({ hostId }: { hostId: string }) => {
       dispatch({ type: "HOST_CHANGED", hostId });
     });
@@ -159,6 +174,7 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
       socket.off("chat-message");
       socket.off("transcript-line");
       socket.off("media-state");
+      socket.off("screen-share");
       socket.off("host-changed");
       socket.off("connect_error");
     };
@@ -250,6 +266,10 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     socketRef.current.emit("media-state", { muted, cameraOff });
   }, []);
 
+  const setSharingScreen = useCallback((sharing: boolean) => {
+    socketRef.current.emit("screen-share", { sharing });
+  }, []);
+
   const leaveMeeting = useCallback(() => {
     const socket = socketRef.current;
     socket.emit("leave-meeting");
@@ -289,6 +309,7 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     addRole,
     sendTranscriptLine,
     setMediaState,
+    setSharingScreen,
     leaveMeeting,
   };
 

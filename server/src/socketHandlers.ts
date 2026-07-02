@@ -227,6 +227,18 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
     });
   });
 
+  socket.on("screen-share", (payload: { sharing?: boolean }) => {
+    const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
+    if (!meeting) return;
+    const participant = meeting.participants.get(socket.id);
+    if (!participant) return;
+    participant.sharingScreen = Boolean(payload?.sharing);
+    io.to(roomName(meeting.id)).emit("screen-share", {
+      participantId: participant.id,
+      sharingScreen: participant.sharingScreen,
+    });
+  });
+
   socket.on("leave-meeting", () => {
     handleDeparture();
   });

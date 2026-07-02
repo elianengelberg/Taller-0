@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Participant, Role } from "../types";
+import { ScreenShareIcon } from "./icons";
 import RoleBadge from "./RoleBadge";
 
 interface Props {
@@ -18,7 +19,10 @@ export default function ParticipantTile({ participant, role, stream, isSelf }: P
     }
   }, [stream]);
 
-  const showVideo = Boolean(stream) && !participant.cameraOff;
+  // While sharing a screen, the shared content rides the same video track
+  // slot the camera normally uses -- keep showing it even if the person's
+  // camera itself is toggled off.
+  const showVideo = Boolean(stream) && (!participant.cameraOff || participant.sharingScreen);
 
   return (
     <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-2xl bg-ink-900 shadow-soft">
@@ -33,8 +37,9 @@ export default function ParticipantTile({ participant, role, stream, isSelf }: P
           autoPlay
           playsInline
           muted={isSelf}
-          className={`h-full w-full object-cover ${isSelf ? "-scale-x-100" : ""} ${
-            showVideo ? "" : "hidden"
+          className={`h-full w-full object-cover ${
+            isSelf && !participant.sharingScreen ? "-scale-x-100" : ""
+          } ${showVideo ? "" : "hidden"
           }`}
         />
       )}
@@ -60,6 +65,16 @@ export default function ParticipantTile({ participant, role, stream, isSelf }: P
       {participant.isHost && (
         <span className="absolute left-2 top-2 rounded-full bg-brand-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-soft">
           Anfitrión
+        </span>
+      )}
+      {participant.sharingScreen && (
+        <span
+          className={`absolute ${
+            participant.isHost ? "left-24" : "left-2"
+          } top-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-soft`}
+        >
+          <ScreenShareIcon className="h-3 w-3" />
+          Compartiendo pantalla
         </span>
       )}
     </div>

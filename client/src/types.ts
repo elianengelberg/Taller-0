@@ -12,6 +12,7 @@ export interface Participant {
   language: string;
   muted: boolean;
   cameraOff: boolean;
+  sharingScreen: boolean;
   joinedAt: number;
 }
 

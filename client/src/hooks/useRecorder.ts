@@ -89,6 +89,14 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
 
       const audioContext = new AudioContext();
       audioContextRef.current = audioContext;
+      // Chrome can create this suspended when there's an async gap (like the
+      // getDisplayMedia permission prompt) between the click that started
+      // recording and this point -- if we don't resume it explicitly, the
+      // mixed audio track silently produces no sound at all, even though the
+      // video track (which doesn't go through the AudioContext) works fine.
+      if (audioContext.state === "suspended") {
+        await audioContext.resume().catch(() => {});
+      }
       const destination = audioContext.createMediaStreamDestination();
 
       if (displayStream.getAudioTracks().length > 0) {

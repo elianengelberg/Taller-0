@@ -11,6 +11,7 @@ import {
   PeopleIcon,
   PhoneOffIcon,
   RecordIcon,
+  ScreenShareIcon,
   StopIcon,
   TranscriptIcon,
 } from "./icons";
@@ -33,6 +34,8 @@ interface ControlBarProps {
   onToggleTranscript: () => void;
   recording: boolean;
   onToggleRecording: () => void;
+  sharingScreen: boolean;
+  onToggleScreenShare: () => void;
   onLeave: () => void;
 }
 
@@ -54,6 +57,8 @@ export default function ControlBar({
   onToggleTranscript,
   recording,
   onToggleRecording,
+  sharingScreen,
+  onToggleScreenShare,
   onLeave,
 }: ControlBarProps) {
   const [copied, setCopied] = useState(false);
@@ -101,6 +106,13 @@ export default function ControlBar({
         <IconButton label="Transcripción" active={transcriptOpen} onClick={onToggleTranscript}>
           <TranscriptIcon className="h-5 w-5" />
         </IconButton>
+        <IconButton
+          label={sharingScreen ? "Dejar de compartir pantalla" : "Compartir pantalla"}
+          active={sharingScreen}
+          onClick={onToggleScreenShare}
+        >
+          <ScreenShareIcon className="h-5 w-5" />
+        </IconButton>
         <IconButton label="Participantes" active={participantsOpen} onClick={onToggleParticipants}>
           <PeopleIcon className="h-5 w-5" />
         </IconButton>
@@ -108,7 +120,11 @@ export default function ControlBar({
           <ChatIcon className="h-5 w-5" />
         </IconButton>
         <IconButton
-          label={recording ? "Detener grabación" : "Grabar la reunión"}
+          label={
+            recording
+              ? "Detener grabación"
+              : 'Grabar la reunión (elegí "esta pestaña" y tildá compartir audio para grabar también lo que dicen los demás)'
+          }
           danger={recording}
           onClick={onToggleRecording}
         >

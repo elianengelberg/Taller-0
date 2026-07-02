@@ -17,6 +17,8 @@ interface UseWebRTCOptions {
 export function useWebRTC({ socket, selfId, peerIds, localStream, enabled }: UseWebRTCOptions) {
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
   const peersRef = useRef<Map<string, SimplePeer.Instance>>(new Map());
+  const localStreamRef = useRef<MediaStream | null>(localStream);
+  localStreamRef.current = localStream;
 
   function destroyPeer(peerId: string) {
     const peer = peersRef.current.get(peerId);
@@ -98,5 +100,38 @@ export function useWebRTC({ socket, selfId, peerIds, localStream, enabled }: Use
     };
   }, []);
 
-  return { remoteStreams };
+  // Swaps the outgoing video track (e.g. camera <-> screen share) on every
+  // already-connected peer, without a full renegotiation/reconnect. New
+  // peers that connect afterwards pick up the current track automatically
+  // since they're constructed from `localStream`, whose tracks the caller
+  // is expected to have already swapped in place (same MediaStream object).
+  function replaceVideoTrack(oldTrack: MediaStreamTrack | null, newTrack: MediaStreamTrack) {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    peersRef.current.forEach((peer) => {
+      try {
+        if (oldTrack) {
+          peer.replaceTrack(oldTrack, newTrack, stream);
+        } else {
+          peer.addTrack(newTrack, stream);
+        }
+      } catch {
+        // Peer may be mid-negotiation or already closed; nothing to recover.
+      }
+    });
+  }
+
+  function removeVideoTrack(track: MediaStreamTrack) {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    peersRef.current.forEach((peer) => {
+      try {
+        peer.removeTrack(track, stream);
+      } catch {
+        // ignore
+      }
+    });
+  }
+
+  return { remoteStreams, replaceVideoTrack, removeVideoTrack };
 }

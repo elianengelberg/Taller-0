@@ -13,6 +13,7 @@ import { useMeeting } from "../context/MeetingContext";
 import { useLocalMedia } from "../hooks/useLocalMedia";
 import { ORIGINAL_LANG, useLineTranslations } from "../hooks/useLineTranslations";
 import { useRecorder } from "../hooks/useRecorder";
+import { useScreenShare } from "../hooks/useScreenShare";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { useWebRTC } from "../hooks/useWebRTC";
 import { getSocket } from "../lib/socket";
@@ -30,6 +31,7 @@ export default function Meeting() {
     selfId,
     self,
     setMediaState,
+    setSharingScreen,
     sendTranscriptLine,
     leaveMeeting,
   } = useMeeting();
@@ -69,13 +71,32 @@ export default function Meeting() {
     [meeting, selfId]
   );
 
-  const { remoteStreams } = useWebRTC({
+  const { remoteStreams, replaceVideoTrack, removeVideoTrack } = useWebRTC({
     socket: getSocket(),
     selfId,
     peerIds,
     localStream: media.stream,
     enabled: media.ready,
   });
+
+  const screenShare = useScreenShare({
+    localStream: media.stream,
+    onReplaceTrack: replaceVideoTrack,
+    onRemoveTrack: removeVideoTrack,
+  });
+  function toggleScreenShare() {
+    if (screenShare.sharing) {
+      screenShare.stop();
+    } else {
+      void screenShare.start();
+    }
+  }
+  // Covers both the toolbar button and the browser's own "Stop sharing" UI
+  // (which calls screenShare.stop() internally), so every path that changes
+  // `sharing` ends up broadcast to everyone else exactly once.
+  useEffect(() => {
+    if (connectionStatus === "connected") setSharingScreen(screenShare.sharing);
+  }, [screenShare.sharing, connectionStatus, setSharingScreen]);
 
   useEffect(() => {
     if (connectionStatus === "connected") {
@@ -92,11 +113,12 @@ export default function Meeting() {
     prevChatLengthRef.current = chatLength;
   }, [chatLength, activePanel]);
 
-  const { supported: captionsSupported } = useSpeechRecognition({
+  const { supported: captionsSupported, error: captionsError } = useSpeechRecognition({
     lang: self?.language ?? "es-AR",
     active: captionsOn && !media.muted && connectionStatus === "connected",
     onResult: (text) => sendTranscriptLine(text, self?.language ?? "es-AR"),
   });
+  const captionsMutedHint = captionsOn && media.muted;
 
   const { getTranslation } = useLineTranslations(meeting?.transcript ?? [], targetLang);
 
@@ -153,6 +175,21 @@ export default function Meeting() {
               {media.error}
             </div>
           )}
+          {captionsOn && captionsMutedHint && (
+            <div className="mb-4 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm text-brand-300">
+              Estás silenciado — activá el micrófono para que se generen subtítulos de lo que decís.
+            </div>
+          )}
+          {captionsOn && !captionsMutedHint && captionsError && (
+            <div className="mb-4 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm text-brand-300">
+              {captionsError}
+            </div>
+          )}
+          {screenShare.error && (
+            <div className="mb-4 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm text-brand-300">
+              {screenShare.error}
+            </div>
+          )}
           <VideoGrid
             participants={meeting.participants}
             roles={meeting.roles}
@@ -205,6 +242,8 @@ export default function Meeting() {
         onToggleTranscript={() => togglePanel("transcript")}
         recording={recorder.status === "recording"}
         onToggleRecording={toggleRecording}
+        sharingScreen={screenShare.sharing}
+        onToggleScreenShare={toggleScreenShare}
         onLeave={handleLeave}
       />
     </div>

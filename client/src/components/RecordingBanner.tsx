@@ -14,10 +14,14 @@ export default function RecordingBanner({ status, uploadStatus, error, resultUrl
 
   if (status === "recording") {
     return (
-      <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2">
+      <div className="pointer-events-none absolute left-1/2 top-4 flex -translate-x-1/2 flex-col items-center gap-1.5">
         <div className="flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1.5 text-xs font-semibold text-white shadow-soft">
           <RecordIcon className="h-3 w-3 animate-pulse" />
           Grabando
+        </div>
+        <div className="rounded-full bg-black/60 px-3 py-1 text-[11px] text-ink-200 shadow-soft">
+          Tu voz queda grabada siempre. Para grabar también lo que dicen los demás, compartí "esta
+          pestaña" con la casilla de audio tildada.
         </div>
       </div>
     );

@@ -119,9 +119,10 @@ export default function HostSetup() {
                     return (
                       <span
                         key={role}
-                        className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium ${style.bg} ${style.text}`}
+                        title={role}
+                        className={`inline-flex max-w-[14rem] items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium ${style.bg} ${style.text}`}
                       >
-                        {role}
+                        <span className="truncate">{role}</span>
                         <button
                           type="button"
                           onClick={() => removeRole(role)}

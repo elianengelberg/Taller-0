@@ -11,8 +11,16 @@ function getRecognitionConstructor(): SpeechRecognitionConstructor | undefined {
   return window.SpeechRecognition || window.webkitSpeechRecognition;
 }
 
+const ERROR_MESSAGES: Record<string, string> = {
+  "not-allowed": "El navegador bloqueó el acceso al micrófono para los subtítulos. Revisá los permisos del sitio.",
+  "service-not-allowed": "El navegador bloqueó el acceso al micrófono para los subtítulos. Revisá los permisos del sitio.",
+  network: "No se pudo conectar con el servicio de reconocimiento de voz (puede ser un bloqueador de red o extensión).",
+  "audio-capture": "No encontramos un micrófono para captar los subtítulos.",
+};
+
 export function useSpeechRecognition({ lang, active, onResult }: UseSpeechRecognitionOptions) {
   const [supported] = useState(() => Boolean(getRecognitionConstructor()));
+  const [error, setError] = useState<string | null>(null);
   const onResultRef = useRef(onResult);
   const shouldRunRef = useRef(false);
   onResultRef.current = onResult;
@@ -23,6 +31,7 @@ export function useSpeechRecognition({ lang, active, onResult }: UseSpeechRecogn
     const RecognitionCtor = getRecognitionConstructor();
     if (!RecognitionCtor) return;
 
+    setError(null);
     shouldRunRef.current = true;
     const recognition = new RecognitionCtor();
     recognition.lang = lang;
@@ -30,6 +39,7 @@ export function useSpeechRecognition({ lang, active, onResult }: UseSpeechRecogn
     recognition.interimResults = false;
 
     recognition.onresult = (event) => {
+      setError(null);
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
@@ -42,6 +52,11 @@ export function useSpeechRecognition({ lang, active, onResult }: UseSpeechRecogn
     recognition.onerror = (event) => {
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
         shouldRunRef.current = false;
+      }
+      // "no-speech" and "aborted" are expected/transient (e.g. silence, or the
+      // effect cleaning up to restart) -- not worth alarming the user about.
+      if (event.error !== "no-speech" && event.error !== "aborted") {
+        setError(ERROR_MESSAGES[event.error] ?? `Error de reconocimiento de voz (${event.error}).`);
       }
     };
 
@@ -72,5 +87,9 @@ export function useSpeechRecognition({ lang, active, onResult }: UseSpeechRecogn
     };
   }, [supported, active, lang]);
 
-  return { supported };
+  useEffect(() => {
+    if (!active) setError(null);
+  }, [active]);
+
+  return { supported, error };
 }

@@ -78,14 +78,14 @@ export default function ParticipantsPanel({ onClose }: { onClose: () => void }) 
 
               {isHost && (
                 <select
-                  className="shrink-0 rounded-lg border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs text-white focus:border-brand-400 focus:outline-none"
+                  className="w-full max-w-[140px] shrink-0 truncate rounded-lg border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs text-white focus:border-brand-400 focus:outline-none sm:w-auto"
                   value={participant.roleId ?? ""}
                   onChange={(e) => assignRole(participant.id, e.target.value || null)}
                 >
                   <option value="">Sin rol</option>
                   {meeting.roles.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
+                    <option key={r.id} value={r.id} title={r.name}>
+                      {r.name.length > 24 ? `${r.name.slice(0, 24)}…` : r.name}
                     </option>
                   ))}
                 </select>

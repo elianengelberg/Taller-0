@@ -15,10 +15,11 @@ export default function RoleBadge({ role, size = "md" }: { role: Role | null; si
   const style = roleColorStyle(role.colorIndex);
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full font-medium ${style.bg} ${style.text} ${sizeClass}`}
+      title={role.name}
+      className={`inline-flex max-w-[9rem] items-center gap-1.5 rounded-full font-medium ${style.bg} ${style.text} ${sizeClass}`}
     >
-      <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
-      {role.name}
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${style.dot}`} />
+      <span className="truncate">{role.name}</span>
     </span>
   );
 }
