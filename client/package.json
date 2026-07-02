@@ -17,7 +17,8 @@
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.25.1",
     "simple-peer": "^9.11.1",
-    "socket.io-client": "^4.7.5"
+    "socket.io-client": "^4.7.5",
+    "taller0": "file:.."
   },
   "devDependencies": {
     "@types/react": "^18.3.3",
