@@ -9,7 +9,10 @@ import { createRecordingUploadUrl, storageEnabled } from "./storage";
 import { translateText } from "./translate";
 
 const PORT = Number(process.env.PORT) || 4000;
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:5173";
+// Trim a trailing slash: the browser's Origin header never has one (it's
+// scheme+host+port only), so "https://x.vercel.app/" here would never match
+// and silently break every REST request with a CORS error.
+const CLIENT_ORIGIN = (process.env.CLIENT_ORIGIN || "http://localhost:5173").replace(/\/+$/, "");
 
 const app = express();
 app.use(cors({ origin: CLIENT_ORIGIN }));

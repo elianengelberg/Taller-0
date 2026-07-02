@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import Button from "../components/Button";
 import { SparklesIcon } from "../components/icons";
@@ -10,18 +10,35 @@ import { cardClass, inputClass } from "../lib/ui";
 export default function MeetingDetail() {
   const { id } = useParams<{ id: string }>();
   const [meeting, setMeeting] = useState<MeetingHistoryDetail | null | undefined>(undefined);
+  const [error, setError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
-    fetchMeetingDetail(id).then((data) => {
-      if (!cancelled) setMeeting(data);
-    });
+    setError(false);
+    setMeeting(undefined);
+    fetchMeetingDetail(id)
+      .then((data) => {
+        if (!cancelled) setMeeting(data);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      });
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, reloadKey]);
 
+  if (error) {
+    return (
+      <StatusMessage text="No pudimos conectar con el servidor. Si hace rato que no se usa la app, puede estar 'despertando' (tarda hasta un minuto).">
+        <Button variant="secondary" onClick={() => setReloadKey((k) => k + 1)}>
+          Reintentar
+        </Button>
+      </StatusMessage>
+    );
+  }
   if (meeting === undefined) {
     return <StatusMessage text="Cargando…" />;
   }
@@ -118,11 +135,12 @@ export default function MeetingDetail() {
   );
 }
 
-function StatusMessage({ text }: { text: string }) {
+function StatusMessage({ text, children }: { text: string; children?: ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-ink-950 px-6 text-center">
       <Logo />
-      <p className="text-sm text-ink-300">{text}</p>
+      <p className="max-w-sm text-sm text-ink-300">{text}</p>
+      {children}
       <Link to="/historial" className="text-sm font-medium text-brand-300 hover:text-brand-200">
         Volver al historial
       </Link>

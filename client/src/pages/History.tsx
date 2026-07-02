@@ -1,21 +1,30 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import Button from "../components/Button";
 import Logo from "../components/Logo";
 import { fetchMeetingsHistory, MeetingHistorySummary } from "../lib/api";
 import { cardClass } from "../lib/ui";
 
 export default function History() {
   const [meetings, setMeetings] = useState<MeetingHistorySummary[] | null>(null);
+  const [error, setError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    fetchMeetingsHistory().then((data) => {
-      if (!cancelled) setMeetings(data);
-    });
+    setError(false);
+    setMeetings(null);
+    fetchMeetingsHistory()
+      .then((data) => {
+        if (!cancelled) setMeetings(data);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
 
   return (
     <div className="min-h-screen bg-ink-950 px-6 py-10">
@@ -33,43 +42,55 @@ export default function History() {
         </p>
 
         <div className="mt-8 space-y-3">
-          {meetings === null && <p className="text-sm text-ink-400">Cargando…</p>}
-          {meetings !== null && meetings.length === 0 && (
+          {error && (
+            <div className={`${cardClass} space-y-3`}>
+              <p className="text-sm text-brand-300">
+                No pudimos conectar con el servidor. Si hace rato que no se usa la app, puede
+                estar "despertando" (tarda hasta un minuto la primera vez).
+              </p>
+              <Button variant="secondary" onClick={() => setReloadKey((k) => k + 1)}>
+                Reintentar
+              </Button>
+            </div>
+          )}
+          {!error && meetings === null && <p className="text-sm text-ink-400">Cargando…</p>}
+          {!error && meetings !== null && meetings.length === 0 && (
             <p className={`${cardClass} text-sm text-ink-400`}>
               Todavía no hay reuniones guardadas. Si el servidor no tiene una base de datos
               configurada, el historial no está disponible.
             </p>
           )}
-          {meetings?.map((m) => (
-            <Link
-              key={m.id}
-              to={`/historial/${m.id}`}
-              className={`${cardClass} block transition hover:border-brand-400`}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate font-semibold text-white">
-                    Reunión de {m.hostName} <span className="text-ink-500">· {m.joinCode}</span>
-                  </p>
-                  <p className="mt-1 text-sm text-ink-400">
-                    {new Date(m.startedAt).toLocaleString([], {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    })}
-                    {" · "}
-                    {m.participants.length} participante{m.participants.length === 1 ? "" : "s"}
-                    {" · "}
-                    {m.messageCount} mensaje{m.messageCount === 1 ? "" : "s"}
-                  </p>
+          {!error &&
+            meetings?.map((m) => (
+              <Link
+                key={m.id}
+                to={`/historial/${m.id}`}
+                className={`${cardClass} block transition hover:border-brand-400`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-white">
+                      Reunión de {m.hostName} <span className="text-ink-500">· {m.joinCode}</span>
+                    </p>
+                    <p className="mt-1 text-sm text-ink-400">
+                      {new Date(m.startedAt).toLocaleString([], {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })}
+                      {" · "}
+                      {m.participants.length} participante{m.participants.length === 1 ? "" : "s"}
+                      {" · "}
+                      {m.messageCount} mensaje{m.messageCount === 1 ? "" : "s"}
+                    </p>
+                  </div>
+                  {m.recordingUrl && (
+                    <span className="shrink-0 rounded-full bg-brand-500/15 px-2.5 py-1 text-xs font-medium text-brand-300">
+                      Con video
+                    </span>
+                  )}
                 </div>
-                {m.recordingUrl && (
-                  <span className="shrink-0 rounded-full bg-brand-500/15 px-2.5 py-1 text-xs font-medium text-brand-300">
-                    Con video
-                  </span>
-                )}
-              </div>
-            </Link>
-          ))}
+              </Link>
+            ))}
         </div>
       </div>
     </div>
