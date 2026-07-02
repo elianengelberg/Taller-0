@@ -10,6 +10,7 @@ import TranscriptPanel from "../components/TranscriptPanel";
 import VideoGrid from "../components/VideoGrid";
 import { useMeeting } from "../context/MeetingContext";
 import { useLocalMedia } from "../hooks/useLocalMedia";
+import { ORIGINAL_LANG, useLineTranslations } from "../hooks/useLineTranslations";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { useWebRTC } from "../hooks/useWebRTC";
 import { getSocket } from "../lib/socket";
@@ -35,6 +36,21 @@ export default function Meeting() {
   const [activePanel, setActivePanel] = useState<PanelKey>(null);
   const [chatUnread, setChatUnread] = useState(0);
   const [captionsOn, setCaptionsOn] = useState(false);
+
+  // Defaults to "translate everything into my own language" so two people
+  // speaking different languages understand each other without having to
+  // touch any settings; picking a language manually turns off the auto-sync.
+  const [targetLang, setTargetLang] = useState<string>(ORIGINAL_LANG);
+  const userPickedLangRef = useRef(false);
+  useEffect(() => {
+    if (!userPickedLangRef.current && self?.language) {
+      setTargetLang(self.language);
+    }
+  }, [self?.language]);
+  function handleTargetLangChange(lang: string) {
+    userPickedLangRef.current = true;
+    setTargetLang(lang);
+  }
 
   useEffect(() => {
     if (!draft) {
@@ -79,6 +95,8 @@ export default function Meeting() {
     active: captionsOn && !media.muted && connectionStatus === "connected",
     onResult: (text) => sendTranscriptLine(text, self?.language ?? "es-AR"),
   });
+
+  const { getTranslation } = useLineTranslations(meeting?.transcript ?? [], targetLang);
 
   function togglePanel(panel: PanelKey) {
     setActivePanel((current) => (current === panel ? null : panel));
@@ -131,12 +149,24 @@ export default function Meeting() {
             localStream={media.stream}
             remoteStreams={remoteStreams}
           />
-          <LiveCaption line={captionsOn ? lastTranscriptLine : null} />
+          <LiveCaption
+            line={captionsOn ? lastTranscriptLine : null}
+            translatedText={
+              captionsOn && lastTranscriptLine ? getTranslation(lastTranscriptLine.id) : undefined
+            }
+          />
         </main>
 
         {activePanel === "participants" && <ParticipantsPanel onClose={() => setActivePanel(null)} />}
         {activePanel === "chat" && <ChatPanel onClose={() => setActivePanel(null)} />}
-        {activePanel === "transcript" && <TranscriptPanel onClose={() => setActivePanel(null)} />}
+        {activePanel === "transcript" && (
+          <TranscriptPanel
+            onClose={() => setActivePanel(null)}
+            targetLang={targetLang}
+            onTargetLangChange={handleTargetLangChange}
+            getTranslation={getTranslation}
+          />
+        )}
       </div>
 
       <ControlBar
