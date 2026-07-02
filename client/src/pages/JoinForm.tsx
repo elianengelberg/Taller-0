@@ -1,0 +1,100 @@
+import { FormEvent, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import Button from "../components/Button";
+import Logo from "../components/Logo";
+import { useMeeting } from "../context/MeetingContext";
+import { LANGUAGES } from "../lib/languages";
+import { cardClass, inputClass, labelClass } from "../lib/ui";
+
+export default function JoinForm() {
+  const navigate = useNavigate();
+  const { startJoinDraft } = useMeeting();
+  const [name, setName] = useState("");
+  const [meetingCode, setMeetingCode] = useState("");
+  const [language, setLanguage] = useState(LANGUAGES[0].code);
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!name.trim() || !meetingCode.trim()) return;
+    startJoinDraft({ name, language, meetingCode: meetingCode.trim().toUpperCase() });
+    navigate("/reunion");
+  }
+
+  return (
+    <div className="flex min-h-screen flex-col items-center bg-sand-100 px-6 py-10">
+      <div className="w-full max-w-md">
+        <Logo className="mb-8" />
+        <div className={cardClass}>
+          <h1 className="text-2xl font-bold text-ink-900">Unirme a una reunión</h1>
+          <p className="mt-1 text-sm text-ink-500">
+            Ingresá el código que te compartió el anfitrión.
+          </p>
+
+          <form className="mt-6 space-y-5" onSubmit={handleSubmit}>
+            <div>
+              <label className={labelClass} htmlFor="meetingCode">
+                Código de la reunión
+              </label>
+              <input
+                id="meetingCode"
+                className={`${inputClass} text-center text-lg font-semibold uppercase tracking-[0.3em]`}
+                placeholder="ABC123"
+                maxLength={6}
+                value={meetingCode}
+                onChange={(e) => setMeetingCode(e.target.value.toUpperCase())}
+                required
+              />
+            </div>
+
+            <div>
+              <label className={labelClass} htmlFor="name">
+                Tu nombre
+              </label>
+              <input
+                id="name"
+                className={inputClass}
+                placeholder="Ej: Diego"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={60}
+                required
+              />
+            </div>
+
+            <div>
+              <label className={labelClass} htmlFor="language">
+                Idioma en el que vas a hablar
+              </label>
+              <select
+                id="language"
+                className={inputClass}
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+              >
+                {LANGUAGES.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {lang.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <Button
+                type="button"
+                variant="ghost"
+                className="flex-1"
+                onClick={() => navigate("/")}
+              >
+                Volver
+              </Button>
+              <Button type="submit" className="flex-1">
+                Unirme
+              </Button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
