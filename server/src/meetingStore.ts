@@ -33,11 +33,35 @@ export function getMeeting(meetingId: string): Meeting | undefined {
   return meetings.get(meetingId.toUpperCase());
 }
 
-export function deleteMeetingIfEmpty(meetingId: string): void {
-  const meeting = meetings.get(meetingId);
-  if (meeting && meeting.participants.size === 0) {
-    meetings.delete(meetingId);
+// A meeting doesn't get deleted the instant it empties out: a flaky wifi
+// connection or a backgrounded tab can disconnect everyone for a few
+// seconds and we don't want the meeting code to go stale (and become
+// impossible for late joiners to use) just because of that. We only
+// actually delete it if it's *still* empty after this grace period.
+const CLEANUP_GRACE_MS = 3 * 60 * 1000;
+const pendingCleanups = new Map<string, NodeJS.Timeout>();
+
+export function cancelMeetingCleanup(meetingId: string): void {
+  const timer = pendingCleanups.get(meetingId);
+  if (timer) {
+    clearTimeout(timer);
+    pendingCleanups.delete(meetingId);
   }
+}
+
+export function scheduleMeetingCleanupIfEmpty(meetingId: string): void {
+  const meeting = meetings.get(meetingId);
+  if (!meeting || meeting.participants.size > 0) return;
+
+  cancelMeetingCleanup(meetingId);
+  const timer = setTimeout(() => {
+    pendingCleanups.delete(meetingId);
+    const current = meetings.get(meetingId);
+    if (current && current.participants.size === 0) {
+      meetings.delete(meetingId);
+    }
+  }, CLEANUP_GRACE_MS);
+  pendingCleanups.set(meetingId, timer);
 }
 
 export function addRole(meeting: Meeting, name: string): Role {

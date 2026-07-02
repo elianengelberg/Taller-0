@@ -7,7 +7,7 @@ export default function Logo({ className = "" }: { className?: string }) {
           <path d="M17 10.2 21 8v8l-4-2.2Z" fill="currentColor" />
         </svg>
       </span>
-      <span className="text-lg font-bold tracking-tight text-ink-900">Encuentro</span>
+      <span className="text-lg font-bold tracking-tight text-white">Encuentro</span>
     </div>
   );
 }

@@ -22,16 +22,24 @@ export default function ParticipantTile({ participant, role, stream, isSelf }: P
 
   return (
     <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-2xl bg-ink-900 shadow-soft">
-      {showVideo ? (
+      {/* Always keep <video> mounted once we have a stream: conditionally
+          rendering it in/out of the tree meant the DOM node (and its
+          srcObject binding) got recreated every time the camera toggled
+          back on, leaving the tile stuck black. We just hide it with CSS
+          and overlay the avatar instead. */}
+      {stream && (
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted={isSelf}
-          className={`h-full w-full object-cover ${isSelf ? "-scale-x-100" : ""}`}
+          className={`h-full w-full object-cover ${isSelf ? "-scale-x-100" : ""} ${
+            showVideo ? "" : "hidden"
+          }`}
         />
-      ) : (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-ink-800 to-ink-900">
+      )}
+      {!showVideo && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-ink-800 to-ink-900">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-brand-500 text-xl font-bold text-white">
             {initials(participant.name)}
           </div>

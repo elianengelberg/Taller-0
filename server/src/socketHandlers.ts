@@ -4,11 +4,12 @@ import {
   addParticipant,
   addRole,
   addTranscriptLine,
+  cancelMeetingCleanup,
   createMeeting,
-  deleteMeetingIfEmpty,
   getMeeting,
   promoteNextHost,
   removeParticipant,
+  scheduleMeetingCleanupIfEmpty,
 } from "./meetingStore";
 import { Meeting, toSnapshot } from "./types";
 
@@ -75,7 +76,12 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
           return;
         }
 
-        const participant = addParticipant(meeting, socket.id, name, language, false);
+        cancelMeetingCleanup(meeting.id);
+        // If everyone had left (meeting was just sitting in its grace
+        // period) the next person in gets to be host again, otherwise
+        // role assignment would be permanently stuck with no host.
+        const becomesHost = meeting.participants.size === 0;
+        const participant = addParticipant(meeting, socket.id, name, language, becomesHost);
         currentMeetingId = meeting.id;
         socket.join(roomName(meeting.id));
 
@@ -198,6 +204,6 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       }
     }
 
-    deleteMeetingIfEmpty(meeting.id);
+    scheduleMeetingCleanupIfEmpty(meeting.id);
   }
 }

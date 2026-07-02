@@ -29,8 +29,8 @@ export default function ParticipantsPanel({ onClose }: { onClose: () => void }) 
   return (
     <SidePanel title={`Participantes (${participants.length})`} onClose={onClose}>
       {isHost && (
-        <div className="mb-4 rounded-xl border border-dashed border-brand-300 bg-brand-50 p-3">
-          <p className="mb-2 text-xs font-medium text-brand-700">Agregar un rol nuevo</p>
+        <div className="mb-4 rounded-xl border border-dashed border-brand-500/50 bg-brand-500/10 p-3">
+          <p className="mb-2 text-xs font-medium text-brand-300">Agregar un rol nuevo</p>
           <div className="flex gap-2">
             <input
               className={`${inputClass} py-2 text-sm`}
@@ -60,14 +60,14 @@ export default function ParticipantsPanel({ onClose }: { onClose: () => void }) 
           return (
             <li
               key={participant.id}
-              className="flex flex-col gap-2 rounded-xl border border-sand-200 p-2.5 sm:flex-row sm:items-center sm:justify-between"
+              className="flex flex-col gap-2 rounded-xl border border-ink-700 bg-ink-800/60 p-2.5 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="flex min-w-0 items-center gap-2.5">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ink-800 text-xs font-bold text-white">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ink-700 text-xs font-bold text-white">
                   {participant.name.slice(0, 2).toUpperCase()}
                 </span>
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-ink-900">
+                  <p className="truncate text-sm font-medium text-white">
                     {participant.name}
                     {isSelf ? " (vos)" : ""}
                     {participant.isHost ? " · Anfitrión" : ""}
@@ -78,7 +78,7 @@ export default function ParticipantsPanel({ onClose }: { onClose: () => void }) 
 
               {isHost && (
                 <select
-                  className="shrink-0 rounded-lg border border-sand-300 bg-white px-2 py-1.5 text-xs text-ink-800 focus:border-brand-400 focus:outline-none"
+                  className="shrink-0 rounded-lg border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs text-white focus:border-brand-400 focus:outline-none"
                   value={participant.roleId ?? ""}
                   onChange={(e) => assignRole(participant.id, e.target.value || null)}
                 >

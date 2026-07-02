@@ -6,7 +6,7 @@ export default function RoleBadge({ role, size = "md" }: { role: Role | null; si
 
   if (!role) {
     return (
-      <span className={`inline-flex items-center rounded-full bg-sand-200 font-medium text-ink-500 ${sizeClass}`}>
+      <span className={`inline-flex items-center rounded-full bg-ink-700 font-medium text-ink-300 ${sizeClass}`}>
         Sin rol
       </span>
     );
