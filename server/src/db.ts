@@ -141,6 +141,9 @@ export function updateParticipantsSnapshot(
   }, undefined);
 }
 
+// Returns the new row's id (or null if there's no database configured / the
+// insert failed) so a caller can later fold a follow-up speech fragment into
+// this same row instead of leaving two half-sentences sitting side by side.
 export function recordMessage(params: {
   meetingId: string;
   kind: "chat" | "transcript";
@@ -148,13 +151,20 @@ export function recordMessage(params: {
   roleName: string | null;
   text: string;
   sourceLang: string | null;
-}): Promise<void> {
+}): Promise<number | null> {
   return safe(async () => {
-    await pool!.query(
+    const { rows } = await pool!.query(
       `INSERT INTO messages (meeting_id, kind, sender_name, role_name, text, source_lang)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
       [params.meetingId, params.kind, params.senderName, params.roleName, params.text, params.sourceLang]
     );
+    return (rows[0]?.id as number) ?? null;
+  }, null);
+}
+
+export function updateMessageText(id: number, text: string): Promise<void> {
+  return safe(async () => {
+    await pool!.query(`UPDATE messages SET text = $2 WHERE id = $1`, [id, text]);
   }, undefined);
 }
 

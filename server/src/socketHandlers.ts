@@ -14,7 +14,7 @@ import {
 } from "./meetingStore";
 import { cleanAndTranslateFragment, cleanTranscriptFragment } from "./transcriptCleanup";
 import { shortLang } from "./translate";
-import { Meeting, toSnapshot } from "./types";
+import { Meeting, toSnapshot, TranscriptLine } from "./types";
 
 const MAX_NAME_LENGTH = 60;
 const MAX_ROLE_NAME_LENGTH = 40;
@@ -49,8 +49,25 @@ function persistParticipants(meeting: Meeting): void {
   );
 }
 
+// Continuous, fluent speech can get chopped into several separate "final"
+// results by the browser's speech recognizer (its own pause/end-of-utterance
+// detection, not something this app controls), which otherwise shows up as
+// a run of disconnected half-sentences instead of one coherent line. If the
+// next fragment from the same speaker arrives within this window and nobody
+// else has spoken in between, fold it into the previous line instead of
+// starting a new one.
+const MERGE_WINDOW_MS = 2500;
+// Stop folding fragments into an ever-growing single line -- both to keep
+// the correction call's input sane and because a gap this long is more
+// likely a new thought than a continuation anyway.
+const MAX_MERGED_LINE_CHARS = 800;
+
 export function registerSocketHandlers(io: Server, socket: Socket): void {
   let currentMeetingId: string | null = null;
+  // Tracks the most recently finalized transcript line from THIS socket, so
+  // a fast follow-up fragment can be merged into it instead of appearing as
+  // its own separate, easy-to-miss caption.
+  let recentUtterance: { lineId: string; dbMessageId: number | null; finalizedAt: number } | null = null;
 
   socket.on(
     "create-meeting",
@@ -210,10 +227,31 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
         : [String(payload?.text ?? "")];
       if (!alternatives.some((a) => a.trim())) return;
 
+      // Is this a fast follow-up to the utterance we just finished for this
+      // same speaker? If so, fold it into that line instead of starting a
+      // choppy new one -- see MERGE_WINDOW_MS comment above.
+      const mergeCandidate =
+        recentUtterance && Date.now() - recentUtterance.finalizedAt < MERGE_WINDOW_MS
+          ? meeting.transcript.find((l) => l.id === recentUtterance!.lineId)
+          : undefined;
+      const isStillLatest =
+        mergeCandidate && meeting.transcript[meeting.transcript.length - 1]?.id === mergeCandidate.id;
+      const mergeTarget =
+        isStillLatest && mergeCandidate && mergeCandidate.text.length < MAX_MERGED_LINE_CHARS
+          ? mergeCandidate
+          : undefined;
+
       // Recent lines give the model context to disambiguate a mis-heard word
       // (e.g. picking the right homophone) -- a lone fragment often can't be
-      // fixed reliably on its own.
-      const recentContext = meeting.transcript.slice(-4).map((l) => `${l.speakerName}: ${l.text}`);
+      // fixed reliably on its own. When merging, the line being merged into
+      // is folded directly into the alternatives themselves (below) instead
+      // of staying in "context", so it isn't duplicated in the prompt.
+      const baseTranscript = mergeTarget ? meeting.transcript.slice(0, -1) : meeting.transcript;
+      const recentContext = baseTranscript.slice(-4).map((l) => `${l.speakerName}: ${l.text}`);
+      const effectiveAlternatives = mergeTarget
+        ? alternatives.map((a) => `${mergeTarget.text} ${a}`.trim())
+        : alternatives;
+
       // What we *assume* the speaker is using, from their configured
       // language -- usually right, but someone can speak a different
       // language than they configured (switched languages, forgot to
@@ -233,9 +271,9 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       for (const p of meeting.participants.values()) {
         if (shortLang(p.language) !== shortLang(assumedSourceLang)) optimisticTargetLangs.add(p.language);
       }
-      const cleanupPromise = cleanTranscriptFragment(alternatives, recentContext);
+      const cleanupPromise = cleanTranscriptFragment(effectiveAlternatives, recentContext);
       const optimisticTranslationPromises = Array.from(optimisticTargetLangs).map(async (lang) => {
-        const translated = await cleanAndTranslateFragment(alternatives, recentContext, lang);
+        const translated = await cleanAndTranslateFragment(effectiveAlternatives, recentContext, lang);
         return [shortLang(lang), translated] as const;
       });
 
@@ -258,15 +296,41 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       // (already in flight since before the cleanup call even resolved) are
       // pushed as a follow-up patch instead of holding up everyone's caption
       // until every language is ready.
-      const line = addTranscriptLine(meeting, speaker, cleanup.text, sourceLang);
-      void db.recordMessage({
-        meetingId: meeting.dbId,
-        kind: "transcript",
-        senderName: speaker.name,
-        roleName: roleNameFor(meeting, speaker.roleId),
-        text: line.text,
-        sourceLang: line.sourceLang,
-      });
+      let line: TranscriptLine;
+      if (mergeTarget) {
+        mergeTarget.text = cleanup.text;
+        mergeTarget.sourceLang = sourceLang;
+        mergeTarget.translations = undefined; // stale -- they were for the shorter, now-superseded text
+        line = mergeTarget;
+        const dbMessageId = recentUtterance?.dbMessageId ?? null;
+        if (dbMessageId != null) {
+          void db.updateMessageText(dbMessageId, line.text);
+        }
+        recentUtterance = { lineId: line.id, dbMessageId, finalizedAt: Date.now() };
+      } else {
+        line = addTranscriptLine(meeting, speaker, cleanup.text, sourceLang);
+        // Not carrying over the previous line's dbMessageId here -- a
+        // fragment merging into this new line before the insert below
+        // resolves must NOT write into an older, unrelated row.
+        recentUtterance = { lineId: line.id, dbMessageId: null, finalizedAt: Date.now() };
+        void db
+          .recordMessage({
+            meetingId: meeting.dbId,
+            kind: "transcript",
+            senderName: speaker.name,
+            roleName: roleNameFor(meeting, speaker.roleId),
+            text: line.text,
+            sourceLang: line.sourceLang,
+          })
+          .then((dbMessageId) => {
+            // Only update if this is still the line we think it is -- a
+            // merge could have already moved recentUtterance on by the time
+            // this insert resolves.
+            if (recentUtterance && recentUtterance.lineId === line.id) {
+              recentUtterance.dbMessageId = dbMessageId;
+            }
+          });
+      }
       io.to(roomName(meeting.id)).emit("transcript-line", { line });
 
       // If the speaker turned out to be using a different language than
@@ -277,7 +341,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       const correctiveTranslationPromises = mismatch
         ? [
             (async () => {
-              const translated = await cleanAndTranslateFragment(alternatives, recentContext, assumedSourceLang);
+              const translated = await cleanAndTranslateFragment(effectiveAlternatives, recentContext, assumedSourceLang);
               return [shortLang(assumedSourceLang), translated] as const;
             })(),
           ]
@@ -295,6 +359,10 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
 
       const stillThere = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
       if (!stillThere || stillThere !== meeting) return;
+      // A later fragment may have merged into (and replaced the text of)
+      // this same line while translation was in flight -- don't let a
+      // slower, now-stale translation overwrite the newer merged content.
+      if (recentUtterance?.lineId !== line.id || line.text !== cleanup.text) return;
 
       line.translations = translations;
       io.to(roomName(meeting.id)).emit("transcript-line-translations", { lineId: line.id, translations });

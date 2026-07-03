@@ -61,8 +61,19 @@ function meetingReducer(state: MeetingSnapshot | null, action: MeetingAction): M
       };
     case "CHAT_MESSAGE":
       return { ...state, chat: [...state.chat, action.message] };
-    case "TRANSCRIPT_LINE":
-      return { ...state, transcript: [...state.transcript, action.line] };
+    case "TRANSCRIPT_LINE": {
+      // The server folds a fast follow-up fragment into the previous line
+      // (same id) instead of appending a choppy new one when someone's
+      // speech gets split into several "final" results in quick succession
+      // -- replace it in place rather than showing both.
+      const existingIndex = state.transcript.findIndex((l) => l.id === action.line.id);
+      if (existingIndex === -1) {
+        return { ...state, transcript: [...state.transcript, action.line] };
+      }
+      const transcript = state.transcript.slice();
+      transcript[existingIndex] = action.line;
+      return { ...state, transcript };
+    }
     case "TRANSCRIPT_LINE_TRANSLATIONS":
       return {
         ...state,
