@@ -11,7 +11,7 @@ import TranscriptPanel from "../components/TranscriptPanel";
 import VideoGrid from "../components/VideoGrid";
 import { useMeeting } from "../context/MeetingContext";
 import { useLocalMedia } from "../hooks/useLocalMedia";
-import { ORIGINAL_LANG, useLineTranslations } from "../hooks/useLineTranslations";
+import { AUTO_LANG, ORIGINAL_LANG, useLineTranslations } from "../hooks/useLineTranslations";
 import { useRecorder } from "../hooks/useRecorder";
 import { useScreenShare } from "../hooks/useScreenShare";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
@@ -42,19 +42,18 @@ export default function Meeting() {
   const [chatUnread, setChatUnread] = useState(0);
   const [captionsOn, setCaptionsOn] = useState(false);
 
-  // Defaults to "translate everything into my own language" so two people
-  // speaking different languages understand each other without having to
-  // touch any settings; picking a language manually turns off the auto-sync.
-  const [targetLang, setTargetLang] = useState<string>(ORIGINAL_LANG);
-  const userPickedLangRef = useRef(false);
-  useEffect(() => {
-    if (!userPickedLangRef.current && self?.language) {
-      setTargetLang(self.language);
-    }
-  }, [self?.language]);
+  // "Automático" (the default) always resolves to whatever language you've
+  // told the app you speak, live -- so two people speaking different
+  // languages understand each other with zero setup, and it keeps working
+  // even if you change your spoken language mid-meeting. Picking a specific
+  // language (or "Original") is a one-off override that only lasts until
+  // you switch back to "Automático" -- unlike a plain "the first manual
+  // pick wins forever" ref, there's always a way back to the smart default.
+  const [targetLangChoice, setTargetLangChoice] = useState<string>(AUTO_LANG);
+  const targetLang =
+    targetLangChoice === AUTO_LANG ? self?.language ?? ORIGINAL_LANG : targetLangChoice;
   function handleTargetLangChange(lang: string) {
-    userPickedLangRef.current = true;
-    setTargetLang(lang);
+    setTargetLangChoice(lang);
   }
 
   useEffect(() => {
@@ -263,7 +262,8 @@ export default function Meeting() {
         {activePanel === "transcript" && (
           <TranscriptPanel
             onClose={() => setActivePanel(null)}
-            targetLang={targetLang}
+            targetLangChoice={targetLangChoice}
+            resolvedTargetLang={targetLang}
             onTargetLangChange={handleTargetLangChange}
             getTranslation={getTranslation}
             spokenLang={self?.language ?? "es-AR"}

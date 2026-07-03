@@ -3,6 +3,9 @@ import { shortLang } from "../lib/languages";
 import { translate } from "../lib/translate";
 
 export const ORIGINAL_LANG = "original";
+// Resolved to the viewer's own spoken language (live -- follows it if they
+// change it) by whoever owns the `targetLang` state, not by this hook.
+export const AUTO_LANG = "auto";
 
 interface TranslatableLine {
   id: string;
