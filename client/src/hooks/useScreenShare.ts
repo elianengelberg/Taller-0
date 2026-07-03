@@ -72,5 +72,14 @@ export function useScreenShare({ localStream, onReplaceTrack, onRemoveTrack }: U
     };
   }, []);
 
+  // Unlike a caption/recording error, there's no other UI in the meeting
+  // that naturally clears this -- without a timeout it would sit on screen
+  // for the rest of the call after a single cancelled share attempt.
+  useEffect(() => {
+    if (!error) return;
+    const timeout = setTimeout(() => setError(null), 8000);
+    return () => clearTimeout(timeout);
+  }, [error]);
+
   return { sharing, error, start, stop };
 }

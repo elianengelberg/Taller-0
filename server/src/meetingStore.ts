@@ -26,6 +26,7 @@ export function createMeeting(): Meeting {
     roles: [],
     participants: new Map(),
     historicalParticipants: new Map(),
+    pendingHostReclaim: null,
     chat: [],
     transcript: [],
   };

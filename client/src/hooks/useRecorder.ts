@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { confirmRecordingComplete, requestRecordingUploadUrl } from "../lib/api";
 
 export type RecordingStatus = "idle" | "recording" | "processing" | "done" | "error";
@@ -160,6 +160,16 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
     setUploadStatus("idle");
     setError(null);
   }, [resultUrl]);
+
+  // Without this, leaving the meeting mid-recording (navigating away,
+  // closing the tab) left the getDisplayMedia stream and AudioContext
+  // running forever -- the browser's "you are sharing your screen" bar
+  // would stay up with nothing left to stop it. `stop()` still lets
+  // onstop's upload-to-history logic run normally; it just also makes sure
+  // we're not leaking a live screen-capture stream in the background.
+  useEffect(() => {
+    return () => stop();
+  }, [stop]);
 
   return { status, uploadStatus, error, resultUrl, start, stop, reset };
 }

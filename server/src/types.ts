@@ -56,6 +56,12 @@ export interface Meeting {
   // `participants` alone would lose whoever already left by the time we
   // save the final snapshot.
   historicalParticipants: Map<string, Participant>;
+  // Set when the host disconnects while other participants remain (so a new
+  // host was auto-promoted to keep the meeting usable). If the original host
+  // reconnects -- same tab, brief network blip -- within the window, they
+  // get host status back instead of staying demoted forever. Cleared once
+  // reclaimed or left to just expire otherwise.
+  pendingHostReclaim: { participantId: string; expiresAt: number } | null;
   chat: ChatMessage[];
   transcript: TranscriptLine[];
 }

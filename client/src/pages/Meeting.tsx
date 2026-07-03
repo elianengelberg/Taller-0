@@ -202,7 +202,11 @@ export default function Meeting() {
   const lastTranscriptLine = meeting.transcript[meeting.transcript.length - 1] ?? null;
 
   return (
-    <div className="flex h-screen flex-col bg-ink-950">
+    // `h-dvh` (dynamic viewport height), not `h-screen` (100vh): mobile
+    // Safari/Chrome count their address bar into 100vh, so with a fixed
+    // h-screen + no outer scroll, the ControlBar at the bottom could end up
+    // rendered below the visible fold with no way to scroll down to it.
+    <div className="flex h-dvh flex-col bg-ink-950">
       <header className="flex items-center justify-between border-b border-ink-700 bg-ink-900 px-4 py-3 sm:px-6">
         <Logo />
         <span className="text-sm font-medium text-ink-300">

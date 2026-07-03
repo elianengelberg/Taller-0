@@ -27,6 +27,16 @@ export function useLocalMedia(): LocalMediaState {
       return;
     }
 
+    const audioConstraints: MediaTrackConstraints = {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      // Match Opus's native rate so the browser doesn't resample and
+      // lose quality before it ever reaches the encoder.
+      sampleRate: { ideal: 48000 },
+      channelCount: { ideal: 1 },
+    };
+
     navigator.mediaDevices
       .getUserMedia({
         video: {
@@ -34,15 +44,7 @@ export function useLocalMedia(): LocalMediaState {
           height: { ideal: 720 },
           frameRate: { ideal: 30 },
         },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          // Match Opus's native rate so the browser doesn't resample and
-          // lose quality before it ever reaches the encoder.
-          sampleRate: { ideal: 48000 },
-          channelCount: { ideal: 1 },
-        },
+        audio: audioConstraints,
       })
       .then((mediaStream) => {
         if (cancelled) {
@@ -55,8 +57,31 @@ export function useLocalMedia(): LocalMediaState {
       })
       .catch(() => {
         if (cancelled) return;
-        setError("No pudimos acceder a tu cámara o micrófono. Revisá los permisos del navegador.");
-        setReady(true);
+        // getUserMedia rejects the WHOLE request if either track can't be
+        // satisfied -- someone with no camera (or camera permission denied
+        // while the mic is fine) would otherwise be completely locked out of
+        // joining instead of just missing video, which the rest of the UI
+        // already handles fine (camera-off shows an avatar placeholder).
+        navigator.mediaDevices
+          .getUserMedia({ audio: audioConstraints })
+          .then((audioOnlyStream) => {
+            if (cancelled) {
+              audioOnlyStream.getTracks().forEach((track) => track.stop());
+              return;
+            }
+            streamRef.current = audioOnlyStream;
+            setStream(audioOnlyStream);
+            setCameraOff(true);
+            setError(
+              "No encontramos una cámara (o el permiso fue denegado) -- te uniste solo con audio."
+            );
+            setReady(true);
+          })
+          .catch(() => {
+            if (cancelled) return;
+            setError("No pudimos acceder a tu cámara o micrófono. Revisá los permisos del navegador.");
+            setReady(true);
+          });
       });
 
     return () => {

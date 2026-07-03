@@ -42,6 +42,12 @@ export function useSpeechRecognition({ lang, active, onResult, onInterim }: UseS
     if (!RecognitionCtor) return;
 
     let cancelled = false;
+    // If every restart immediately errors again (e.g. a persistent network
+    // block), onend -> start() -> onerror -> onend would otherwise loop
+    // forever, hammering the API and draining battery for no benefit. Give
+    // up after a handful of rapid failures instead of retrying forever.
+    let consecutiveErrors = 0;
+    let lastErrorAt = 0;
     setError(null);
     shouldRunRef.current = true;
     const recognition = new RecognitionCtor();
@@ -73,8 +79,18 @@ export function useSpeechRecognition({ lang, active, onResult, onInterim }: UseS
         shouldRunRef.current = false;
       }
       // "no-speech" and "aborted" are expected/transient (e.g. silence, or the
-      // effect cleaning up to restart) -- not worth alarming the user about.
+      // effect cleaning up to restart) -- not worth alarming the user about,
+      // and don't count toward the failure backoff below.
       if (event.error === "no-speech" || event.error === "aborted") return;
+
+      const now = Date.now();
+      consecutiveErrors = now - lastErrorAt < 3000 ? consecutiveErrors + 1 : 1;
+      lastErrorAt = now;
+      if (consecutiveErrors >= 5) {
+        // Stop the onend handler from restarting -- something is
+        // persistently broken, not a one-off blip.
+        shouldRunRef.current = false;
+      }
 
       const known = ERROR_MESSAGES[event.error];
       if (known) {

@@ -49,7 +49,10 @@ export function useWebRTC({ socket, selfId, peerIds, localStream, enabled }: Use
       setRemoteStreams((prev) => ({ ...prev, [peerId]: remoteStream }));
     });
     peer.on("close", () => destroyPeer(peerId));
-    peer.on("error", () => destroyPeer(peerId));
+    peer.on("error", (err) => {
+      console.error(`Error en la conexión WebRTC con ${peerId}:`, err);
+      destroyPeer(peerId);
+    });
 
     peersRef.current.set(peerId, peer);
     return peer;

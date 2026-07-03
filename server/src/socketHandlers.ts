@@ -62,6 +62,11 @@ const MERGE_WINDOW_MS = 2500;
 // likely a new thought than a continuation anyway.
 const MAX_MERGED_LINE_CHARS = 800;
 
+// How long a departed host has to reconnect (same tab auto-reconnecting
+// after a network blip) and automatically get host status back before the
+// promotion to whoever replaced them is considered permanent.
+const HOST_RECLAIM_WINDOW_MS = 3 * 60 * 1000;
+
 export function registerSocketHandlers(io: Server, socket: Socket): void {
   let currentMeetingId: string | null = null;
   // Tracks the most recently finalized transcript line from THIS socket, so
@@ -110,11 +115,16 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
 
   socket.on(
     "join-meeting",
-    (payload: { meetingId: string; name: string; language: string }, ack) => {
+    (
+      payload: { meetingId: string; name: string; language: string; resumeParticipantId?: string },
+      ack
+    ) => {
       try {
         const meetingId = String(payload?.meetingId ?? "").trim().toUpperCase();
         const name = String(payload?.name ?? "").slice(0, MAX_NAME_LENGTH).trim();
         const language = String(payload?.language ?? "es-AR");
+        const resumeParticipantId =
+          typeof payload?.resumeParticipantId === "string" ? payload.resumeParticipantId : null;
 
         const meeting = getMeeting(meetingId);
         if (!meeting) {
@@ -134,6 +144,26 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
         const participant = addParticipant(meeting, socket.id, name, language, becomesHost);
         currentMeetingId = meeting.id;
         socket.join(roomName(meeting.id));
+
+        // This is a client-side socket reconnect (network blip, backgrounded
+        // tab) resuming as the same person who was previously the host --
+        // give host status back instead of leaving them permanently demoted
+        // to whoever got auto-promoted while they were briefly disconnected.
+        const reclaim = meeting.pendingHostReclaim;
+        if (
+          reclaim &&
+          resumeParticipantId &&
+          reclaim.participantId === resumeParticipantId &&
+          Date.now() < reclaim.expiresAt
+        ) {
+          const currentHost = meeting.participants.get(meeting.hostId);
+          if (currentHost) currentHost.isHost = false;
+          participant.isHost = true;
+          meeting.hostId = participant.id;
+          meeting.pendingHostReclaim = null;
+          io.to(roomName(meeting.id)).emit("host-changed", { hostId: participant.id });
+        }
+
         persistParticipants(meeting);
 
         socket.to(roomName(meeting.id)).emit("participant-joined", { participant });
@@ -435,6 +465,14 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
     io.to(roomName(meeting.id)).emit("participant-left", { participantId: departed.id });
 
     if (departed.isHost && meeting.participants.size > 0) {
+      // Same object reference lives on in `historicalParticipants` -- clear
+      // this explicitly so a departed host doesn't keep showing as host
+      // (alongside whoever gets promoted next) in the persisted roster.
+      departed.isHost = false;
+      meeting.pendingHostReclaim = {
+        participantId: departed.id,
+        expiresAt: Date.now() + HOST_RECLAIM_WINDOW_MS,
+      };
       const promoted = promoteNextHost(meeting);
       if (promoted) {
         io.to(roomName(meeting.id)).emit("host-changed", { hostId: promoted.id });

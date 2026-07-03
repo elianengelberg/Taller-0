@@ -179,7 +179,10 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
       const { name, language } = draftRef.current;
       socket.emit(
         "join-meeting",
-        { meetingId: meetingRef.current.id, name, language },
+        // `resumeParticipantId` is our old socket id (from before the drop) --
+        // it tells the server this is the same person resuming, so it can
+        // hand host status back if we were host when we got disconnected.
+        { meetingId: meetingRef.current.id, name, language, resumeParticipantId: selfIdRef.current },
         (res: { ok: boolean; meeting?: MeetingSnapshot; selfId?: string; error?: string }) => {
           if (res.ok && res.meeting && res.selfId) {
             setSelfId(res.selfId);

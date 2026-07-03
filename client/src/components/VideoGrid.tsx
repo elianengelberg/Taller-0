@@ -72,7 +72,7 @@ export default function VideoGrid({ participants, roles, selfId, localStream, re
     return (
       <div
         ref={containerRef}
-        className={`flex flex-col gap-3 ${fullscreen ? "h-screen bg-ink-950 p-4" : ""}`}
+        className={`flex flex-col gap-3 ${fullscreen ? "h-dvh bg-ink-950 p-4" : ""}`}
       >
         <div className="relative">
           {tileFor(presenter)}
