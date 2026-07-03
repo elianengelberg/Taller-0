@@ -73,19 +73,35 @@ export default function ControlBar({
     }
   }
 
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-700 bg-ink-900 px-4 py-3 sm:px-6">
-      <button
-        type="button"
-        onClick={copyCode}
-        className="flex items-center gap-2 rounded-xl border border-ink-600 px-3 py-2 text-sm font-medium text-ink-200 hover:border-brand-400"
-        title="Copiar código de la reunión"
-      >
-        <CopyIcon className="h-4 w-4" />
-        {copied ? "¡Copiado!" : meetingCode}
-      </button>
+  const leaveButton = (
+    <IconButton label="Salir de la reunión" caption="Salir" danger onClick={onLeave}>
+      <PhoneOffIcon className="h-5 w-5" />
+    </IconButton>
+  );
 
-      <div className="flex items-center gap-2 sm:gap-3">
+  return (
+    <div className="flex flex-col gap-3 border-t border-ink-700 bg-ink-900 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+      {/* On phones the "salir" button rides along the same row as the meeting
+          code (its own row on desktop, at the far right) so it's never
+          competing for space with the icon grid below. */}
+      <div className="flex items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={copyCode}
+          className="flex items-center gap-2 rounded-xl border border-ink-600 px-3 py-2 text-sm font-medium text-ink-200 hover:border-brand-400"
+          title="Copiar código de la reunión"
+        >
+          <CopyIcon className="h-4 w-4" />
+          {copied ? "¡Copiado!" : meetingCode}
+        </button>
+        <div className="sm:hidden">{leaveButton}</div>
+      </div>
+
+      {/* A 4-column grid keeps every control visible in two tidy rows on a
+          phone-width screen instead of overflowing off the right edge of a
+          single row (which made "Chat" and "Grabar" unreachable) -- back to
+          a single centered row once there's enough width for it. */}
+      <div className="grid grid-cols-4 gap-x-1 gap-y-3 justify-items-center sm:flex sm:flex-1 sm:items-center sm:justify-center sm:gap-3">
         <IconButton
           label={muted ? "Activar micrófono" : "Silenciar micrófono"}
           caption={muted ? "Silenciado" : "Micrófono"}
@@ -151,9 +167,7 @@ export default function ControlBar({
         </IconButton>
       </div>
 
-      <IconButton label="Salir de la reunión" caption="Salir" danger onClick={onLeave}>
-        <PhoneOffIcon className="h-5 w-5" />
-      </IconButton>
+      <div className="hidden sm:block">{leaveButton}</div>
     </div>
   );
 }

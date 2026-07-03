@@ -40,7 +40,7 @@ export default function TranscriptPanel({
       onClose={onClose}
       headerExtra={
         <select
-          className="rounded-lg border border-ink-600 bg-ink-800 px-2 py-1 text-xs text-white focus:border-brand-400 focus:outline-none"
+          className="w-full rounded-lg border border-ink-600 bg-ink-800 px-2 py-1 text-xs text-white focus:border-brand-400 focus:outline-none"
           value={targetLangChoice}
           onChange={(e) => onTargetLangChange(e.target.value)}
         >
