@@ -132,8 +132,45 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
   const [meeting, dispatch] = useReducer(meetingReducer, null);
   const socketRef = useRef(getSocket());
 
+  // Mirrors of the latest state for the "connect" handler below, which is
+  // registered once ([] deps) and would otherwise only ever see the values
+  // from the very first render.
+  const selfIdRef = useRef(selfId);
+  selfIdRef.current = selfId;
+  const meetingRef = useRef(meeting);
+  meetingRef.current = meeting;
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+
   useEffect(() => {
     const socket = socketRef.current;
+
+    // The socket is configured to auto-reconnect after a dropped connection
+    // (flaky wifi, backgrounded tab, network switch). Each reconnect gets a
+    // brand new socket id server-side, so our old participant record there
+    // is gone -- without this, the UI still says "connected" but silently
+    // stops receiving anything (chat, transcript, everyone else's state)
+    // because we're no longer in the meeting's room. `selfIdRef` being set
+    // is what tells us this "connect" is a *re*connect, not the first one
+    // (the very first connect always happens before selfId is set).
+    socket.on("connect", () => {
+      if (!selfIdRef.current || !meetingRef.current || !draftRef.current) return;
+      const { name, language } = draftRef.current;
+      socket.emit(
+        "join-meeting",
+        { meetingId: meetingRef.current.id, name, language },
+        (res: { ok: boolean; meeting?: MeetingSnapshot; selfId?: string; error?: string }) => {
+          if (res.ok && res.meeting && res.selfId) {
+            setSelfId(res.selfId);
+            dispatch({ type: "SNAPSHOT_LOADED", meeting: res.meeting });
+            setConnectionStatus("connected");
+          } else {
+            setConnectionStatus("error");
+            setConnectionError(res.error ?? "Se perdió la conexión con la reunión.");
+          }
+        }
+      );
+    });
 
     socket.on("participant-joined", ({ participant }: { participant: Participant }) => {
       dispatch({ type: "PARTICIPANT_JOINED", participant });
@@ -183,6 +220,7 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     });
 
     return () => {
+      socket.off("connect");
       socket.off("participant-joined");
       socket.off("participant-left");
       socket.off("role-added");
