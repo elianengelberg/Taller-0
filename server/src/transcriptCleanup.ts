@@ -12,6 +12,17 @@ const CLEANUP_MODEL = process.env.ANTHROPIC_TRANSCRIPT_MODEL || "claude-haiku-4-
 // long, ship the raw recognized text instead of stalling the conversation.
 const CLEANUP_TIMEOUT_MS = 3500;
 
+// This is a video-meeting app, so certain everyday words come up constantly
+// in the conversations being transcribed (people talking about the app
+// itself, not just their meeting topic) and are worth being biased toward
+// when a candidate reading is ambiguous -- e.g. "chat" getting misheard as
+// "champ" happens because "chat" alone is a shorter, less common word for
+// the recognizer to lock onto than it should be here.
+const DOMAIN_HINT =
+  "Esto es una videollamada, así que estas palabras aparecen seguido y son buenas candidatas " +
+  "cuando una lectura es ambigua: chat, pantalla, compartir pantalla, micrófono, cámara, " +
+  "subtítulos, transcripción, reunión, grabar, grabación, rol, participante, anfitrión, silenciar.";
+
 const SYSTEM_PROMPT = `Corregís fragmentos cortos de una transcripción de voz a texto en vivo. El
 reconocimiento de voz a veces confunde una palabra con otra parecida fonéticamente pero sin
 sentido en el contexto, lo que rompe el significado de la frase.
@@ -21,6 +32,8 @@ generó para el mismo audio (ordenadas de más a menos probable según el recono
 contexto reciente de la conversación. Estas lecturas alternativas son tu pista más fuerte de
 qué se dijo realmente -- muchas veces la palabra correcta aparece en una alternativa aunque no
 sea la primera.
+
+${DOMAIN_HINT}
 
 Reglas estrictas:
 - Elegí o reconstruí la versión más coherente del fragmento, dando prioridad a lo que ya

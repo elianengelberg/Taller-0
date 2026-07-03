@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import AiChatBox from "../components/AiChatBox";
 import Button from "../components/Button";
 import Logo from "../components/Logo";
-import { fetchMeetingsHistory, MeetingHistorySummary } from "../lib/api";
+import { askAllMeetingsAI, fetchMeetingsHistory, MeetingHistorySummary } from "../lib/api";
 import { cardClass } from "../lib/ui";
 
 export default function History() {
@@ -40,6 +41,17 @@ export default function History() {
         <p className="mt-1 text-sm text-ink-400">
           Reuniones guardadas con su chat, transcripción y grabación (si se guardó una).
         </p>
+
+        {!error && meetings !== null && meetings.length > 0 && (
+          <AiChatBox
+            className="mt-6"
+            title="Preguntale a la IA sobre tus reuniones"
+            description="Busca en todo tu historial, no solo en una reunión puntual — preguntale por fecha, por quién participó o por lo que se habló."
+            placeholder='Ej: "¿qué se habló en mi última reunión?" o "¿tuve una reunión el 17 de junio?"'
+            emptyHint="Esta IA busca en todas tus reuniones guardadas a la vez. Para preguntar sobre una en particular, también podés entrar a esa reunión y preguntarle ahí."
+            onAsk={askAllMeetingsAI}
+          />
+        )}
 
         <div className="mt-8 space-y-3">
           {error && (

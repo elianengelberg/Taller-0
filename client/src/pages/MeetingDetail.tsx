@@ -1,12 +1,11 @@
-import { FormEvent, ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import AiChatBox from "../components/AiChatBox";
 import Button from "../components/Button";
-import { SparklesIcon } from "../components/icons";
 import Logo from "../components/Logo";
-import MarkdownText from "../components/MarkdownText";
 import RoleBadge from "../components/RoleBadge";
 import { askMeetingAI, fetchMeetingDetail, MeetingHistoryDetail } from "../lib/api";
-import { cardClass, inputClass } from "../lib/ui";
+import { cardClass } from "../lib/ui";
 
 export default function MeetingDetail() {
   const { id } = useParams<{ id: string }>();
@@ -95,7 +94,13 @@ export default function MeetingDetail() {
           </div>
         )}
 
-        <AiAsk meetingId={meeting.id} />
+        <AiChatBox
+          className="mt-6"
+          title="Preguntale a la IA sobre esta reunión"
+          description="Responde solo con lo que se dijo en esta reunión (chat y transcripción de voz) — no inventa información."
+          placeholder="Ej: ¿Qué dijo Germán sobre el presupuesto?"
+          onAsk={(q) => askMeetingAI(meeting.id, q)}
+        />
 
         <div className={`${cardClass} mt-6`}>
           <h2 className="mb-3 text-lg font-semibold text-white">Transcripción y chat</h2>
@@ -149,75 +154,3 @@ function StatusMessage({ text, children }: { text: string; children?: ReactNode 
   );
 }
 
-interface QA {
-  question: string;
-  answer?: string;
-  error?: string;
-  loading: boolean;
-}
-
-function AiAsk({ meetingId }: { meetingId: string }) {
-  const [question, setQuestion] = useState("");
-  const [items, setItems] = useState<QA[]>([]);
-
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    const q = question.trim();
-    if (!q) return;
-    setQuestion("");
-    setItems((prev) => [...prev, { question: q, loading: true }]);
-    const result = await askMeetingAI(meetingId, q);
-    setItems((prev) =>
-      prev.map((item, index) =>
-        index === prev.length - 1
-          ? { ...item, loading: false, answer: result.answer, error: result.error }
-          : item
-      )
-    );
-  }
-
-  return (
-    <div className={`${cardClass} mt-6`}>
-      <div className="mb-3 flex items-center gap-2">
-        <SparklesIcon className="h-5 w-5 text-brand-400" />
-        <h2 className="text-lg font-semibold text-white">Preguntale a la IA sobre esta reunión</h2>
-      </div>
-      <p className="mb-3 text-xs text-ink-400">
-        Responde solo con lo que se dijo en esta reunión (chat y transcripción de voz) — no
-        inventa información.
-      </p>
-
-      {items.length > 0 && (
-        <ul className="mb-3 space-y-3">
-          {items.map((item, index) => (
-            <li key={index} className="rounded-xl border border-ink-700 bg-ink-800/60 p-3">
-              <p className="text-sm font-semibold text-white">{item.question}</p>
-              {item.loading ? (
-                <p className="mt-1 text-sm text-ink-400">Pensando…</p>
-              ) : item.error ? (
-                <p className="mt-1 text-sm text-red-400">{item.error}</p>
-              ) : (
-                <div className="mt-2">
-                  <MarkdownText text={item.answer ?? ""} />
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <form onSubmit={handleSubmit} className="flex items-center gap-2">
-        <input
-          className={`${inputClass} py-2.5 text-sm`}
-          placeholder="Ej: ¿Qué dijo Germán sobre el presupuesto?"
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          maxLength={500}
-        />
-        <Button type="submit" className="px-4 py-2.5 text-sm" disabled={!question.trim()}>
-          Preguntar
-        </Button>
-      </form>
-    </div>
-  );
-}

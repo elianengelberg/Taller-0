@@ -17,7 +17,10 @@ preguntas sobre cada reunión**. Paleta de marca: naranja claro, negro y blanco.
   unirse** (subtítulo flotante en vivo + panel de transcripción completo). Si hay
   `ANTHROPIC_API_KEY` configurada, cada línea pasa primero por Claude para corregir errores
   típicos del reconocimiento de voz (palabras confundidas por otras que suenan parecido)
-  antes de mostrarse, guardarse o traducirse.
+  antes de mostrarse, guardarse o traducirse. La transcripción se genera y guarda todo el
+  tiempo (mientras no estés silenciado), sin importar si tenés abiertos los subtítulos o el
+  panel de transcripción — esos botones solo controlan qué ves en pantalla, no si se está
+  captando lo que se habla, para que el historial y la IA siempre tengan todo disponible.
 - **Chat en vivo**: mensajería lateral, colapsada por defecto (con contador de no leídos) y
   expandible para leer cómodo, con opción de traducir automáticamente cada mensaje al
   idioma del anfitrión.
@@ -36,6 +39,13 @@ preguntas sobre cada reunión**. Paleta de marca: naranja claro, negro y blanco.
   mensajes hubo, duración). Responde **solo** en base a lo que se dijo en esa reunión
   (nunca inventa ni usa conocimiento externo) y usa números ya calculados por el servidor
   para que las cantidades sean exactas, no estimadas.
+- **IA de todas las reuniones** (arriba de todo en `/historial`): a diferencia de la
+  anterior, esta busca en **todo** el historial guardado, no en una reunión puntual —
+  preguntas como "¿tuve una reunión el 17 de junio?" o "¿de qué hablamos en la última
+  reunión?". El servidor le pasa un índice de todas las reuniones (fecha, participantes,
+  cantidad de mensajes) más la transcripción completa de las más recientes que entren en el
+  presupuesto de contexto; las más viejas siguen siendo encontrables por fecha/participantes
+  aunque no tenga su contenido palabra por palabra disponible.
 
 ## Stack
 
@@ -94,13 +104,16 @@ IA. Para activar el guardado permanente hacen falta 3 cuentas gratis (variables 
    ```
 3. **IA** — una API key de [Anthropic Console](https://console.anthropic.com) (tiene costo
    por uso, aunque para preguntas cortas es muy bajo). Completá `ANTHROPIC_API_KEY`. Esta
-   misma key también activa la traducción rápida por Claude y la corrección de errores de
-   reconocimiento de voz en la transcripción (ver secciones de arriba) — sin ella, la IA de
-   preguntas queda desactivada, la traducción usa el proveedor gratuito más lento, y la
-   transcripción no se corrige. Por defecto la IA de preguntas usa `claude-opus-4-8` (se
-   puede cambiar con `ANTHROPIC_MODEL`), la traducción usa `claude-haiku-4-5` (se puede
-   cambiar con `ANTHROPIC_TRANSLATE_MODEL`), y la corrección de transcripción también usa
-   `claude-haiku-4-5` (se puede cambiar con `ANTHROPIC_TRANSCRIPT_MODEL`).
+   misma key también activa la traducción rápida por Claude, la corrección de errores de
+   reconocimiento de voz en la transcripción y la explicación en español simple de errores
+   crípticos que puedan aparecer en la interfaz (ver secciones de arriba) — sin ella, la IA
+   de preguntas queda desactivada, la traducción usa el proveedor gratuito más lento, la
+   transcripción no se corrige, y los errores se muestran tal cual vienen del navegador. Por
+   defecto la IA de preguntas usa `claude-opus-4-8` (se puede cambiar con `ANTHROPIC_MODEL`),
+   la traducción usa `claude-haiku-4-5` (se puede cambiar con `ANTHROPIC_TRANSLATE_MODEL`),
+   la corrección de transcripción también usa `claude-haiku-4-5` (se puede cambiar con
+   `ANTHROPIC_TRANSCRIPT_MODEL`), y la explicación de errores usa `claude-haiku-4-5` (se
+   puede cambiar con `ANTHROPIC_ERROR_MODEL`).
 
 Cada una de las tres es independiente: podés activar solo la base de datos (para guardar
 mensajes) sin activar R2 (grabaciones) ni la IA, por ejemplo.

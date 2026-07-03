@@ -142,16 +142,25 @@ export default function Meeting() {
     if (!captionsOn) setInterimCaption(null);
   }, [captionsOn]);
 
+  // Runs continuously whenever unmuted, independent of whether the caption
+  // overlay or transcript panel is even open: transcription is always-on
+  // background data collection (for the meeting's saved transcript and the
+  // AI features), not just a display feature. The "Subtítulos"/"Transcripción"
+  // buttons only control what's shown on screen, not whether this runs.
   const { supported: captionsSupported, error: captionsError } = useSpeechRecognition({
     lang: self?.language ?? "es-AR",
-    active: captionsOn && !media.muted && connectionStatus === "connected",
+    active: !media.muted && connectionStatus === "connected",
     onInterim: (text) => setInterimCaption(text),
     onResult: (alternatives) => {
       setInterimCaption(null);
       sendTranscriptLine(alternatives, self?.language ?? "es-AR");
     },
   });
-  const captionsMutedHint = captionsOn && media.muted;
+  // Only worth surfacing the "why is nothing happening" hints while the
+  // person is actually looking at captions or the transcript panel -- no
+  // need to nag every time someone mutes for an unrelated reason.
+  const watchingTranscription = captionsOn || activePanel === "transcript";
+  const captionsMutedHint = watchingTranscription && media.muted;
 
   const { getTranslation } = useLineTranslations(meeting?.transcript ?? [], targetLang);
 
@@ -208,12 +217,12 @@ export default function Meeting() {
               {media.error}
             </div>
           )}
-          {captionsOn && captionsMutedHint && (
+          {captionsMutedHint && (
             <div className="mb-4 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm text-brand-300">
-              Estás silenciado — activá el micrófono para que se generen subtítulos de lo que decís.
+              Estás silenciado — activá el micrófono para que se transcriba lo que decís.
             </div>
           )}
-          {captionsOn && !captionsMutedHint && captionsError && (
+          {watchingTranscription && !captionsMutedHint && captionsError && (
             <div className="mb-4 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm text-brand-300">
               {captionsError}
             </div>

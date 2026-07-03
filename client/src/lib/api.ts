@@ -86,6 +86,21 @@ export async function askMeetingAI(
   }
 }
 
+export async function askAllMeetingsAI(question: string): Promise<{ answer?: string; error?: string }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/meetings/ask-all`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo consultar a la IA." };
+    return { answer: data.answer };
+  } catch {
+    return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };
+  }
+}
+
 export async function requestRecordingUploadUrl(
   meetingDbId: string,
   contentType: string

@@ -5,6 +5,7 @@ import { Server } from "socket.io";
 import { answerFromMeeting } from "./ai";
 import { attachRecording, getMeetingDetail, listMeetings } from "./db";
 import { explainError } from "./explainError";
+import { answerAcrossMeetings } from "./globalAi";
 import { registerSocketHandlers } from "./socketHandlers";
 import { createRecordingUploadUrl, storageEnabled } from "./storage";
 import { translateText } from "./translate";
@@ -95,6 +96,19 @@ app.post("/api/meetings/:id/recording-complete", async (req, res) => {
 app.post("/api/meetings/:id/ask", async (req, res) => {
   const question = typeof req.body?.question === "string" ? req.body.question : "";
   const result = await answerFromMeeting(req.params.id, question);
+  if (!result.ok) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+  res.json({ answer: result.answer });
+});
+
+// Same idea as /api/meetings/:id/ask, but grounded across every saved
+// meeting instead of one -- "what did I talk about on the 17th", "what was
+// my last meeting about", etc.
+app.post("/api/meetings/ask-all", async (req, res) => {
+  const question = typeof req.body?.question === "string" ? req.body.question : "";
+  const result = await answerAcrossMeetings(question);
   if (!result.ok) {
     res.status(400).json({ error: result.error });
     return;
