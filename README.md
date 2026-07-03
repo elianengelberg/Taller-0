@@ -14,10 +14,17 @@ preguntas sobre cada reunión**. Paleta de marca: naranja claro, negro y blanco.
   con controles de micrófono/cámara, nombre y rol de cada persona sobre su video.
 - **Transcripción en vivo**: usa el reconocimiento de voz del navegador para ir anotando
   quién dijo qué, y **traduce automáticamente todo al idioma que cada persona configuró al
-  unirse** (subtítulo flotante en vivo + panel de transcripción completo).
+  unirse** (subtítulo flotante en vivo + panel de transcripción completo). Si hay
+  `ANTHROPIC_API_KEY` configurada, cada línea pasa primero por Claude para corregir errores
+  típicos del reconocimiento de voz (palabras confundidas por otras que suenan parecido)
+  antes de mostrarse, guardarse o traducirse.
 - **Chat en vivo**: mensajería lateral, colapsada por defecto (con contador de no leídos) y
   expandible para leer cómodo, con opción de traducir automáticamente cada mensaje al
   idioma del anfitrión.
+- **Compartir pantalla**: cualquier participante puede compartir su pantalla; se ve en vivo
+  para todo el mundo (vía WebRTC, sin pasar por el servidor), con la pantalla compartida en
+  grande y el resto de los participantes en una fila más chica debajo, y un botón para
+  agrandarla a pantalla completa.
 - **Grabación**: botón para grabar la reunión (pantalla compartida + audio propio y de los
   demás, mezclados). Al terminar, se puede descargar al toque y —si está configurado el
   guardado permanente— queda subida al historial.
@@ -78,14 +85,22 @@ IA. Para activar el guardado permanente hacen falta 3 cuentas gratis (variables 
    gratis, sin costo de salida de datos). Creá un bucket, un API token con permisos de
    lectura/escritura, y habilitá el acceso público (subdominio `r2.dev` o un dominio
    propio). Completá `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
-   `R2_BUCKET_NAME` y `R2_PUBLIC_URL`.
+   `R2_BUCKET_NAME` y `R2_PUBLIC_URL`. El navegador sube el video *directo* al bucket (no
+   pasa por el servidor), así que además hay que configurar una **CORS Policy** en el
+   bucket (Settings → CORS Policy) que permita `PUT` y `GET` desde el dominio de tu
+   frontend, por ejemplo:
+   ```json
+   [{ "AllowedOrigins": ["https://tu-dominio.vercel.app"], "AllowedMethods": ["PUT", "GET"], "AllowedHeaders": ["*"] }]
+   ```
 3. **IA** — una API key de [Anthropic Console](https://console.anthropic.com) (tiene costo
    por uso, aunque para preguntas cortas es muy bajo). Completá `ANTHROPIC_API_KEY`. Esta
-   misma key también activa la traducción rápida por Claude (ver "Traducción de texto" más
-   abajo) — sin ella, la IA de preguntas queda desactivada y la traducción usa el
-   proveedor gratuito más lento. Por defecto la IA de preguntas usa `claude-opus-4-8` (se
-   puede cambiar con `ANTHROPIC_MODEL`) y la traducción usa `claude-haiku-4-5` (se puede
-   cambiar con `ANTHROPIC_TRANSLATE_MODEL`).
+   misma key también activa la traducción rápida por Claude y la corrección de errores de
+   reconocimiento de voz en la transcripción (ver secciones de arriba) — sin ella, la IA de
+   preguntas queda desactivada, la traducción usa el proveedor gratuito más lento, y la
+   transcripción no se corrige. Por defecto la IA de preguntas usa `claude-opus-4-8` (se
+   puede cambiar con `ANTHROPIC_MODEL`), la traducción usa `claude-haiku-4-5` (se puede
+   cambiar con `ANTHROPIC_TRANSLATE_MODEL`), y la corrección de transcripción también usa
+   `claude-haiku-4-5` (se puede cambiar con `ANTHROPIC_TRANSCRIPT_MODEL`).
 
 Cada una de las tres es independiente: podés activar solo la base de datos (para guardar
 mensajes) sin activar R2 (grabaciones) ni la IA, por ejemplo.

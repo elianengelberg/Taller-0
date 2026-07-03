@@ -86,11 +86,17 @@ export default function ControlBar({
       </button>
 
       <div className="flex items-center gap-2 sm:gap-3">
-        <IconButton label={muted ? "Activar micrófono" : "Silenciar micrófono"} danger={muted} onClick={onToggleMic}>
+        <IconButton
+          label={muted ? "Activar micrófono" : "Silenciar micrófono"}
+          caption={muted ? "Silenciado" : "Micrófono"}
+          danger={muted}
+          onClick={onToggleMic}
+        >
           {muted ? <MicOffIcon className="h-5 w-5" /> : <MicIcon className="h-5 w-5" />}
         </IconButton>
         <IconButton
           label={cameraOff ? "Activar cámara" : "Apagar cámara"}
+          caption={cameraOff ? "Cámara apagada" : "Cámara"}
           danger={cameraOff}
           onClick={onToggleCamera}
         >
@@ -98,25 +104,37 @@ export default function ControlBar({
         </IconButton>
         <IconButton
           label={captionsSupported ? "Subtítulos en vivo" : "Subtítulos no disponibles en este navegador"}
+          caption="Subtítulos"
           active={captionsOn}
           onClick={captionsSupported ? onToggleCaptions : undefined}
         >
           <CaptionsIcon className="h-5 w-5" />
         </IconButton>
-        <IconButton label="Transcripción" active={transcriptOpen} onClick={onToggleTranscript}>
+        <IconButton
+          label="Ver transcripción completa"
+          caption="Transcripción"
+          active={transcriptOpen}
+          onClick={onToggleTranscript}
+        >
           <TranscriptIcon className="h-5 w-5" />
         </IconButton>
         <IconButton
           label={sharingScreen ? "Dejar de compartir pantalla" : "Compartir pantalla"}
+          caption={sharingScreen ? "Compartiendo" : "Compartir"}
           active={sharingScreen}
           onClick={onToggleScreenShare}
         >
           <ScreenShareIcon className="h-5 w-5" />
         </IconButton>
-        <IconButton label="Participantes" active={participantsOpen} onClick={onToggleParticipants}>
+        <IconButton
+          label="Ver participantes y asignar roles"
+          caption="Participantes"
+          active={participantsOpen}
+          onClick={onToggleParticipants}
+        >
           <PeopleIcon className="h-5 w-5" />
         </IconButton>
-        <IconButton label="Chat" active={chatOpen} badge={chatUnread} onClick={onToggleChat}>
+        <IconButton label="Chat" caption="Chat" active={chatOpen} badge={chatUnread} onClick={onToggleChat}>
           <ChatIcon className="h-5 w-5" />
         </IconButton>
         <IconButton
@@ -125,6 +143,7 @@ export default function ControlBar({
               ? "Detener grabación"
               : 'Grabar la reunión (elegí "esta pestaña" y tildá compartir audio para grabar también lo que dicen los demás)'
           }
+          caption={recording ? "Grabando" : "Grabar"}
           danger={recording}
           onClick={onToggleRecording}
         >
@@ -132,7 +151,7 @@ export default function ControlBar({
         </IconButton>
       </div>
 
-      <IconButton label="Salir de la reunión" danger onClick={onLeave}>
+      <IconButton label="Salir de la reunión" caption="Salir" danger onClick={onLeave}>
         <PhoneOffIcon className="h-5 w-5" />
       </IconButton>
     </div>

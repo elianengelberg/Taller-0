@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import Button from "../components/Button";
 import { SparklesIcon } from "../components/icons";
 import Logo from "../components/Logo";
+import MarkdownText from "../components/MarkdownText";
 import RoleBadge from "../components/RoleBadge";
 import { askMeetingAI, fetchMeetingDetail, MeetingHistoryDetail } from "../lib/api";
 import { cardClass, inputClass } from "../lib/ui";
@@ -196,7 +197,9 @@ function AiAsk({ meetingId }: { meetingId: string }) {
               ) : item.error ? (
                 <p className="mt-1 text-sm text-red-400">{item.error}</p>
               ) : (
-                <p className="mt-1 text-sm text-ink-100">{item.answer}</p>
+                <div className="mt-2">
+                  <MarkdownText text={item.answer ?? ""} />
+                </div>
               )}
             </li>
           ))}

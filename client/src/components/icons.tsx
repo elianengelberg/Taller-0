@@ -154,6 +154,22 @@ export function ScreenShareIcon({ className }: IconProps) {
   );
 }
 
+export function ExpandIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...common}>
+      <path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5" />
+    </svg>
+  );
+}
+
+export function CollapseIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...common}>
+      <path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5" />
+    </svg>
+  );
+}
+
 export function SparklesIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" className={className} fill="currentColor">

@@ -12,6 +12,7 @@ import {
   removeParticipant,
   scheduleMeetingCleanupIfEmpty,
 } from "./meetingStore";
+import { cleanTranscriptFragment } from "./transcriptCleanup";
 import { Meeting, toSnapshot } from "./types";
 
 const MAX_NAME_LENGTH = 60;
@@ -193,13 +194,24 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
     ack?.({ ok: true });
   });
 
-  socket.on("transcript-line", (payload: { text: string; lang?: string }) => {
+  socket.on("transcript-line", async (payload: { text: string; lang?: string }) => {
     const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
     if (!meeting) return;
     const speaker = meeting.participants.get(socket.id);
     if (!speaker) return;
-    const text = String(payload?.text ?? "").trim();
-    if (!text) return;
+    const rawText = String(payload?.text ?? "").trim();
+    if (!rawText) return;
+
+    // Recent lines give the model context to disambiguate a mis-heard word
+    // (e.g. picking the right homophone) -- a lone fragment often can't be
+    // fixed reliably on its own.
+    const recentContext = meeting.transcript.slice(-4).map((l) => `${l.speakerName}: ${l.text}`);
+    const text = await cleanTranscriptFragment(rawText, recentContext);
+
+    // The meeting (or this participant) may have disappeared while we were
+    // waiting on the cleanup call -- re-check before touching state.
+    const stillPresent = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
+    if (!stillPresent || stillPresent !== meeting || !meeting.participants.has(socket.id)) return;
 
     const line = addTranscriptLine(meeting, speaker, text, payload?.lang || speaker.language);
     void db.recordMessage({
