@@ -1,11 +1,10 @@
-import { useState } from "react";
 import IconButton from "./IconButton";
+import ShareMenu from "./ShareMenu";
 import {
   CameraIcon,
   CameraOffIcon,
   CaptionsIcon,
   ChatIcon,
-  CopyIcon,
   MicIcon,
   MicOffIcon,
   PeopleIcon,
@@ -61,18 +60,6 @@ export default function ControlBar({
   onToggleScreenShare,
   onLeave,
 }: ControlBarProps) {
-  const [copied, setCopied] = useState(false);
-
-  async function copyCode() {
-    try {
-      await navigator.clipboard.writeText(meetingCode);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
-    }
-  }
-
   const leaveButton = (
     <IconButton label="Salir de la reunión" caption="Salir" danger onClick={onLeave}>
       <PhoneOffIcon className="h-5 w-5" />
@@ -85,15 +72,7 @@ export default function ControlBar({
           code (its own row on desktop, at the far right) so it's never
           competing for space with the icon grid below. */}
       <div className="flex items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={copyCode}
-          className="flex items-center gap-2 rounded-xl border border-ink-600 px-3 py-2 text-sm font-medium text-ink-200 hover:border-brand-400"
-          title="Copiar código de la reunión"
-        >
-          <CopyIcon className="h-4 w-4" />
-          {copied ? "¡Copiado!" : meetingCode}
-        </button>
+        <ShareMenu meetingCode={meetingCode} />
         <div className="sm:hidden">{leaveButton}</div>
       </div>
 

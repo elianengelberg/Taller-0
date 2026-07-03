@@ -14,6 +14,9 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/crear" element={<HostSetup />} />
         <Route path="/unirse" element={<JoinForm />} />
+        {/* Zoom-style direct-join link (see ShareMenu) -- same form, minus
+            the code field, since it's already in the URL. */}
+        <Route path="/unirse/:code" element={<JoinForm />} />
         <Route path="/reunion" element={<Meeting />} />
         <Route path="/historial" element={<History />} />
         <Route path="/historial/:id" element={<MeetingDetail />} />

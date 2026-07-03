@@ -170,6 +170,42 @@ export function CollapseIcon({ className }: IconProps) {
   );
 }
 
+export function ShareIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...common}>
+      <circle cx="18" cy="5" r="2.5" />
+      <circle cx="6" cy="12" r="2.5" />
+      <circle cx="18" cy="19" r="2.5" />
+      <path d="M8.3 10.7l7.4-4.4M8.3 13.3l7.4 4.4" />
+    </svg>
+  );
+}
+
+export function LinkIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...common}>
+      <path d="M9 15l6-6M10 6l1-1a4 4 0 0 1 5.7 5.7l-1.7 1.7M14 18l-1 1a4 4 0 0 1-5.7-5.7l1.7-1.7" />
+    </svg>
+  );
+}
+
+export function MailIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...common}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3.5 6.5 12 13l8.5-6.5" />
+    </svg>
+  );
+}
+
+export function WhatsAppIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor">
+      <path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.4A10 10 0 1 0 12 2Zm0 1.8a8.2 8.2 0 0 1 6.9 12.6l-.2.3.5 1.8-1.8-.5-.3.2A8.2 8.2 0 1 1 12 3.8Zm-3.2 3.9c-.2 0-.5 0-.7.3-.2.3-.9.9-.9 2.2s.9 2.5 1 2.7c.1.2 1.8 2.9 4.4 3.9 2.2.9 2.6.7 3.1.7.5-.1 1.6-.6 1.8-1.3.2-.6.2-1.2.2-1.3-.1-.1-.3-.2-.5-.3l-1.7-.8c-.2-.1-.4-.2-.6.2-.2.3-.7.9-.9 1.1-.2.2-.3.2-.6.1-.3-.2-1.2-.5-2.3-1.5-.9-.8-1.4-1.7-1.6-2-.2-.3 0-.5.1-.6.1-.2.3-.4.5-.6.1-.2.2-.3.3-.5.1-.2 0-.4 0-.6-.1-.2-.6-1.5-.9-2-.2-.5-.4-.5-.6-.5h-.1Z" />
+    </svg>
+  );
+}
+
 export function SparklesIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" className={className} fill="currentColor">
