@@ -33,8 +33,8 @@ export function shortLang(lang: string): string {
   return lang.split("-")[0].toLowerCase();
 }
 
-function languageName(code: string): string {
-  return LANGUAGE_NAMES[code] ?? code;
+export function languageName(code: string): string {
+  return LANGUAGE_NAMES[shortLang(code)] ?? code;
 }
 
 function cacheKey(text: string, source: string, target: string): string {

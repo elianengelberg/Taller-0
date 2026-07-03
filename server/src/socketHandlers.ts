@@ -12,8 +12,8 @@ import {
   removeParticipant,
   scheduleMeetingCleanupIfEmpty,
 } from "./meetingStore";
-import { cleanTranscriptFragment } from "./transcriptCleanup";
-import { shortLang, translateText } from "./translate";
+import { cleanAndTranslateFragment, cleanTranscriptFragment } from "./transcriptCleanup";
+import { shortLang } from "./translate";
 import { Meeting, toSnapshot } from "./types";
 
 const MAX_NAME_LENGTH = 60;
@@ -214,7 +214,26 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       // (e.g. picking the right homophone) -- a lone fragment often can't be
       // fixed reliably on its own.
       const recentContext = meeting.transcript.slice(-4).map((l) => `${l.speakerName}: ${l.text}`);
-      const text = await cleanTranscriptFragment(alternatives, recentContext);
+      const sourceLang = payload?.lang || speaker.language;
+
+      // Kick off the original-language cleanup AND every target language's
+      // clean+translate pass at the same time, instead of translating only
+      // after cleanup finishes. They're independent Claude calls working
+      // from the same raw alternatives, so running them in parallel instead
+      // of back-to-back roughly halves the time before a translated caption
+      // shows up -- important for keeping up when someone starts a new
+      // sentence right after finishing the last one.
+      const targetLangs = new Set<string>();
+      for (const p of meeting.participants.values()) {
+        if (shortLang(p.language) !== shortLang(sourceLang)) targetLangs.add(p.language);
+      }
+      const cleanupPromise = cleanTranscriptFragment(alternatives, recentContext);
+      const translationPromises = Array.from(targetLangs).map(async (lang) => {
+        const translated = await cleanAndTranslateFragment(alternatives, recentContext, lang);
+        return [shortLang(lang), translated] as const;
+      });
+
+      const text = await cleanupPromise;
       if (!text) return;
 
       // The meeting (or this participant) may have disappeared while we were
@@ -222,12 +241,11 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       const stillPresent = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
       if (!stillPresent || stillPresent !== meeting || !meeting.participants.has(socket.id)) return;
 
-      const sourceLang = payload?.lang || speaker.language;
-
       // Broadcast the cleaned line right away -- viewers who share the
       // speaker's language get their caption with no extra wait. Translations
-      // are fetched afterwards and pushed as a follow-up patch instead of
-      // holding up everyone's caption until every language is ready.
+      // (already in flight since before the cleanup call even resolved) are
+      // pushed as a follow-up patch instead of holding up everyone's caption
+      // until every language is ready.
       const line = addTranscriptLine(meeting, speaker, text, sourceLang);
       void db.recordMessage({
         meetingId: meeting.dbId,
@@ -239,27 +257,17 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       });
       io.to(roomName(meeting.id)).emit("transcript-line", { line });
 
-      // Translate into every language someone else in the meeting is actually
-      // using, in parallel, so most viewers get an already-translated caption
-      // with no extra round trip instead of each one firing its own separate
-      // translate request after the fact.
-      const targetLangs = new Set<string>();
-      for (const p of meeting.participants.values()) {
-        if (shortLang(p.language) !== shortLang(sourceLang)) targetLangs.add(p.language);
-      }
-      if (targetLangs.size === 0) return;
+      if (translationPromises.length === 0) return;
 
+      const settled = await Promise.all(translationPromises);
       const translations: Record<string, string> = {};
-      await Promise.all(
-        Array.from(targetLangs).map(async (lang) => {
-          try {
-            translations[shortLang(lang)] = await translateText(text, sourceLang, lang);
-          } catch {
-            // Best-effort -- that viewer's client falls back to /api/translate.
-          }
-        })
-      );
+      for (const [lang, translated] of settled) {
+        if (translated) translations[lang] = translated;
+      }
       if (Object.keys(translations).length === 0) return;
+
+      const stillThere = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
+      if (!stillThere || stillThere !== meeting) return;
 
       line.translations = translations;
       io.to(roomName(meeting.id)).emit("transcript-line-translations", { lineId: line.id, translations });

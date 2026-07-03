@@ -6,6 +6,7 @@
 // broadcast, or translated -- fixing the problem at the source instead of
 // papering over it later.
 import { anthropicClient } from "./anthropicClient";
+import { languageName } from "./translate";
 
 const CLEANUP_MODEL = process.env.ANTHROPIC_TRANSCRIPT_MODEL || "claude-haiku-4-5";
 // Live captions need to feel instant -- if the correction call takes too
@@ -23,7 +24,15 @@ const DOMAIN_HINT =
   "cuando una lectura es ambigua: chat, pantalla, compartir pantalla, micrófono, cámara, " +
   "subtítulos, transcripción, reunión, grabar, grabación, rol, participante, anfitrión, silenciar.";
 
-const SYSTEM_PROMPT = `Corregís fragmentos cortos de una transcripción de voz a texto en vivo. El
+function buildUserMessage(alternatives: string[], recentContext: string[]): string {
+  const contextBlock = recentContext.length
+    ? `Contexto reciente de la conversación (más antiguo primero):\n${recentContext.join("\n")}\n\n`
+    : "";
+  const alternativesBlock = alternatives.map((a, i) => `${i + 1}. ${a}`).join("\n");
+  return `${contextBlock}Lecturas candidatas del mismo fragmento:\n${alternativesBlock}`;
+}
+
+const CLEANUP_SYSTEM_PROMPT = `Corregís fragmentos cortos de una transcripción de voz a texto en vivo. El
 reconocimiento de voz a veces confunde una palabra con otra parecida fonéticamente pero sin
 sentido en el contexto, lo que rompe el significado de la frase.
 
@@ -54,25 +63,13 @@ export async function cleanTranscriptFragment(
   const best = trimmedAlternatives[0] ?? "";
   if (!anthropicClient || !best) return best;
 
-  const contextBlock = recentContext.length
-    ? `Contexto reciente de la conversación (más antiguo primero):\n${recentContext.join("\n")}\n\n`
-    : "";
-  const alternativesBlock = trimmedAlternatives
-    .map((a, i) => `${i + 1}. ${a}`)
-    .join("\n");
-
   try {
     const response = await anthropicClient.messages.create(
       {
         model: CLEANUP_MODEL,
         max_tokens: 512,
-        system: SYSTEM_PROMPT,
-        messages: [
-          {
-            role: "user",
-            content: `${contextBlock}Lecturas candidatas del mismo fragmento:\n${alternativesBlock}`,
-          },
-        ],
+        system: CLEANUP_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: buildUserMessage(trimmedAlternatives, recentContext) }],
       },
       { timeout: CLEANUP_TIMEOUT_MS }
     );
@@ -86,5 +83,68 @@ export async function cleanTranscriptFragment(
   } catch {
     // Timeout, rate limit, network error, etc. -- never block captions on this.
     return best;
+  }
+}
+
+// Translating a caption used to happen strictly *after* cleanup finished
+// (fix the words, then translate the fixed text) -- correct, but it meant
+// every translated viewer waited for two Claude calls back to back. This
+// does the same "figure out what was actually said" correction internally
+// in the SAME call as the translation, so it can be kicked off in parallel
+// with cleanTranscriptFragment (which still exists to produce the original-
+// language caption) instead of waiting for it -- roughly halving the time
+// before a translated caption shows up, which matters a lot for keeping up
+// with back-to-back sentences instead of a translation losing the race
+// against the next line coming in.
+function cleanAndTranslateSystemPrompt(targetLanguage: string): string {
+  return `Te paso varias lecturas candidatas que un reconocimiento de voz en vivo generó para el
+mismo fragmento de audio (ordenadas de más a menos probable), más el contexto reciente de la
+conversación. El reconocimiento a veces confunde una palabra con otra que suena parecida pero
+no tiene sentido en el contexto.
+
+${DOMAIN_HINT}
+
+Tu tarea, en dos pasos internos (pero respondé ÚNICAMENTE con el resultado del paso 2, nunca
+muestres el paso 1):
+1. Reconstruí mentalmente cuál es la versión más coherente del fragmento original, dando
+   prioridad a lo que ya aparece en alguna lectura candidata antes que a inventar algo que
+   ninguna sugiere. Usá el contexto reciente para decidir qué lectura tiene más sentido.
+2. Traducí esa versión corregida a ${targetLanguage}.
+
+Reglas:
+- Si no hay ambigüedad real entre las lecturas, no inventes cambios -- traducí tal cual dice
+  la lectura más probable.
+- No agregues ni saques contenido más allá de lo que ya está en el fragmento.
+- Respondé ÚNICAMENTE con la traducción final -- sin comillas, sin notas, sin explicaciones,
+  sin mostrar el fragmento corregido en el idioma original.`;
+}
+
+export async function cleanAndTranslateFragment(
+  alternatives: string[],
+  recentContext: string[],
+  targetLang: string
+): Promise<string | null> {
+  const trimmedAlternatives = alternatives.map((a) => a.trim()).filter(Boolean);
+  if (!anthropicClient || trimmedAlternatives.length === 0) return null;
+
+  try {
+    const response = await anthropicClient.messages.create(
+      {
+        model: CLEANUP_MODEL,
+        max_tokens: 512,
+        system: cleanAndTranslateSystemPrompt(languageName(targetLang)),
+        messages: [{ role: "user", content: buildUserMessage(trimmedAlternatives, recentContext) }],
+      },
+      { timeout: CLEANUP_TIMEOUT_MS }
+    );
+    for (const block of response.content) {
+      if (block.type === "text") {
+        const translated = block.text.trim();
+        return translated || null;
+      }
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
