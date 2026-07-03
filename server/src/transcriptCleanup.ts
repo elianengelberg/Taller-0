@@ -40,13 +40,21 @@ const DOMAIN_HINT =
   "cuando una lectura es ambigua: chat, pantalla, compartir pantalla, micrófono, cámara, " +
   "subtítulos, transcripción, reunión, grabar, grabación, rol, participante, anfitrión, silenciar.";
 
-// The fragment's language isn't known until the model figures it out (that's
-// part of its job here), so this can't be scoped to "only when it's German"
-// in advance -- every language the app offers is always included, each
-// self-scoped by its own "idioma: ..." wording, and simply doesn't apply
-// when the fragment turns out to be some other language.
-const KNOWN_EXPERTISE_LANGS = ["es", "en", "pt", "fr", "it", "de", "zh", "ja"];
-const LANGUAGE_EXPERTISE_BLOCK = languageExpertiseHints(KNOWN_EXPERTISE_LANGS);
+// Every language the app offers has an expertise entry, but always dumping
+// all eight into every single call (regardless of which language is even
+// remotely relevant) made each system prompt roughly 4x longer with mostly
+// irrelevant examples -- risking diluting the model's adherence to the much
+// more important "always correct/translate the WHOLE fragment" instructions
+// below. Scoped instead to whichever language(s) are actually plausible for
+// this call (the caller's best guess at who's speaking, plus -- for
+// translation -- whichever languages it's translating into); falls back to
+// every language only if no guess is available at all.
+const ALL_EXPERTISE_LANGS = ["es", "en", "pt", "fr", "it", "de", "zh", "ja"];
+
+function expertiseBlockFor(relevantCodes: (string | undefined)[]): string {
+  const codes = relevantCodes.filter((c): c is string => Boolean(c));
+  return languageExpertiseHints(codes.length ? codes : ALL_EXPERTISE_LANGS);
+}
 
 const LANGUAGE_MISMATCH_RULE =
   "Las lecturas candidatas son SIEMPRE tu fuente de verdad sobre qué idioma se habló, incluso " +
@@ -61,6 +69,16 @@ const NEVER_REFUSE_RULE =
   "procesar algo o que necesitás más información -- siempre completá el formato de respuesta " +
   "pedido con tu mejor estimación posible, aunque tengas dudas. Es preferible una estimación " +
   "imperfecta a no responder.";
+
+// A fragment that starts with something short and recognizable on its own
+// (a greeting, a yes/no) is still ONE fragment, not a cue to stop early --
+// this exists because a model can be tempted to treat the recognizable part
+// as "the complete thought" and drop whatever comes after it.
+const NEVER_TRUNCATE_RULE =
+  "El resultado tiene que cubrir TODO el contenido de la lectura candidata más completa, de " +
+  "principio a fin, incluso si al principio del fragmento hay un saludo, una pregunta corta u " +
+  "otra frase que ya suene completa por sí sola -- eso NO es una señal para cortar ahí. Nunca " +
+  "devuelvas solo la primera parte de un fragmento más largo.";
 
 function buildUserMessage(alternatives: string[], recentContext: string[]): string {
   const contextBlock = recentContext.length
@@ -98,7 +116,8 @@ function looksLikeModelChatter(text: string): boolean {
   ].some((phrase) => lower.includes(phrase));
 }
 
-const CLEANUP_SYSTEM_PROMPT = `Corregís fragmentos cortos de una transcripción de voz a texto en vivo. El
+function buildCleanupSystemPrompt(expertiseBlock: string): string {
+  return `Corregís fragmentos cortos de una transcripción de voz a texto en vivo. El
 reconocimiento de voz a veces confunde una palabra con otra parecida fonéticamente pero sin
 sentido en el contexto, lo que rompe el significado de la frase.
 
@@ -114,7 +133,9 @@ ${LANGUAGE_MISMATCH_RULE}
 
 ${NEVER_REFUSE_RULE}
 
-${LANGUAGE_EXPERTISE_BLOCK}
+${NEVER_TRUNCATE_RULE}
+
+${expertiseBlock}
 
 Reglas estrictas:
 - Elegí o reconstruí la versión más coherente del fragmento, dando prioridad a lo que ya
@@ -129,7 +150,8 @@ Reglas estrictas:
 Formato de respuesta obligatorio, EXACTAMENTE estas dos líneas y nada más (sin texto antes ni
 después):
 IDIOMA: <código de idioma de 2 letras del fragmento final -- ej: es, en, zh, it, pt, fr, de, ja>
-TEXTO: <el fragmento corregido>`;
+TEXTO: <el fragmento corregido, completo de principio a fin>`;
+}
 
 export interface CleanupResult {
   text: string;
@@ -168,9 +190,15 @@ function normalizeForCache(text: string): string | null {
 
 const cleanupCache = new Map<string, { result: CleanupResult; expiresAt: number }>();
 
+// `expectedLang` is the caller's best guess at who's speaking (their
+// configured language) -- used only to scope which languages' expertise
+// notes are worth including, never to force the correction into that
+// language (LANGUAGE_MISMATCH_RULE still overrides it if the candidate
+// readings say otherwise).
 export async function cleanTranscriptFragment(
   alternatives: string[],
-  recentContext: string[]
+  recentContext: string[],
+  expectedLang?: string
 ): Promise<CleanupResult> {
   const trimmedAlternatives = alternatives.map((a) => a.trim()).filter(Boolean);
   const best = trimmedAlternatives[0] ?? "";
@@ -187,7 +215,7 @@ export async function cleanTranscriptFragment(
       {
         model: CLEANUP_MODEL,
         max_tokens: 512,
-        system: CLEANUP_SYSTEM_PROMPT,
+        system: buildCleanupSystemPrompt(expertiseBlockFor([expectedLang])),
         messages: [{ role: "user", content: buildUserMessage(trimmedAlternatives, recentContext) }],
       },
       { timeout: CLEANUP_TIMEOUT_MS }
@@ -224,7 +252,7 @@ export async function cleanTranscriptFragment(
 // every language ends up translated from the exact same corrected text
 // instead of three independently-reconstructed guesses that could disagree
 // with each other on an ambiguous word.
-function translateAllSystemPrompt(targets: { code: string; name: string }[]): string {
+function translateAllSystemPrompt(targets: { code: string; name: string }[], expertiseBlock: string): string {
   const targetList = targets.map((t) => `${t.name} (código ${t.code})`).join(", ");
   const responseLines = targets.map((t) => `TRAD_${t.code}: <traducción del fragmento corregido a ${t.name}>`).join("\n");
   return `Te paso varias lecturas candidatas que un reconocimiento de voz en vivo generó para el
@@ -238,7 +266,9 @@ ${LANGUAGE_MISMATCH_RULE}
 
 ${NEVER_REFUSE_RULE}
 
-${LANGUAGE_EXPERTISE_BLOCK}
+${NEVER_TRUNCATE_RULE}
+
+${expertiseBlock}
 
 Tu tarea:
 1. Reconstruí cuál es la versión más coherente del fragmento original -- en el idioma en el
@@ -250,6 +280,8 @@ Reglas:
 - Si no hay ambigüedad real entre las lecturas, no inventes cambios -- traducí tal cual dice
   la lectura más probable.
 - No agregues ni saques contenido más allá de lo que ya está en el fragmento.
+- Cada traducción tiene que cubrir el fragmento COMPLETO, de principio a fin -- ninguna
+  traducción puede quedarse corta ni cortar el final aunque el principio ya suene completo.
 - Cada traducción tiene que basarse en la MISMA versión corregida del fragmento -- no
   reinterpretes el fragmento de forma distinta para cada idioma.
 
@@ -283,10 +315,14 @@ const translateAllCache = new Map<string, { result: Record<string, string>; expi
 // `targetLangCodes` are already-deduped short codes (e.g. "en", not
 // "en-US" -- see the caller, which collapses everyone speaking English
 // variants into a single "en" translation instead of one per variant).
+// `sourceLangHint` is the caller's best guess at who's speaking -- like in
+// `cleanTranscriptFragment`, only used to scope which languages' expertise
+// notes are worth including.
 export async function translateFragmentToAll(
   alternatives: string[],
   recentContext: string[],
-  targetLangCodes: string[]
+  targetLangCodes: string[],
+  sourceLangHint?: string
 ): Promise<Record<string, string>> {
   const trimmedAlternatives = alternatives.map((a) => a.trim()).filter(Boolean);
   if (!anthropicClient || trimmedAlternatives.length === 0 || targetLangCodes.length === 0) return {};
@@ -300,13 +336,14 @@ export async function translateFragmentToAll(
   }
 
   const targets = targetLangCodes.map((code) => ({ code, name: languageName(code) }));
+  const expertiseBlock = expertiseBlockFor([sourceLangHint, ...targetLangCodes]);
 
   try {
     const response = await anthropicClient.messages.create(
       {
         model: CLEANUP_MODEL,
         max_tokens: 1536,
-        system: translateAllSystemPrompt(targets),
+        system: translateAllSystemPrompt(targets, expertiseBlock),
         messages: [{ role: "user", content: buildUserMessage(trimmedAlternatives, recentContext) }],
       },
       { timeout: CLEANUP_TIMEOUT_MS }

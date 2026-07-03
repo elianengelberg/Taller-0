@@ -304,11 +304,12 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       for (const p of meeting.participants.values()) {
         if (shortLang(p.language) !== shortLang(assumedSourceLang)) optimisticTargetLangs.add(shortLang(p.language));
       }
-      const cleanupPromise = cleanTranscriptFragment(effectiveAlternatives, recentContext);
+      const cleanupPromise = cleanTranscriptFragment(effectiveAlternatives, recentContext, assumedSourceLang);
       const optimisticTranslationsPromise = translateFragmentToAll(
         effectiveAlternatives,
         recentContext,
-        Array.from(optimisticTargetLangs)
+        Array.from(optimisticTargetLangs),
+        assumedSourceLang
       );
 
       const cleanup = await cleanupPromise;
