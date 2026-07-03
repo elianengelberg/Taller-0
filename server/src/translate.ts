@@ -33,13 +33,46 @@ const LANGUAGE_NAMES: Record<string, string> = {
   ja: "Japanese",
 };
 
-// Real linguistic knowledge for the two languages worth calling out
-// explicitly -- not a "training" step (Claude already knows these languages
-// deeply; there's no separate study phase to run), but concrete failure
-// patterns worth naming so the model actively watches for them instead of
-// just doing generic correction/translation. Keyed by short language code;
-// only languages where this pays off are listed.
+// Real linguistic knowledge for every language the app offers -- not a
+// "training" step (Claude already knows these languages deeply; there's no
+// separate study phase to run), but concrete failure patterns worth naming
+// so the model actively watches for them instead of just doing generic
+// correction/translation. Keyed by short language code.
 const LANGUAGE_EXPERTISE: Partial<Record<string, string>> = {
+  es:
+    "Español: el reconocimiento de voz casi nunca pone tildes, y muchas palabras cambian de " +
+    "significado según lleven acento o no -- prestá atención especial a eso: qué/que, cómo/como, " +
+    "dónde/donde, sí/si, tú/tu, él/el, más/mas, aún/aun, sé/se. También hay pares que suenan igual o " +
+    "casi igual y se confunden seguido: hay/ahí/ay, haber/a ver, vaya/valla/baya, tuvo/tubo, " +
+    "echo/hecho, ves/vez. Si la conversación usa \"vos\" (voseo, común en Argentina y otros países de " +
+    "América), no lo \"corrijas\" a \"tú\" -- es una forma correcta, no un error de reconocimiento.",
+  en:
+    "Inglés: hay muchísimos homófonos que el reconocimiento confunde según el contexto -- " +
+    "there/their/they're, to/too/two, your/you're, its/it's, here/hear, right/write, know/no, " +
+    "meet/meat, board/bored, wait/weight, break/brake. Elegí la opción que tenga sentido gramatical y " +
+    "semántico en el contexto de la frase, no la que suene más común de forma aislada.",
+  pt:
+    "Portugués: prestá atención a los sonidos nasales y a la cedilla (ã, õ, ç), que el reconocimiento " +
+    "de voz suele perder o simplificar. Pares que se confunden seguido: mas/mais, há/a, " +
+    "seção/sessão/cessão, concerto/conserto, viagem/viajem.",
+  fr:
+    "Francés: por la cantidad de letras mudas y la \"liaison\" (enlace entre palabras al hablar), el " +
+    "francés tiene muchísimos homófonos que dependen totalmente del contexto para desambiguar -- " +
+    "ver/vert/verre/vers, sang/cent/sans/s'en, ou/où, ce/se, ces/ses/c'est/sais, mer/mère/maire. " +
+    "Prestá atención también a los acentos (é/è/ê) y a la cedilla (ç), que cambian el significado.",
+  it:
+    "Italiano: las consonantes dobles cambian el significado de la palabra aunque el reconocimiento " +
+    "de voz a veces no las distingue bien -- pena/penna, casa/cassa, sono/sonno, papa/pappa, " +
+    "sera/serra. También pueden perderse los acentos en vocales finales (città, perché, però, " +
+    "ventitré).",
+  de:
+    "Alemán: prestá especial atención a la diéresis (ä, ö, ü) y a la ß (Eszett) -- el reconocimiento de " +
+    "voz muchas veces las reemplaza por la vocal simple o por \"ae\"/\"oe\"/\"ue\"/\"ss\", lo que cambia " +
+    "el significado real de la palabra (ej: \"schon\" ≠ \"schön\", \"Strasse\" ≠ \"Straße\", \"fuer\" ≠ " +
+    "\"für\", \"Bar\" ≠ \"Bär\"). El alemán también forma sustantivos compuestos largos uniendo varias " +
+    "palabras sin espacio (ej: \"Lebensmittelgeschäft\"); el reconocimiento a veces los separa por error " +
+    "en palabras sueltas sin sentido -- reconstruilos como una sola palabra compuesta cuando el contexto " +
+    "lo sugiera. Los sustantivos en alemán siempre llevan mayúscula inicial.",
   zh:
     "Chino: escribí SIEMPRE en caracteres simplificados (简体字), nunca en tradicionales (繁體字), " +
     "sin importar qué haya usado el reconocimiento de voz o el texto de origen. El reconocimiento de " +
@@ -50,14 +83,12 @@ const LANGUAGE_EXPERTISE: Partial<Record<string, string>> = {
     "reconocimiento es el correcto solo por aparecer primero entre las alternativas. El chino no separa " +
     "las palabras con espacios: prestá atención a dónde probablemente empieza y termina cada palabra " +
     "dentro del fragmento antes de corregirlo o traducirlo.",
-  de:
-    "Alemán: prestá especial atención a la diéresis (ä, ö, ü) y a la ß (Eszett) -- el reconocimiento de " +
-    "voz muchas veces las reemplaza por la vocal simple o por \"ae\"/\"oe\"/\"ue\"/\"ss\", lo que cambia " +
-    "el significado real de la palabra (ej: \"schon\" ≠ \"schön\", \"Strasse\" ≠ \"Straße\", \"fuer\" ≠ " +
-    "\"für\", \"Bar\" ≠ \"Bär\"). El alemán también forma sustantivos compuestos largos uniendo varias " +
-    "palabras sin espacio (ej: \"Lebensmittelgeschäft\"); el reconocimiento a veces los separa por error " +
-    "en palabras sueltas sin sentido -- reconstruilos como una sola palabra compuesta cuando el contexto " +
-    "lo sugiera. Los sustantivos en alemán siempre llevan mayúscula inicial.",
+  ja:
+    "Japonés: el idioma tiene muchísimos homófonos por la cantidad limitada de sonidos distintos, así " +
+    "que un mismo sonido puede corresponder a varios kanji con significados totalmente distintos (ej: " +
+    "橋/箸/端 se pronuncian todos \"hashi\"; 花/鼻 ambos \"hana\"; 神/紙/髪 todos \"kami\") -- elegí el " +
+    "kanji según el sentido del contexto, no el más común en aislamiento. El japonés tampoco separa " +
+    "las palabras con espacios: prestá atención a dónde probablemente empieza y termina cada palabra.",
 };
 
 export function shortLang(lang: string): string {

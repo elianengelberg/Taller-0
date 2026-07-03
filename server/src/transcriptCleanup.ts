@@ -41,11 +41,11 @@ const DOMAIN_HINT =
   "subtítulos, transcripción, reunión, grabar, grabación, rol, participante, anfitrión, silenciar.";
 
 // The fragment's language isn't known until the model figures it out (that's
-// part of its job here), so this can't be scoped to "only when it's Chinese"
-// in advance -- it's always included, self-scoped by its own "cuando el
-// fragmento esté en..." wording, and simply doesn't apply when the fragment
-// turns out to be some other language.
-const KNOWN_EXPERTISE_LANGS = ["zh", "de"];
+// part of its job here), so this can't be scoped to "only when it's German"
+// in advance -- every language the app offers is always included, each
+// self-scoped by its own "idioma: ..." wording, and simply doesn't apply
+// when the fragment turns out to be some other language.
+const KNOWN_EXPERTISE_LANGS = ["es", "en", "pt", "fr", "it", "de", "zh", "ja"];
 const LANGUAGE_EXPERTISE_BLOCK = languageExpertiseHints(KNOWN_EXPERTISE_LANGS);
 
 const LANGUAGE_MISMATCH_RULE =
