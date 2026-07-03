@@ -34,6 +34,10 @@ export interface TranscriptLine {
   text: string;
   sourceLang: string;
   timestamp: number;
+  // Pre-computed translations into every language currently spoken by
+  // someone else in the meeting (keyed by short language code), attached at
+  // broadcast time so most viewers don't need a separate translate request.
+  translations?: Record<string, string>;
 }
 
 export interface Meeting {

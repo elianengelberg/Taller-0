@@ -151,7 +151,8 @@ export function addTranscriptLine(
   meeting: Meeting,
   speaker: Participant,
   text: string,
-  sourceLang: string
+  sourceLang: string,
+  translations?: Record<string, string>
 ): TranscriptLine {
   const line: TranscriptLine = {
     id: idAlphabet(),
@@ -161,6 +162,7 @@ export function addTranscriptLine(
     text: text.slice(0, 2000),
     sourceLang,
     timestamp: Date.now(),
+    translations,
   };
   meeting.transcript.push(line);
   if (meeting.transcript.length > 2000) {

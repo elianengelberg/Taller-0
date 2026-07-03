@@ -29,7 +29,7 @@ const LANGUAGE_NAMES: Record<string, string> = {
   ja: "Japanese",
 };
 
-function shortLang(lang: string): string {
+export function shortLang(lang: string): string {
   return lang.split("-")[0].toLowerCase();
 }
 

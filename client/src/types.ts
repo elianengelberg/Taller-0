@@ -34,6 +34,7 @@ export interface TranscriptLine {
   text: string;
   sourceLang: string;
   timestamp: number;
+  translations?: Record<string, string>;
 }
 
 export interface MeetingSnapshot {

@@ -8,6 +8,10 @@ interface TranslatableLine {
   id: string;
   text: string;
   sourceLang: string;
+  // Translations the server already computed at broadcast time (see
+  // TranscriptLine), keyed by short language code -- using these instead of
+  // firing a request skips a whole network + translation round trip.
+  translations?: Record<string, string>;
 }
 
 // Shared by the live caption overlay and the transcript panel so both read
@@ -23,6 +27,12 @@ export function useLineTranslations(lines: TranslatableLine[], targetLang: strin
       const key = `${line.id}:${targetLang}`;
       if (translations[key]) return;
       if (shortLang(line.sourceLang) === shortLang(targetLang)) return;
+
+      const bundled = line.translations?.[shortLang(targetLang)];
+      if (bundled) {
+        setTranslations((prev) => (prev[key] ? prev : { ...prev, [key]: bundled }));
+        return;
+      }
 
       translate(line.text, line.sourceLang, targetLang)
         .then((translated) => {

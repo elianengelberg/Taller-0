@@ -3,7 +3,14 @@ import { useEffect, useRef, useState } from "react";
 interface UseSpeechRecognitionOptions {
   lang: string;
   active: boolean;
-  onResult: (text: string) => void;
+  // Called once an utterance is finalized, with every candidate reading the
+  // recognizer considered (ranked best-first) -- more signal than a single
+  // guess for fixing a mis-heard word server-side.
+  onResult: (alternatives: string[]) => void;
+  // Called repeatedly while an utterance is still being recognized, so the
+  // speaker sees their own caption update live instead of waiting for a
+  // pause in speech. Purely local -- never sent anywhere.
+  onInterim?: (text: string) => void;
 }
 
 function getRecognitionConstructor(): SpeechRecognitionConstructor | undefined {
@@ -18,12 +25,14 @@ const ERROR_MESSAGES: Record<string, string> = {
   "audio-capture": "No encontramos un micrófono para captar los subtítulos.",
 };
 
-export function useSpeechRecognition({ lang, active, onResult }: UseSpeechRecognitionOptions) {
+export function useSpeechRecognition({ lang, active, onResult, onInterim }: UseSpeechRecognitionOptions) {
   const [supported] = useState(() => Boolean(getRecognitionConstructor()));
   const [error, setError] = useState<string | null>(null);
   const onResultRef = useRef(onResult);
+  const onInterimRef = useRef(onInterim);
   const shouldRunRef = useRef(false);
   onResultRef.current = onResult;
+  onInterimRef.current = onInterim;
 
   useEffect(() => {
     if (!supported || !active) return;
@@ -36,15 +45,23 @@ export function useSpeechRecognition({ lang, active, onResult }: UseSpeechRecogn
     const recognition = new RecognitionCtor();
     recognition.lang = lang;
     recognition.continuous = true;
-    recognition.interimResults = false;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 5;
 
     recognition.onresult = (event) => {
       setError(null);
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
-          const text = result[0]?.transcript.trim();
-          if (text) onResultRef.current(text);
+          const alternatives: string[] = [];
+          for (let j = 0; j < result.length; j++) {
+            const alt = result[j]?.transcript?.trim();
+            if (alt) alternatives.push(alt);
+          }
+          if (alternatives.length) onResultRef.current(alternatives);
+        } else {
+          const interim = result[0]?.transcript?.trim();
+          if (interim) onInterimRef.current?.(interim);
         }
       }
     };

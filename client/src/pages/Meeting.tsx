@@ -131,10 +131,25 @@ export default function Meeting() {
     prevChatLengthRef.current = chatLength;
   }, [chatLength, activePanel]);
 
+  // Shown instantly as the local speaker talks, before their utterance even
+  // finishes -- purely local, never round-trips through the server, so it
+  // doesn't wait on speech-recognition's own end-of-utterance pause, or on
+  // cleanup/translation. Cleared once the utterance finalizes and gets sent
+  // off; the "real" (cleaned + translated) caption then takes over via the
+  // normal broadcast.
+  const [interimCaption, setInterimCaption] = useState<string | null>(null);
+  useEffect(() => {
+    if (!captionsOn) setInterimCaption(null);
+  }, [captionsOn]);
+
   const { supported: captionsSupported, error: captionsError } = useSpeechRecognition({
     lang: self?.language ?? "es-AR",
     active: captionsOn && !media.muted && connectionStatus === "connected",
-    onResult: (text) => sendTranscriptLine(text, self?.language ?? "es-AR"),
+    onInterim: (text) => setInterimCaption(text),
+    onResult: (alternatives) => {
+      setInterimCaption(null);
+      sendTranscriptLine(alternatives, self?.language ?? "es-AR");
+    },
   });
   const captionsMutedHint = captionsOn && media.muted;
 
@@ -219,6 +234,9 @@ export default function Meeting() {
             line={captionsOn ? lastTranscriptLine : null}
             translatedText={
               captionsOn && lastTranscriptLine ? getTranslation(lastTranscriptLine.id) : undefined
+            }
+            localInterim={
+              captionsOn && interimCaption ? { speakerName: self?.name ?? "Vos", text: interimCaption } : null
             }
           />
           <RecordingBanner

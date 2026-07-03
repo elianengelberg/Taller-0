@@ -13,6 +13,7 @@ import {
   scheduleMeetingCleanupIfEmpty,
 } from "./meetingStore";
 import { cleanTranscriptFragment } from "./transcriptCleanup";
+import { shortLang, translateText } from "./translate";
 import { Meeting, toSnapshot } from "./types";
 
 const MAX_NAME_LENGTH = 60;
@@ -194,26 +195,39 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
     ack?.({ ok: true });
   });
 
-  socket.on("transcript-line", async (payload: { text: string; lang?: string }) => {
+  socket.on("transcript-line", async (payload: { alternatives?: string[]; text?: string; lang?: string }) => {
     const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
     if (!meeting) return;
     const speaker = meeting.participants.get(socket.id);
     if (!speaker) return;
-    const rawText = String(payload?.text ?? "").trim();
-    if (!rawText) return;
+    // `alternatives` is the speech recognizer's own ranked candidate
+    // readings of the same utterance -- a much stronger signal for fixing a
+    // mis-heard word than context alone. `text` stays as a fallback for any
+    // older client still sending the single-string shape.
+    const alternatives = Array.isArray(payload?.alternatives)
+      ? payload.alternatives.map(String)
+      : [String(payload?.text ?? "")];
+    if (!alternatives.some((a) => a.trim())) return;
 
     // Recent lines give the model context to disambiguate a mis-heard word
     // (e.g. picking the right homophone) -- a lone fragment often can't be
     // fixed reliably on its own.
     const recentContext = meeting.transcript.slice(-4).map((l) => `${l.speakerName}: ${l.text}`);
-    const text = await cleanTranscriptFragment(rawText, recentContext);
+    const text = await cleanTranscriptFragment(alternatives, recentContext);
+    if (!text) return;
 
     // The meeting (or this participant) may have disappeared while we were
     // waiting on the cleanup call -- re-check before touching state.
     const stillPresent = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
     if (!stillPresent || stillPresent !== meeting || !meeting.participants.has(socket.id)) return;
 
-    const line = addTranscriptLine(meeting, speaker, text, payload?.lang || speaker.language);
+    const sourceLang = payload?.lang || speaker.language;
+
+    // Broadcast the cleaned line right away -- viewers who share the
+    // speaker's language get their caption with no extra wait. Translations
+    // are fetched afterwards and pushed as a follow-up patch instead of
+    // holding up everyone's caption until every language is ready.
+    const line = addTranscriptLine(meeting, speaker, text, sourceLang);
     void db.recordMessage({
       meetingId: meeting.dbId,
       kind: "transcript",
@@ -223,6 +237,31 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       sourceLang: line.sourceLang,
     });
     io.to(roomName(meeting.id)).emit("transcript-line", { line });
+
+    // Translate into every language someone else in the meeting is actually
+    // using, in parallel, so most viewers get an already-translated caption
+    // with no extra round trip instead of each one firing its own separate
+    // translate request after the fact.
+    const targetLangs = new Set<string>();
+    for (const p of meeting.participants.values()) {
+      if (shortLang(p.language) !== shortLang(sourceLang)) targetLangs.add(p.language);
+    }
+    if (targetLangs.size === 0) return;
+
+    const translations: Record<string, string> = {};
+    await Promise.all(
+      Array.from(targetLangs).map(async (lang) => {
+        try {
+          translations[shortLang(lang)] = await translateText(text, sourceLang, lang);
+        } catch {
+          // Best-effort -- that viewer's client falls back to /api/translate.
+        }
+      })
+    );
+    if (Object.keys(translations).length === 0) return;
+
+    line.translations = translations;
+    io.to(roomName(meeting.id)).emit("transcript-line-translations", { lineId: line.id, translations });
   });
 
   socket.on("media-state", (payload: { muted?: boolean; cameraOff?: boolean }) => {

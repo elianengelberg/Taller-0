@@ -28,6 +28,7 @@ type MeetingAction =
   | { type: "ROLE_ASSIGNED"; participantId: string; roleId: string | null }
   | { type: "CHAT_MESSAGE"; message: ChatMessage }
   | { type: "TRANSCRIPT_LINE"; line: TranscriptLine }
+  | { type: "TRANSCRIPT_LINE_TRANSLATIONS"; lineId: string; translations: Record<string, string> }
   | { type: "MEDIA_STATE"; participantId: string; muted: boolean; cameraOff: boolean }
   | { type: "SCREEN_SHARE"; participantId: string; sharingScreen: boolean }
   | { type: "HOST_CHANGED"; hostId: string }
@@ -60,6 +61,15 @@ function meetingReducer(state: MeetingSnapshot | null, action: MeetingAction): M
       return { ...state, chat: [...state.chat, action.message] };
     case "TRANSCRIPT_LINE":
       return { ...state, transcript: [...state.transcript, action.line] };
+    case "TRANSCRIPT_LINE_TRANSLATIONS":
+      return {
+        ...state,
+        transcript: state.transcript.map((l) =>
+          l.id === action.lineId
+            ? { ...l, translations: { ...l.translations, ...action.translations } }
+            : l
+        ),
+      };
     case "MEDIA_STATE":
       return {
         ...state,
@@ -106,7 +116,7 @@ interface MeetingContextValue {
   sendChatMessage: (text: string) => void;
   assignRole: (participantId: string, roleId: string | null) => void;
   addRole: (name: string) => Promise<Role | null>;
-  sendTranscriptLine: (text: string, lang: string) => void;
+  sendTranscriptLine: (alternatives: string[], lang: string) => void;
   setMediaState: (muted: boolean, cameraOff: boolean) => void;
   setSharingScreen: (sharing: boolean) => void;
   leaveMeeting: () => void;
@@ -147,6 +157,12 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "TRANSCRIPT_LINE", line });
     });
     socket.on(
+      "transcript-line-translations",
+      (payload: { lineId: string; translations: Record<string, string> }) => {
+        dispatch({ type: "TRANSCRIPT_LINE_TRANSLATIONS", ...payload });
+      }
+    );
+    socket.on(
       "media-state",
       (payload: { participantId: string; muted: boolean; cameraOff: boolean }) => {
         dispatch({ type: "MEDIA_STATE", ...payload });
@@ -173,6 +189,7 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
       socket.off("role-assigned");
       socket.off("chat-message");
       socket.off("transcript-line");
+      socket.off("transcript-line-translations");
       socket.off("media-state");
       socket.off("screen-share");
       socket.off("host-changed");
@@ -257,9 +274,10 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const sendTranscriptLine = useCallback((text: string, lang: string) => {
-    if (!text.trim()) return;
-    socketRef.current.emit("transcript-line", { text, lang });
+  const sendTranscriptLine = useCallback((alternatives: string[], lang: string) => {
+    const cleaned = alternatives.filter((a) => a.trim());
+    if (cleaned.length === 0) return;
+    socketRef.current.emit("transcript-line", { alternatives: cleaned, lang });
   }, []);
 
   const setMediaState = useCallback((muted: boolean, cameraOff: boolean) => {
