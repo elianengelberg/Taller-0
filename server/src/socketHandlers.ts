@@ -271,6 +271,20 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
     }
   });
 
+  socket.on("set-language", (payload: { language?: string }) => {
+    const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
+    if (!meeting) return;
+    const participant = meeting.participants.get(socket.id);
+    if (!participant) return;
+    const language = String(payload?.language ?? "").trim();
+    if (!language) return;
+    participant.language = language;
+    io.to(roomName(meeting.id)).emit("language-changed", {
+      participantId: participant.id,
+      language,
+    });
+  });
+
   socket.on("media-state", (payload: { muted?: boolean; cameraOff?: boolean }) => {
     const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
     if (!meeting) return;

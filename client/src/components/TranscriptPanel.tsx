@@ -11,6 +11,8 @@ interface Props {
   targetLang: string;
   onTargetLangChange: (lang: string) => void;
   getTranslation: (lineId: string) => string | undefined;
+  spokenLang: string;
+  onSpokenLangChange: (lang: string) => void;
 }
 
 export default function TranscriptPanel({
@@ -18,6 +20,8 @@ export default function TranscriptPanel({
   targetLang,
   onTargetLangChange,
   getTranslation,
+  spokenLang,
+  onSpokenLangChange,
 }: Props) {
   const { meeting } = useMeeting();
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -47,9 +51,32 @@ export default function TranscriptPanel({
         </select>
       }
     >
+      <div className="mb-4 rounded-xl border border-ink-700 bg-ink-800/60 p-3">
+        <label className="mb-1.5 block text-xs font-medium text-ink-300">
+          ¿En qué idioma estás hablando vos?
+        </label>
+        <select
+          className="w-full rounded-lg border border-ink-600 bg-ink-800 px-2.5 py-2 text-sm text-white focus:border-brand-400 focus:outline-none"
+          value={spokenLang}
+          onChange={(e) => onSpokenLangChange(e.target.value)}
+        >
+          {LANGUAGES.map((lang) => (
+            <option key={lang.code} value={lang.code}>
+              {lang.label}
+            </option>
+          ))}
+        </select>
+        <p className="mt-1.5 text-[11px] leading-relaxed text-ink-500">
+          Esto es distinto del selector de arriba ("Traducir a ..."): ese controla en qué
+          idioma <span className="text-ink-400">vos ves</span> los subtítulos, y este en qué
+          idioma la app entiende <span className="text-ink-400">lo que vos decís</span>. Si
+          cambiás de idioma al hablar, cambialo acá para que te transcriba bien.
+        </p>
+      </div>
+
       {transcript.length === 0 ? (
-        <p className="mt-6 text-center text-sm text-ink-400">
-          Activá los subtítulos (ícono de "CC") para empezar a registrar quién dice qué.
+        <p className="text-center text-sm text-ink-400">
+          Todavía no se registró nada dicho en la reunión.
         </p>
       ) : (
         <ul className="space-y-3">

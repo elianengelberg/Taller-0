@@ -32,6 +32,7 @@ export default function Meeting() {
     self,
     setMediaState,
     setSharingScreen,
+    setSelfLanguage,
     sendTranscriptLine,
     leaveMeeting,
   } = useMeeting();
@@ -265,6 +266,8 @@ export default function Meeting() {
             targetLang={targetLang}
             onTargetLangChange={handleTargetLangChange}
             getTranslation={getTranslation}
+            spokenLang={self?.language ?? "es-AR"}
+            onSpokenLangChange={setSelfLanguage}
           />
         )}
       </div>
