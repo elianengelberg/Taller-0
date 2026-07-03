@@ -68,7 +68,13 @@ const NEVER_REFUSE_RULE =
   "Nunca respondas con una explicación, una pregunta, una disculpa, ni digas que no podés " +
   "procesar algo o que necesitás más información -- siempre completá el formato de respuesta " +
   "pedido con tu mejor estimación posible, aunque tengas dudas. Es preferible una estimación " +
-  "imperfecta a no responder.";
+  "imperfecta a no responder. Ejemplos concretos de respuestas PROHIBIDAS, sin importar cuán " +
+  "razonables parezcan: \"No pude entender bien el inglés/alemán/etc., ¿podrían hablar más " +
+  "claro?\", \"Necesitaríamos que traduzcan esto\", \"No quedó claro en qué idioma está esto\" -- " +
+  "ninguna de estas es una transcripción válida, son comentarios sobre la tarea, y jamás tienen " +
+  "que aparecer como resultado. Si dos idiomas te parecen igual de posibles (por ejemplo, sonidos " +
+  "que podrían ser tanto alemán como inglés), elegí la interpretación más probable en UN solo " +
+  "idioma y corregí el fragmento ahí -- nunca comentes la ambigüedad ni pidas que se aclare.";
 
 // A fragment that starts with something short and recognizable on its own
 // (a greeting, a yes/no) is still ONE fragment, not a cue to stop early --
@@ -92,28 +98,43 @@ function buildUserMessage(alternatives: string[], recentContext: string[]): stri
 // fragment -- it's the model breaking format despite instructions. Better to
 // silently fall back than ever show a user a paragraph like this as their
 // caption.
+//
+// This started as a list of exact phrases, but every real leak so far has
+// been a slightly different conjugation of the same underlying pattern --
+// "no puedo" caught a Mandarin leak, then "no pude" (past tense) slipped a
+// German/English one straight through the same list. Matching word STEMS
+// instead of whole phrases is meant to survive the next conjugation too,
+// instead of turning into a permanent game of whack-a-mole.
+//
+// A stem alone isn't enough, though -- "no pude" or "disculpen" are things
+// real meeting participants genuinely say ("no pude terminar el informe",
+// "disculpen la demora"), so those only count as chatter when they show up
+// together with a reference to the language/translation task itself, which
+// is what actually distinguishes the model talking about ITS OWN job from
+// someone's real spoken content. A short list of phrases that are never
+// legitimate spoken content either way (no meeting participant introduces
+// themselves as "as an assistant") are flagged on their own.
+const ALWAYS_CHATTER: RegExp[] = [/\bcomo\s+asistente\b/, /\bas\s+an\s+ai\b/];
+
+const REFUSAL_STEM =
+  /\bno\s+(puedo|pude|podemos|pudimos|logro|logr[eé]|logramos|se\s+pudo|fue\s+posible|es\s+posible|est[aá]\s+claro|qued[oó]\s+claro|entend[ií])\b|\b(lo\s+siento|disculp[ae])\b|\bi'?m\s+sorry\b|\bi\s+(cannot|can't|couldn't|could\s+not|am\s+unable)\b/;
+
+const TASK_REFERENCE =
+  /\b(idioma|language|ingl[eé]s|alem[aá]n|espa[ñn]ol|franc[eé]s|italiano|portugu[eé]s|chino|mandar[ií]n|japon[eé]s|fragmento|audio|reconocimiento|lectura|transcrib|traduc)\b/;
+
+// A direct request/instruction aimed at the reader is inherently meta -- a
+// transcription of what someone said never asks the reader to do something
+// about the transcription process -- so these don't need the task-reference
+// co-occurrence check.
+const META_REQUEST =
+  /\b(necesit(o|amos|ar[ií]a)|ser[ií]a\s+necesario|podr[ií]an|podr[ií]as|could\s+you|please)\b.{0,40}\b(traduc|hablar|aclarar|clarificar|repetir|repitan|speak|translate|clarify|repeat)/;
+
 function looksLikeModelChatter(text: string): boolean {
   if (text.length > 300) return true;
   const lower = text.toLowerCase();
-  return [
-    "no puedo",
-    "no tengo suficiente",
-    "¿podrías",
-    "podrías proporcionar",
-    "necesito lecturas",
-    "necesito más",
-    "como asistente",
-    "lo siento",
-    "disculpa",
-    "no está claro",
-    // The system prompt is in Spanish, but never trust that a confused
-    // model won't slip into English when it breaks format anyway.
-    "i cannot",
-    "i can't",
-    "i'm sorry",
-    "as an ai",
-    "could you provide",
-  ].some((phrase) => lower.includes(phrase));
+  if (ALWAYS_CHATTER.some((pattern) => pattern.test(lower))) return true;
+  if (META_REQUEST.test(lower)) return true;
+  return REFUSAL_STEM.test(lower) && TASK_REFERENCE.test(lower);
 }
 
 function buildCleanupSystemPrompt(expertiseBlock: string): string {
