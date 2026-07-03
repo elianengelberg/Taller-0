@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { explainError } from "../lib/explainError";
 
 interface UseSpeechRecognitionOptions {
   lang: string;
@@ -40,6 +41,7 @@ export function useSpeechRecognition({ lang, active, onResult, onInterim }: UseS
     const RecognitionCtor = getRecognitionConstructor();
     if (!RecognitionCtor) return;
 
+    let cancelled = false;
     setError(null);
     shouldRunRef.current = true;
     const recognition = new RecognitionCtor();
@@ -72,9 +74,22 @@ export function useSpeechRecognition({ lang, active, onResult, onInterim }: UseS
       }
       // "no-speech" and "aborted" are expected/transient (e.g. silence, or the
       // effect cleaning up to restart) -- not worth alarming the user about.
-      if (event.error !== "no-speech" && event.error !== "aborted") {
-        setError(ERROR_MESSAGES[event.error] ?? `Error de reconocimiento de voz (${event.error}).`);
+      if (event.error === "no-speech" || event.error === "aborted") return;
+
+      const known = ERROR_MESSAGES[event.error];
+      if (known) {
+        setError(known);
+        return;
       }
+      // Unrecognized error code: show it right away as a placeholder, then
+      // swap in a plain-language explanation once it's ready (or leave the
+      // raw code if that's not available) instead of showing nothing.
+      setError(`Error de reconocimiento de voz (${event.error}).`);
+      void explainError(event.error, "Error del reconocimiento de voz para subtítulos en un navegador.").then(
+        (explanation) => {
+          if (!cancelled) setError(explanation);
+        }
+      );
     };
 
     // The API stops itself after a pause in speech; restart it while captions
@@ -96,6 +111,7 @@ export function useSpeechRecognition({ lang, active, onResult, onInterim }: UseS
     }
 
     return () => {
+      cancelled = true;
       shouldRunRef.current = false;
       recognition.onresult = null;
       recognition.onerror = null;

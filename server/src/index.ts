@@ -4,6 +4,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import { answerFromMeeting } from "./ai";
 import { attachRecording, getMeetingDetail, listMeetings } from "./db";
+import { explainError } from "./explainError";
 import { registerSocketHandlers } from "./socketHandlers";
 import { createRecordingUploadUrl, storageEnabled } from "./storage";
 import { translateText } from "./translate";
@@ -34,6 +35,19 @@ app.post("/api/translate", async (req, res) => {
   } catch (err) {
     res.status(502).json({ error: "No se pudo traducir el texto en este momento." });
   }
+});
+
+app.post("/api/explain-error", async (req, res) => {
+  const { error, context } = req.body ?? {};
+  if (typeof error !== "string" || !error.trim()) {
+    res.status(400).json({ error: "error es obligatorio." });
+    return;
+  }
+  const explanation = await explainError(error, typeof context === "string" ? context : undefined);
+  // Not an error response even when there's no explanation available (no
+  // API key, or the call failed) -- callers are expected to fall back to
+  // showing the raw error themselves in that case.
+  res.json({ explanation });
 });
 
 // Past-meetings history: list, detail, recording upload, and the AI Q&A

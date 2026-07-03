@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { explainError } from "../lib/explainError";
 import { getSocket } from "../lib/socket";
 import {
   ChatMessage,
@@ -214,9 +215,20 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     socket.on("host-changed", ({ hostId }: { hostId: string }) => {
       dispatch({ type: "HOST_CHANGED", hostId });
     });
-    socket.on("connect_error", () => {
+    socket.on("connect_error", (err: Error) => {
+      // Don't get stuck on "error" mid-reconnect after we already had a
+      // working session -- the socket keeps retrying on its own and the
+      // "connect" handler above rejoins automatically once it succeeds.
+      if (selfIdRef.current) return;
       setConnectionStatus("error");
-      setConnectionError("No se pudo conectar con el servidor de reuniones.");
+      const fallback = "No se pudo conectar con el servidor de reuniones.";
+      setConnectionError(fallback);
+      const raw = err?.message;
+      if (raw) {
+        void explainError(raw, "Fallo al conectar por WebSocket con el servidor de la reunión.").then(
+          (explanation) => setConnectionError(explanation)
+        );
+      }
     });
 
     return () => {
