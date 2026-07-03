@@ -56,7 +56,20 @@ function persistParticipants(meeting: Meeting): void {
 // next fragment from the same speaker arrives within this window and nobody
 // else has spoken in between, fold it into the previous line instead of
 // starting a new one.
-const MERGE_WINDOW_MS = 2500;
+//
+// 2.5s used to be enough for fluent native speech, but someone speaking
+// deliberately -- reading a phrase carefully, pausing between words to get
+// pronunciation right in a language they're less comfortable in -- can
+// easily leave a longer gap than that between two halves of the SAME
+// thought. When that happens the second half starts a new, unmerged line,
+// and because the on-screen caption bubble only ever shows the single most
+// recent line (see LiveCaption's 6s auto-hide below), it looks like
+// everything before it just vanished, even though it's still sitting in the
+// Transcripción panel as a separate line. Matching this to LiveCaption's own
+// 6s visibility window keeps both in sync: as long as the previous caption
+// would still be on screen, a new fragment from the same speaker is treated
+// as a continuation of it rather than a fresh thought.
+const MERGE_WINDOW_MS = 6000;
 // Stop folding fragments into an ever-growing single line -- both to keep
 // the correction call's input sane and because a gap this long is more
 // likely a new thought than a continuation anyway.
