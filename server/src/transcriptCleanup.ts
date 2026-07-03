@@ -29,26 +29,17 @@ const CLEANUP_MODEL = process.env.ANTHROPIC_TRANSCRIPT_MODEL || "claude-haiku-4-
 // long, ship the raw recognized text instead of stalling the conversation.
 const CLEANUP_TIMEOUT_MS = 3500;
 
-// This is a video-meeting app, so certain everyday words come up constantly
-// in the conversations being transcribed (people talking about the app
-// itself, not just their meeting topic) and are worth being biased toward
-// when a candidate reading is ambiguous -- e.g. "chat" getting misheard as
-// "champ" happens because "chat" alone is a shorter, less common word for
-// the recognizer to lock onto than it should be here.
-const DOMAIN_HINT =
-  "Esto es una videollamada, así que estas palabras aparecen seguido y son buenas candidatas " +
-  "cuando una lectura es ambigua: chat, pantalla, compartir pantalla, micrófono, cámara, " +
-  "subtítulos, transcripción, reunión, grabar, grabación, rol, participante, anfitrión, silenciar.";
-
-// Every language the app offers has an expertise entry, but always dumping
-// all eight into every single call (regardless of which language is even
-// remotely relevant) made each system prompt roughly 4x longer with mostly
-// irrelevant examples -- risking diluting the model's adherence to the much
-// more important "always correct/translate the WHOLE fragment" instructions
-// below. Scoped instead to whichever language(s) are actually plausible for
-// this call (the caller's best guess at who's speaking, plus -- for
-// translation -- whichever languages it's translating into); falls back to
-// every language only if no guess is available at all.
+// Every language the app offers has an expertise entry (which itself
+// includes that language's own translated app-vocabulary anchors -- see
+// DOMAIN_VOCAB in translate.ts), but always dumping all eight into every
+// single call (regardless of which language is even remotely relevant) made
+// each system prompt roughly 4x longer with mostly irrelevant examples --
+// risking diluting the model's adherence to the much more important "always
+// correct/translate the WHOLE fragment" instructions below. Scoped instead
+// to whichever language(s) are actually plausible for this call (the
+// caller's best guess at who's speaking, plus -- for translation --
+// whichever languages it's translating into); falls back to every language
+// only if no guess is available at all.
 const ALL_EXPERTISE_LANGS = ["es", "en", "pt", "fr", "it", "de", "zh", "ja"];
 
 function expertiseBlockFor(relevantCodes: (string | undefined)[]): string {
@@ -146,9 +137,9 @@ Para cada fragmento te paso varias lecturas candidatas que el propio reconocimie
 generó para el mismo audio (ordenadas de más a menos probable según el reconocimiento), más el
 contexto reciente de la conversación. Estas lecturas alternativas son tu pista más fuerte de
 qué se dijo realmente -- muchas veces la palabra correcta aparece en una alternativa aunque no
-sea la primera.
-
-${DOMAIN_HINT}
+sea la primera. Esto es una videollamada, así que las palabras propias de la app aparecen
+seguido en la conversación (más abajo hay una lista específica del idioma correspondiente, si
+está disponible).
 
 ${LANGUAGE_MISMATCH_RULE}
 
@@ -279,9 +270,9 @@ function translateAllSystemPrompt(targets: { code: string; name: string }[], exp
   return `Te paso varias lecturas candidatas que un reconocimiento de voz en vivo generó para el
 mismo fragmento de audio (ordenadas de más a menos probable), más el contexto reciente de la
 conversación. El reconocimiento a veces confunde una palabra con otra que suena parecida pero
-no tiene sentido en el contexto.
-
-${DOMAIN_HINT}
+no tiene sentido en el contexto. Esto es una videollamada, así que las palabras propias de la
+app aparecen seguido en la conversación (más abajo hay una lista específica del idioma
+correspondiente, si está disponible).
 
 ${LANGUAGE_MISMATCH_RULE}
 

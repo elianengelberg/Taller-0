@@ -33,6 +33,41 @@ const LANGUAGE_NAMES: Record<string, string> = {
   ja: "Japanese",
 };
 
+// Same names, but in Spanish -- for dropping into the (Spanish-language)
+// cleanup/correction system prompts, where an English name would read as an
+// odd word dropped into an otherwise Spanish sentence.
+const SPANISH_LANGUAGE_NAMES: Record<string, string> = {
+  es: "español",
+  en: "inglés",
+  pt: "portugués",
+  fr: "francés",
+  it: "italiano",
+  de: "alemán",
+  zh: "chino",
+  ja: "japonés",
+};
+
+// Words from this app itself (chat, share screen, microphone...) come up
+// constantly in the conversations being transcribed, since people talk
+// about the call they're on, not just their meeting topic -- worth being
+// biased toward when a candidate reading is ambiguous (e.g. "chat" getting
+// misheard as "champ" happens because "chat" alone is a short, less common
+// word for the recognizer to lock onto than it should be here). This used
+// to be a single Spanish-only list, which meant it only ever helped Spanish
+// speakers -- everyone else's meetings still have this exact same vocabulary
+// coming up, just in their own language, so each language below gets its
+// own translated anchor list instead.
+const DOMAIN_VOCAB: Partial<Record<string, string>> = {
+  es: "chat, pantalla, compartir pantalla, micrófono, cámara, subtítulos, transcripción, reunión, grabar, grabación, rol, participante, anfitrión, silenciar",
+  en: "chat, screen, share screen, microphone, camera, captions, subtitles, transcript, meeting, record, recording, role, participant, host, mute",
+  pt: "chat, tela, compartilhar tela, microfone, câmera, legendas, transcrição, reunião, gravar, gravação, função, participante, anfitrião, silenciar",
+  fr: "chat, écran, partager l'écran, microphone, caméra, sous-titres, transcription, réunion, enregistrer, enregistrement, rôle, participant, hôte, muet",
+  it: "chat, schermo, condividi schermo, microfono, videocamera, sottotitoli, trascrizione, riunione, registrare, registrazione, ruolo, partecipante, host, silenzia",
+  de: "Chat, Bildschirm, Bildschirm teilen, Mikrofon, Kamera, Untertitel, Transkript, Besprechung, aufnehmen, Aufnahme, Rolle, Teilnehmer, Gastgeber, stummschalten",
+  zh: "聊天 (chat), 屏幕 (pantalla), 共享屏幕 (compartir pantalla), 麦克风 (micrófono), 摄像头 (cámara), 字幕 (subtítulos), 转录 (transcripción), 会议 (reunión), 录制 (grabar), 角色 (rol), 参与者 (participante), 主持人 (anfitrión), 静音 (silenciar)",
+  ja: "チャット (chat), 画面 (pantalla), 画面共有 (compartir pantalla), マイク (micrófono), カメラ (cámara), 字幕 (subtítulos), 文字起こし (transcripción), 会議 (reunión), 録画 (grabar), 役割 (rol), 参加者 (participante), ホスト (anfitrión), ミュート (silenciar)",
+};
+
 // Real linguistic knowledge for every language the app offers -- not a
 // "training" step (Claude already knows these languages deeply; there's no
 // separate study phase to run), but concrete failure patterns worth naming
@@ -72,7 +107,16 @@ const LANGUAGE_EXPERTISE: Partial<Record<string, string>> = {
     "\"für\", \"Bar\" ≠ \"Bär\"). El alemán también forma sustantivos compuestos largos uniendo varias " +
     "palabras sin espacio (ej: \"Lebensmittelgeschäft\"); el reconocimiento a veces los separa por error " +
     "en palabras sueltas sin sentido -- reconstruilos como una sola palabra compuesta cuando el contexto " +
-    "lo sugiera. Los sustantivos en alemán siempre llevan mayúscula inicial.",
+    "lo sugiera. Los sustantivos en alemán siempre llevan mayúscula inicial. El alemán también tiene " +
+    "muchos pares de palabras cortas que suenan muy parecido y se confunden fácil: por la pérdida de " +
+    "sonoridad al final de palabra, \"Rad\" (rueda) puede sonar como \"Rat\" (consejo) y \"Bund\" como " +
+    "\"bunt\" (colorido); por diferencias sutiles de duración vocálica, \"Stadt\" (ciudad) se confunde " +
+    "con \"Staat\" (estado) y \"offen\" (abierto) con \"Ofen\" (horno); y palabras funcionales cortas " +
+    "como \"und\"/\"an\", \"mit\"/\"mich\"/\"mir\", \"ist\"/\"isst\", \"war\"/\"wahr\" se confunden " +
+    "seguido en habla rápida y fluida -- elegí la que tenga sentido gramatical en el resto de la " +
+    "oración. El alemán además manda el verbo al final en oraciones subordinadas (ej: \"..., weil ich " +
+    "das nicht verstanden habe\") -- no reordenes la oración a un orden más \"natural\" en otro idioma, " +
+    "dejá el verbo donde corresponde en alemán aunque suene raro traducido literalmente.",
   zh:
     "Chino: escribí SIEMPRE en caracteres simplificados (简体字), nunca en tradicionales (繁體字), " +
     "sin importar qué haya usado el reconocimiento de voz o el texto de origen. El reconocimiento de " +
@@ -91,6 +135,15 @@ const LANGUAGE_EXPERTISE: Partial<Record<string, string>> = {
     "las palabras con espacios: prestá atención a dónde probablemente empieza y termina cada palabra.",
 };
 
+function domainVocabLine(code: string): string | undefined {
+  const short = shortLang(code);
+  const words = DOMAIN_VOCAB[short];
+  if (!words) return undefined;
+  const name = SPANISH_LANGUAGE_NAMES[short] ?? short;
+  return `Palabras de esta app en ${name} que aparecen seguido y son buenas candidatas cuando una ` +
+    `lectura es ambigua: ${words}.`;
+}
+
 export function shortLang(lang: string): string {
   return lang.split("-")[0].toLowerCase();
 }
@@ -99,19 +152,19 @@ export function languageName(code: string): string {
   return LANGUAGE_NAMES[shortLang(code)] ?? code;
 }
 
-// Returns the combined expertise notes for whichever of the given codes have
-// one, deduped by short code, in a form ready to drop into a system prompt.
-// Codes with no specific entry are silently skipped (nothing to add).
+// Returns the combined domain-vocabulary + linguistic-expertise notes for
+// whichever of the given codes have one, deduped by short code, in a form
+// ready to drop into a system prompt. Codes with no specific entry are
+// silently skipped (nothing to add).
 export function languageExpertiseHints(codes: string[]): string {
   const seen = new Set<string>();
   const hints: string[] = [];
   for (const code of codes) {
     const short = shortLang(code);
-    const hint = LANGUAGE_EXPERTISE[short];
-    if (hint && !seen.has(short)) {
-      seen.add(short);
-      hints.push(hint);
-    }
+    if (seen.has(short)) continue;
+    seen.add(short);
+    const parts = [domainVocabLine(short), LANGUAGE_EXPERTISE[short]].filter(Boolean);
+    if (parts.length) hints.push(parts.join(" "));
   }
   return hints.join("\n\n");
 }
