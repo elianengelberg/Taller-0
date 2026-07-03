@@ -5,6 +5,22 @@
 // Claude to restore the most likely intended words before it's ever stored,
 // broadcast, or translated -- fixing the problem at the source instead of
 // papering over it later.
+//
+// It also has to cope with someone speaking a *different* language than
+// whatever they've configured (they switched languages, forgot to change
+// the setting, or -- as happened once -- someone tested with foreign-
+// language audio). The recognizer can still hand back correctly-scripted
+// text in that other language even though it was told to expect a
+// different one, and the recent conversation context will look like a
+// mismatch. Left unhandled, a model asked to "stay in the context's
+// language" can get confused enough to refuse outright instead of just
+// transcribing what's actually there -- which is exactly what leaking a
+// paragraph like "No puedo procesar este fragmento..." into someone's
+// caption looks like. Everything below is built to never do that: always
+// trust what the candidate readings actually say over what the
+// conversation *should* be in, always answer in a fixed, mechanical format
+// instead of open-ended prose, and always fall back to the raw reading
+// rather than ever surface model chatter as a "transcription".
 import { anthropicClient } from "./anthropicClient";
 import { languageName } from "./translate";
 
@@ -24,12 +40,54 @@ const DOMAIN_HINT =
   "cuando una lectura es ambigua: chat, pantalla, compartir pantalla, micrófono, cámara, " +
   "subtítulos, transcripción, reunión, grabar, grabación, rol, participante, anfitrión, silenciar.";
 
+const LANGUAGE_MISMATCH_RULE =
+  "Las lecturas candidatas son SIEMPRE tu fuente de verdad sobre qué idioma se habló, incluso " +
+  "si el contexto reciente de la conversación está en otro idioma -- eso solo significa que la " +
+  "persona cambió de idioma, que estás escuchando a alguien nuevo, o que hay más de un idioma " +
+  "en la reunión (esta app traduce en vivo entre idiomas, así que eso es normal y esperado). " +
+  "Nunca fuerces el fragmento al idioma del contexto ni trates un idioma distinto como un " +
+  "error a corregir.";
+
+const NEVER_REFUSE_RULE =
+  "Nunca respondas con una explicación, una pregunta, una disculpa, ni digas que no podés " +
+  "procesar algo o que necesitás más información -- siempre completá el formato de respuesta " +
+  "pedido con tu mejor estimación posible, aunque tengas dudas. Es preferible una estimación " +
+  "imperfecta a no responder.";
+
 function buildUserMessage(alternatives: string[], recentContext: string[]): string {
   const contextBlock = recentContext.length
     ? `Contexto reciente de la conversación (más antiguo primero):\n${recentContext.join("\n")}\n\n`
     : "";
   const alternativesBlock = alternatives.map((a, i) => `${i + 1}. ${a}`).join("\n");
   return `${contextBlock}Lecturas candidatas del mismo fragmento:\n${alternativesBlock}`;
+}
+
+// Anything this long or this apologetic/question-y is not a transcription
+// fragment -- it's the model breaking format despite instructions. Better to
+// silently fall back than ever show a user a paragraph like this as their
+// caption.
+function looksLikeModelChatter(text: string): boolean {
+  if (text.length > 300) return true;
+  const lower = text.toLowerCase();
+  return [
+    "no puedo",
+    "no tengo suficiente",
+    "¿podrías",
+    "podrías proporcionar",
+    "necesito lecturas",
+    "necesito más",
+    "como asistente",
+    "lo siento",
+    "disculpa",
+    "no está claro",
+    // The system prompt is in Spanish, but never trust that a confused
+    // model won't slip into English when it breaks format anyway.
+    "i cannot",
+    "i can't",
+    "i'm sorry",
+    "as an ai",
+    "could you provide",
+  ].some((phrase) => lower.includes(phrase));
 }
 
 const CLEANUP_SYSTEM_PROMPT = `Corregís fragmentos cortos de una transcripción de voz a texto en vivo. El
@@ -44,24 +102,52 @@ sea la primera.
 
 ${DOMAIN_HINT}
 
+${LANGUAGE_MISMATCH_RULE}
+
+${NEVER_REFUSE_RULE}
+
 Reglas estrictas:
 - Elegí o reconstruí la versión más coherente del fragmento, dando prioridad a lo que ya
   aparece en alguna de las lecturas candidatas antes que a inventar una palabra que no esté
   sugerida por ninguna de ellas.
-- Usá el contexto reciente de la conversación para decidir qué lectura tiene más sentido.
-- No traduzcas, no cambies el idioma del fragmento.
+- Corregí el fragmento en el idioma en el que realmente está (el de las lecturas candidatas) --
+  no lo traduzcas a otro idioma.
 - No parafrasees, no resumas, no agregues ni saques contenido más allá de corregir errores
   claros de reconocimiento.
-- Si la primera lectura ya tiene sentido tal cual está, devolvela exactamente igual, sin cambios.
-- Respondé ÚNICAMENTE con el fragmento final -- sin comillas, sin notas, sin explicaciones.`;
+- Si la primera lectura ya tiene sentido tal cual está, dejala exactamente igual, sin cambios.
+
+Formato de respuesta obligatorio, EXACTAMENTE estas dos líneas y nada más (sin texto antes ni
+después):
+IDIOMA: <código de idioma de 2 letras del fragmento final -- ej: es, en, zh, it, pt, fr, de, ja>
+TEXTO: <el fragmento corregido>`;
+
+export interface CleanupResult {
+  text: string;
+  // Best-guess short language code (e.g. "es", "zh") for what was actually
+  // said, which may differ from whatever the participant has configured.
+  // null when Claude is unavailable/unreliable -- callers should fall back
+  // to the participant's configured language in that case.
+  detectedLang: string | null;
+}
+
+function parseCleanupResponse(raw: string, fallback: string): CleanupResult {
+  const langMatch = raw.match(/IDIOMA:\s*([a-z]{2})/i);
+  const textMatch = raw.match(/TEXTO:\s*([\s\S]*)/i);
+  const text = textMatch?.[1]?.trim();
+
+  if (!text || looksLikeModelChatter(text)) {
+    return { text: fallback, detectedLang: null };
+  }
+  return { text, detectedLang: langMatch?.[1]?.toLowerCase() ?? null };
+}
 
 export async function cleanTranscriptFragment(
   alternatives: string[],
   recentContext: string[]
-): Promise<string> {
+): Promise<CleanupResult> {
   const trimmedAlternatives = alternatives.map((a) => a.trim()).filter(Boolean);
   const best = trimmedAlternatives[0] ?? "";
-  if (!anthropicClient || !best) return best;
+  if (!anthropicClient || !best) return { text: best, detectedLang: null };
 
   try {
     const response = await anthropicClient.messages.create(
@@ -75,14 +161,13 @@ export async function cleanTranscriptFragment(
     );
     for (const block of response.content) {
       if (block.type === "text") {
-        const cleaned = block.text.trim();
-        return cleaned || best;
+        return parseCleanupResponse(block.text, best);
       }
     }
-    return best;
+    return { text: best, detectedLang: null };
   } catch {
     // Timeout, rate limit, network error, etc. -- never block captions on this.
-    return best;
+    return { text: best, detectedLang: null };
   }
 }
 
@@ -104,11 +189,15 @@ no tiene sentido en el contexto.
 
 ${DOMAIN_HINT}
 
+${LANGUAGE_MISMATCH_RULE}
+
+${NEVER_REFUSE_RULE}
+
 Tu tarea, en dos pasos internos (pero respondé ÚNICAMENTE con el resultado del paso 2, nunca
-muestres el paso 1):
-1. Reconstruí mentalmente cuál es la versión más coherente del fragmento original, dando
-   prioridad a lo que ya aparece en alguna lectura candidata antes que a inventar algo que
-   ninguna sugiere. Usá el contexto reciente para decidir qué lectura tiene más sentido.
+muestres el paso 1 ni menciones en qué idioma estaba el original):
+1. Reconstruí mentalmente cuál es la versión más coherente del fragmento original -- en el
+   idioma en el que las lecturas candidatas realmente están --, dando prioridad a lo que ya
+   aparece en alguna lectura candidata antes que a inventar algo que ninguna sugiere.
 2. Traducí esa versión corregida a ${targetLanguage}.
 
 Reglas:
@@ -140,7 +229,8 @@ export async function cleanAndTranslateFragment(
     for (const block of response.content) {
       if (block.type === "text") {
         const translated = block.text.trim();
-        return translated || null;
+        if (!translated || looksLikeModelChatter(translated)) return null;
+        return translated;
       }
     }
     return null;
