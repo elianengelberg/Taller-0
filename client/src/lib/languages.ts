@@ -15,7 +15,7 @@ export const LANGUAGES: LanguageOption[] = [
   { code: "fr-FR", label: "Francés" },
   { code: "it-IT", label: "Italiano" },
   { code: "de-DE", label: "Alemán" },
-  { code: "zh-CN", label: "Chino (mandarín)" },
+  { code: "zh-CN", label: "Chino (simplificado)" },
   { code: "ja-JP", label: "Japonés" },
 ];
 

@@ -22,7 +22,7 @@
 // instead of open-ended prose, and always fall back to the raw reading
 // rather than ever surface model chatter as a "transcription".
 import { anthropicClient } from "./anthropicClient";
-import { languageName } from "./translate";
+import { languageExpertiseHints, languageName } from "./translate";
 
 const CLEANUP_MODEL = process.env.ANTHROPIC_TRANSCRIPT_MODEL || "claude-haiku-4-5";
 // Live captions need to feel instant -- if the correction call takes too
@@ -39,6 +39,14 @@ const DOMAIN_HINT =
   "Esto es una videollamada, así que estas palabras aparecen seguido y son buenas candidatas " +
   "cuando una lectura es ambigua: chat, pantalla, compartir pantalla, micrófono, cámara, " +
   "subtítulos, transcripción, reunión, grabar, grabación, rol, participante, anfitrión, silenciar.";
+
+// The fragment's language isn't known until the model figures it out (that's
+// part of its job here), so this can't be scoped to "only when it's Chinese"
+// in advance -- it's always included, self-scoped by its own "cuando el
+// fragmento esté en..." wording, and simply doesn't apply when the fragment
+// turns out to be some other language.
+const KNOWN_EXPERTISE_LANGS = ["zh", "de"];
+const LANGUAGE_EXPERTISE_BLOCK = languageExpertiseHints(KNOWN_EXPERTISE_LANGS);
 
 const LANGUAGE_MISMATCH_RULE =
   "Las lecturas candidatas son SIEMPRE tu fuente de verdad sobre qué idioma se habló, incluso " +
@@ -105,6 +113,8 @@ ${DOMAIN_HINT}
 ${LANGUAGE_MISMATCH_RULE}
 
 ${NEVER_REFUSE_RULE}
+
+${LANGUAGE_EXPERTISE_BLOCK}
 
 Reglas estrictas:
 - Elegí o reconstruí la versión más coherente del fragmento, dando prioridad a lo que ya
@@ -227,6 +237,8 @@ ${DOMAIN_HINT}
 ${LANGUAGE_MISMATCH_RULE}
 
 ${NEVER_REFUSE_RULE}
+
+${LANGUAGE_EXPERTISE_BLOCK}
 
 Tu tarea:
 1. Reconstruí cuál es la versión más coherente del fragmento original -- en el idioma en el

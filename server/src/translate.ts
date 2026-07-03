@@ -25,8 +25,39 @@ const LANGUAGE_NAMES: Record<string, string> = {
   fr: "French",
   it: "Italian",
   de: "German",
-  zh: "Chinese",
+  // Explicit about the script, not just the language: mainland China,
+  // Singapore, etc. use simplified characters (简体字); Taiwan/Hong Kong use
+  // traditional (繁體字). Naming it plainly "Chinese" left the model free to
+  // pick either -- this pins every translation/correction to simplified.
+  zh: "Simplified Chinese",
   ja: "Japanese",
+};
+
+// Real linguistic knowledge for the two languages worth calling out
+// explicitly -- not a "training" step (Claude already knows these languages
+// deeply; there's no separate study phase to run), but concrete failure
+// patterns worth naming so the model actively watches for them instead of
+// just doing generic correction/translation. Keyed by short language code;
+// only languages where this pays off are listed.
+const LANGUAGE_EXPERTISE: Partial<Record<string, string>> = {
+  zh:
+    "Chino: escribí SIEMPRE en caracteres simplificados (简体字), nunca en tradicionales (繁體字), " +
+    "sin importar qué haya usado el reconocimiento de voz o el texto de origen. El reconocimiento de " +
+    "voz en chino se equivoca casi siempre por HOMÓFONOS -- muchos caracteres distintos suenan igual o " +
+    "casi igual, a veces la única diferencia es el tono (ej: 是/十/时/使/世 se pronuncian todos \"shi\"; " +
+    "在/再 ambos \"zai\"; 你/泥/逆 todos \"ni\"). Usá tu conocimiento del pinyin y qué carácter tiene " +
+    "sentido semántico en el contexto para elegir el correcto -- no asumas que el primero que dio el " +
+    "reconocimiento es el correcto solo por aparecer primero entre las alternativas. El chino no separa " +
+    "las palabras con espacios: prestá atención a dónde probablemente empieza y termina cada palabra " +
+    "dentro del fragmento antes de corregirlo o traducirlo.",
+  de:
+    "Alemán: prestá especial atención a la diéresis (ä, ö, ü) y a la ß (Eszett) -- el reconocimiento de " +
+    "voz muchas veces las reemplaza por la vocal simple o por \"ae\"/\"oe\"/\"ue\"/\"ss\", lo que cambia " +
+    "el significado real de la palabra (ej: \"schon\" ≠ \"schön\", \"Strasse\" ≠ \"Straße\", \"fuer\" ≠ " +
+    "\"für\", \"Bar\" ≠ \"Bär\"). El alemán también forma sustantivos compuestos largos uniendo varias " +
+    "palabras sin espacio (ej: \"Lebensmittelgeschäft\"); el reconocimiento a veces los separa por error " +
+    "en palabras sueltas sin sentido -- reconstruilos como una sola palabra compuesta cuando el contexto " +
+    "lo sugiera. Los sustantivos en alemán siempre llevan mayúscula inicial.",
 };
 
 export function shortLang(lang: string): string {
@@ -37,17 +68,37 @@ export function languageName(code: string): string {
   return LANGUAGE_NAMES[shortLang(code)] ?? code;
 }
 
+// Returns the combined expertise notes for whichever of the given codes have
+// one, deduped by short code, in a form ready to drop into a system prompt.
+// Codes with no specific entry are silently skipped (nothing to add).
+export function languageExpertiseHints(codes: string[]): string {
+  const seen = new Set<string>();
+  const hints: string[] = [];
+  for (const code of codes) {
+    const short = shortLang(code);
+    const hint = LANGUAGE_EXPERTISE[short];
+    if (hint && !seen.has(short)) {
+      seen.add(short);
+      hints.push(hint);
+    }
+  }
+  return hints.join("\n\n");
+}
+
 function cacheKey(text: string, source: string, target: string): string {
   return `${shortLang(source)}|${shortLang(target)}|${text}`;
 }
 
 async function translateWithClaude(text: string, from: string, to: string): Promise<string> {
+  const expertise = languageExpertiseHints([from, to]);
+  const system =
+    `Translate the user's message from ${languageName(from)} to ${languageName(to)}. ` +
+    `Reply with ONLY the translated text -- no quotes, no notes, no explanations.` +
+    (expertise ? `\n\n${expertise}` : "");
   const response = await anthropicClient!.messages.create({
     model: TRANSLATE_MODEL,
     max_tokens: 1024,
-    system:
-      `Translate the user's message from ${languageName(from)} to ${languageName(to)}. ` +
-      `Reply with ONLY the translated text -- no quotes, no notes, no explanations.`,
+    system,
     messages: [{ role: "user", content: text }],
   });
 
