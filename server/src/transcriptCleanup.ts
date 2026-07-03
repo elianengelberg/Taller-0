@@ -141,6 +141,23 @@ function parseCleanupResponse(raw: string, fallback: string): CleanupResult {
   return { text, detectedLang: langMatch?.[1]?.toLowerCase() ?? null };
 }
 
+// Short, everyday utterances ("hola", "gracias", "listo", "sí") come up
+// over and over in a normal call and always resolve the same way regardless
+// of context -- caching them skips a whole Claude round trip on repeat.
+// Longer sentences essentially never repeat verbatim, so there's no upside
+// (and some risk, since longer fragments are more context-dependent) to
+// caching them -- they're not even looked up.
+const CACHEABLE_MAX_CHARS = 60;
+const CACHE_TTL_MS = 60 * 60 * 1000;
+
+function normalizeForCache(text: string): string | null {
+  const normalized = text.trim().toLowerCase().replace(/[.,!?¡¿]+$/g, "").replace(/\s+/g, " ");
+  if (!normalized || normalized.length > CACHEABLE_MAX_CHARS) return null;
+  return normalized;
+}
+
+const cleanupCache = new Map<string, { result: CleanupResult; expiresAt: number }>();
+
 export async function cleanTranscriptFragment(
   alternatives: string[],
   recentContext: string[]
@@ -148,6 +165,12 @@ export async function cleanTranscriptFragment(
   const trimmedAlternatives = alternatives.map((a) => a.trim()).filter(Boolean);
   const best = trimmedAlternatives[0] ?? "";
   if (!anthropicClient || !best) return { text: best, detectedLang: null };
+
+  const cacheKey = normalizeForCache(best);
+  if (cacheKey) {
+    const cached = cleanupCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.result;
+  }
 
   try {
     const response = await anthropicClient.messages.create(
@@ -161,7 +184,11 @@ export async function cleanTranscriptFragment(
     );
     for (const block of response.content) {
       if (block.type === "text") {
-        return parseCleanupResponse(block.text, best);
+        const result = parseCleanupResponse(block.text, best);
+        if (cacheKey && result.detectedLang) {
+          cleanupCache.set(cacheKey, { result, expiresAt: Date.now() + CACHE_TTL_MS });
+        }
+        return result;
       }
     }
     return { text: best, detectedLang: null };
@@ -177,11 +204,19 @@ export async function cleanTranscriptFragment(
 // does the same "figure out what was actually said" correction internally
 // in the SAME call as the translation, so it can be kicked off in parallel
 // with cleanTranscriptFragment (which still exists to produce the original-
-// language caption) instead of waiting for it -- roughly halving the time
-// before a translated caption shows up, which matters a lot for keeping up
-// with back-to-back sentences instead of a translation losing the race
-// against the next line coming in.
-function cleanAndTranslateSystemPrompt(targetLanguage: string): string {
+// language caption) instead of waiting for it.
+//
+// It also used to fire one of these calls PER target language (three people
+// in the meeting speaking three different languages than the speaker meant
+// three separate Claude calls, each silently redoing the exact same "what
+// did they actually say" correction internally). Asking for every
+// translation in one shot cuts that back to a single call: cheaper, and
+// every language ends up translated from the exact same corrected text
+// instead of three independently-reconstructed guesses that could disagree
+// with each other on an ambiguous word.
+function translateAllSystemPrompt(targets: { code: string; name: string }[]): string {
+  const targetList = targets.map((t) => `${t.name} (código ${t.code})`).join(", ");
+  const responseLines = targets.map((t) => `TRAD_${t.code}: <traducción del fragmento corregido a ${t.name}>`).join("\n");
   return `Te paso varias lecturas candidatas que un reconocimiento de voz en vivo generó para el
 mismo fragmento de audio (ordenadas de más a menos probable), más el contexto reciente de la
 conversación. El reconocimiento a veces confunde una palabra con otra que suena parecida pero
@@ -193,48 +228,88 @@ ${LANGUAGE_MISMATCH_RULE}
 
 ${NEVER_REFUSE_RULE}
 
-Tu tarea, en dos pasos internos (pero respondé ÚNICAMENTE con el resultado del paso 2, nunca
-muestres el paso 1 ni menciones en qué idioma estaba el original):
-1. Reconstruí mentalmente cuál es la versión más coherente del fragmento original -- en el
-   idioma en el que las lecturas candidatas realmente están --, dando prioridad a lo que ya
-   aparece en alguna lectura candidata antes que a inventar algo que ninguna sugiere.
-2. Traducí esa versión corregida a ${targetLanguage}.
+Tu tarea:
+1. Reconstruí cuál es la versión más coherente del fragmento original -- en el idioma en el
+   que las lecturas candidatas realmente están --, dando prioridad a lo que ya aparece en
+   alguna lectura candidata antes que a inventar algo que ninguna sugiere.
+2. Traducí esa versión corregida a cada uno de estos idiomas: ${targetList}.
 
 Reglas:
 - Si no hay ambigüedad real entre las lecturas, no inventes cambios -- traducí tal cual dice
   la lectura más probable.
 - No agregues ni saques contenido más allá de lo que ya está en el fragmento.
-- Respondé ÚNICAMENTE con la traducción final -- sin comillas, sin notas, sin explicaciones,
-  sin mostrar el fragmento corregido en el idioma original.`;
+- Cada traducción tiene que basarse en la MISMA versión corregida del fragmento -- no
+  reinterpretes el fragmento de forma distinta para cada idioma.
+
+Formato de respuesta obligatorio, EXACTAMENTE estas líneas y nada más (sin texto antes ni
+después, una línea por elemento, sin mostrar el fragmento corregido en su idioma original):
+${responseLines}`;
 }
 
-export async function cleanAndTranslateFragment(
+// Parsed with a fixed pattern and cross-checked against `targets` by plain
+// string comparison, rather than building a RegExp out of each code, since
+// language codes ultimately trace back to unvalidated user input (the
+// `set-language` socket event never restricts its format) -- interpolating
+// one into a RegExp constructor would be a regex-injection/ReDoS risk.
+function parseTranslateAllResponse(raw: string, targets: { code: string; name: string }[]): Record<string, string> {
+  const wanted = new Set(targets.map((t) => t.code));
+  const translations: Record<string, string> = {};
+  for (const line of raw.split("\n")) {
+    const match = line.match(/^TRAD_([A-Za-z]{2,8}):\s*(.+)$/);
+    if (!match) continue;
+    const code = match[1].toLowerCase();
+    const value = match[2].trim();
+    if (wanted.has(code) && value && !looksLikeModelChatter(value)) {
+      translations[code] = value;
+    }
+  }
+  return translations;
+}
+
+const translateAllCache = new Map<string, { result: Record<string, string>; expiresAt: number }>();
+
+// `targetLangCodes` are already-deduped short codes (e.g. "en", not
+// "en-US" -- see the caller, which collapses everyone speaking English
+// variants into a single "en" translation instead of one per variant).
+export async function translateFragmentToAll(
   alternatives: string[],
   recentContext: string[],
-  targetLang: string
-): Promise<string | null> {
+  targetLangCodes: string[]
+): Promise<Record<string, string>> {
   const trimmedAlternatives = alternatives.map((a) => a.trim()).filter(Boolean);
-  if (!anthropicClient || trimmedAlternatives.length === 0) return null;
+  if (!anthropicClient || trimmedAlternatives.length === 0 || targetLangCodes.length === 0) return {};
+
+  const best = trimmedAlternatives[0];
+  const cacheKey = normalizeForCache(best);
+  const fullCacheKey = cacheKey ? `${cacheKey}|${[...targetLangCodes].sort().join(",")}` : null;
+  if (fullCacheKey) {
+    const cached = translateAllCache.get(fullCacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.result;
+  }
+
+  const targets = targetLangCodes.map((code) => ({ code, name: languageName(code) }));
 
   try {
     const response = await anthropicClient.messages.create(
       {
         model: CLEANUP_MODEL,
-        max_tokens: 512,
-        system: cleanAndTranslateSystemPrompt(languageName(targetLang)),
+        max_tokens: 1536,
+        system: translateAllSystemPrompt(targets),
         messages: [{ role: "user", content: buildUserMessage(trimmedAlternatives, recentContext) }],
       },
       { timeout: CLEANUP_TIMEOUT_MS }
     );
     for (const block of response.content) {
       if (block.type === "text") {
-        const translated = block.text.trim();
-        if (!translated || looksLikeModelChatter(translated)) return null;
-        return translated;
+        const translations = parseTranslateAllResponse(block.text, targets);
+        if (fullCacheKey && Object.keys(translations).length === targetLangCodes.length) {
+          translateAllCache.set(fullCacheKey, { result: translations, expiresAt: Date.now() + CACHE_TTL_MS });
+        }
+        return translations;
       }
     }
-    return null;
+    return {};
   } catch {
-    return null;
+    return {};
   }
 }

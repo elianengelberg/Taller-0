@@ -12,8 +12,8 @@ import {
   removeParticipant,
   scheduleMeetingCleanupIfEmpty,
 } from "./meetingStore";
-import { cleanAndTranslateFragment, cleanTranscriptFragment } from "./transcriptCleanup";
-import { shortLang } from "./translate";
+import { cleanTranscriptFragment, translateFragmentToAll } from "./transcriptCleanup";
+import { shortLang, translateText } from "./translate";
 import { Meeting, toSnapshot, TranscriptLine } from "./types";
 
 const MAX_NAME_LENGTH = 60;
@@ -288,24 +288,28 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       // change the setting, or is just being tested with foreign audio).
       const assumedSourceLang = payload?.lang || speaker.language;
 
-      // Kick off the original-language cleanup AND every *assumed* target
-      // language's clean+translate pass at the same time, instead of
-      // translating only after cleanup finishes -- they're independent
-      // Claude calls working from the same raw alternatives, so running
-      // them in parallel instead of back-to-back roughly halves the time
-      // before a translated caption shows up. This is "optimistic" because
-      // it's built on `assumedSourceLang`; if cleanup later detects the
-      // speaker was actually using a different language, one corrective
+      // Kick off the original-language cleanup AND a single combined
+      // translate-to-every-*assumed*-target-language call at the same time,
+      // instead of translating only after cleanup finishes -- they're
+      // independent Claude calls working from the same raw alternatives, so
+      // running them in parallel instead of back-to-back roughly halves the
+      // time before a translated caption shows up. This is "optimistic"
+      // because it's built on `assumedSourceLang`; if cleanup later detects
+      // the speaker was actually using a different language, one corrective
       // call fills the gap below instead of redoing everything.
+      // Deduped to short codes: someone on "en-US" and someone on "en-GB"
+      // both just need "en" -- asking for the same translation twice would
+      // waste a chunk of the batched call for no benefit.
       const optimisticTargetLangs = new Set<string>();
       for (const p of meeting.participants.values()) {
-        if (shortLang(p.language) !== shortLang(assumedSourceLang)) optimisticTargetLangs.add(p.language);
+        if (shortLang(p.language) !== shortLang(assumedSourceLang)) optimisticTargetLangs.add(shortLang(p.language));
       }
       const cleanupPromise = cleanTranscriptFragment(effectiveAlternatives, recentContext);
-      const optimisticTranslationPromises = Array.from(optimisticTargetLangs).map(async (lang) => {
-        const translated = await cleanAndTranslateFragment(effectiveAlternatives, recentContext, lang);
-        return [shortLang(lang), translated] as const;
-      });
+      const optimisticTranslationsPromise = translateFragmentToAll(
+        effectiveAlternatives,
+        recentContext,
+        Array.from(optimisticTargetLangs)
+      );
 
       const cleanup = await cleanupPromise;
       if (!cleanup.text) return;
@@ -367,22 +371,24 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       // assumed, the group we skipped translating for (because we thought
       // they shared the speaker's language) actually needs a translation
       // too -- fetch that one now instead of leaving them with an untranslated
-      // caption in a language they don't understand.
-      const correctiveTranslationPromises = mismatch
-        ? [
-            (async () => {
-              const translated = await cleanAndTranslateFragment(effectiveAlternatives, recentContext, assumedSourceLang);
-              return [shortLang(assumedSourceLang), translated] as const;
-            })(),
-          ]
-        : [];
+      // caption in a language they don't understand. Unlike the optimistic
+      // batch above, this can translate straight from `cleanup.text` (already
+      // corrected, no ASR disambiguation needed) via the plain translator,
+      // which is simpler and shares its own cache with chat/REST translation.
+      const correctivePromise: Promise<readonly [string, string] | null> = mismatch
+        ? translateText(cleanup.text, sourceLang, assumedSourceLang)
+            .then((translated) => [shortLang(assumedSourceLang), translated] as const)
+            .catch(() => null)
+        : Promise.resolve(null);
 
-      const allTranslationPromises = [...optimisticTranslationPromises, ...correctiveTranslationPromises];
-      if (allTranslationPromises.length === 0) return;
+      const [optimisticTranslations, correctiveEntry] = await Promise.all([
+        optimisticTranslationsPromise,
+        correctivePromise,
+      ]);
 
-      const settled = await Promise.all(allTranslationPromises);
-      const translations: Record<string, string> = {};
-      for (const [lang, translated] of settled) {
+      const translations: Record<string, string> = { ...optimisticTranslations };
+      if (correctiveEntry) {
+        const [lang, translated] = correctiveEntry;
         if (translated) translations[lang] = translated;
       }
       if (Object.keys(translations).length === 0) return;

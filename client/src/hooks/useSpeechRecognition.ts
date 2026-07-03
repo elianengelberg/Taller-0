@@ -126,9 +126,40 @@ export function useSpeechRecognition({ lang, active, onResult, onInterim }: UseS
       // ignore
     }
 
+    let reactivateTimeout: ReturnType<typeof setTimeout> | undefined;
+    // Backgrounding a tab (locking the phone, switching apps) can make some
+    // mobile browsers -- iOS Safari especially -- silently suspend the mic
+    // without ever firing onerror or onend, so captions would just stop
+    // forever with no signal that anything went wrong. Force a fresh
+    // recognition session on return instead of leaving that zombie state,
+    // and say so briefly so a stretch of silence right after doesn't look
+    // like a bug.
+    function handleVisibilityChange() {
+      if (document.visibilityState !== "visible" || !shouldRunRef.current) return;
+      try {
+        recognition.stop();
+      } catch {
+        // Already stopped -- onend won't fire to restart it, so start it
+        // directly instead.
+        try {
+          recognition.start();
+        } catch {
+          // ignore
+        }
+      }
+      setError("Reactivando los subtítulos después de volver a esta pestaña…");
+      clearTimeout(reactivateTimeout);
+      reactivateTimeout = setTimeout(() => {
+        if (!cancelled) setError(null);
+      }, 6000);
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
       cancelled = true;
       shouldRunRef.current = false;
+      clearTimeout(reactivateTimeout);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       recognition.onresult = null;
       recognition.onerror = null;
       recognition.onend = null;
