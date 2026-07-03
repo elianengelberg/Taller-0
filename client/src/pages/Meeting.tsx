@@ -66,6 +66,24 @@ export default function Meeting() {
     }
   }, [draft, connectionStatus, connect, navigate]);
 
+  // The socket is a module-level singleton that outlives this component, so
+  // navigating away (back button, closing a panel back to "/", etc.) doesn't
+  // disconnect it on its own -- without this, the server never learns we
+  // left and the participant lingers in the meeting forever ("ghost"
+  // participant the host keeps seeing). `pagehide` covers actually closing
+  // the tab; the effect cleanup covers every other way this component stops
+  // being mounted.
+  useEffect(() => {
+    function handlePageHide() {
+      leaveMeeting();
+    }
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      leaveMeeting();
+    };
+  }, [leaveMeeting]);
+
   const peerIds = useMemo(
     () => (meeting ? meeting.participants.map((p) => p.id).filter((id) => id !== selfId) : []),
     [meeting, selfId]

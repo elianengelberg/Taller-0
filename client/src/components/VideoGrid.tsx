@@ -11,12 +11,22 @@ interface Props {
   remoteStreams: Record<string, MediaStream>;
 }
 
+// Older iOS/iPadOS Safari never implemented the standard Fullscreen API on
+// arbitrary elements (only vendor-prefixed fullscreen for <video> itself),
+// so `document.exitFullscreen`/`element.requestFullscreen` can simply not
+// exist there -- calling them as functions would throw a TypeError, not
+// just reject a promise. Feature-detect before ever touching them.
+function fullscreenSupported(): boolean {
+  return typeof document.exitFullscreen === "function";
+}
+
 export default function VideoGrid({ participants, roles, selfId, localStream, remoteStreams }: Props) {
   const presenter = participants.find((p) => p.sharingScreen) ?? null;
   const containerRef = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
 
   useEffect(() => {
+    if (!fullscreenSupported()) return;
     function handleChange() {
       setFullscreen(document.fullscreenElement === containerRef.current);
     }
@@ -27,12 +37,14 @@ export default function VideoGrid({ participants, roles, selfId, localStream, re
   // If the presenter stops sharing while we're in fullscreen, don't strand
   // the user in a fullscreen view of a layout that no longer makes sense.
   useEffect(() => {
+    if (!fullscreenSupported()) return;
     if (!presenter && document.fullscreenElement === containerRef.current) {
       document.exitFullscreen().catch(() => {});
     }
   }, [presenter]);
 
   function toggleFullscreen() {
+    if (!fullscreenSupported()) return;
     if (document.fullscreenElement === containerRef.current) {
       document.exitFullscreen().catch(() => {});
     } else {
@@ -64,14 +76,16 @@ export default function VideoGrid({ participants, roles, selfId, localStream, re
       >
         <div className="relative">
           {tileFor(presenter)}
-          <button
-            type="button"
-            onClick={toggleFullscreen}
-            title={fullscreen ? "Achicar pantalla compartida" : "Agrandar pantalla compartida"}
-            className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
-          >
-            {fullscreen ? <CollapseIcon className="h-4 w-4" /> : <ExpandIcon className="h-4 w-4" />}
-          </button>
+          {fullscreenSupported() && (
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              title={fullscreen ? "Achicar pantalla compartida" : "Agrandar pantalla compartida"}
+              className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+            >
+              {fullscreen ? <CollapseIcon className="h-4 w-4" /> : <ExpandIcon className="h-4 w-4" />}
+            </button>
+          )}
         </div>
         {others.length > 0 && (
           <div className="flex gap-3 overflow-x-auto pb-1">
