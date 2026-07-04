@@ -10,9 +10,14 @@ export default function Home() {
     <div className="flex min-h-screen flex-col bg-ink-950">
       <header className="flex items-center justify-between px-6 py-6 sm:px-10">
         <Logo />
-        <Link to="/historial" className="text-sm font-medium text-ink-300 hover:text-white">
-          Ver historial
-        </Link>
+        <div className="flex items-center gap-4 sm:gap-6">
+          <Link to="/externa" className="text-sm font-medium text-ink-300 hover:text-white">
+            Reunión externa
+          </Link>
+          <Link to="/historial" className="text-sm font-medium text-ink-300 hover:text-white">
+            Ver historial
+          </Link>
+        </div>
       </header>
 
       <main className="flex flex-1 items-center justify-center px-6 pb-16">

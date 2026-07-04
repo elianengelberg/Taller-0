@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { MeetingProvider } from "./context/MeetingContext";
+import ExternalJoin from "./pages/ExternalJoin";
 import HostSetup from "./pages/HostSetup";
 import History from "./pages/History";
 import JoinForm from "./pages/JoinForm";
@@ -17,6 +18,8 @@ export default function App() {
         {/* Zoom-style direct-join link (see ShareMenu) -- same form, minus
             the code field, since it's already in the URL. */}
         <Route path="/unirse/:code" element={<JoinForm />} />
+        {/* Join a meeting hosted on another platform (paste a Zoom/Meet/Jitsi link). */}
+        <Route path="/externa" element={<ExternalJoin />} />
         <Route path="/reunion" element={<Meeting />} />
         <Route path="/historial" element={<History />} />
         <Route path="/historial/:id" element={<MeetingDetail />} />
