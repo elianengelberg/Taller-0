@@ -49,6 +49,18 @@ export interface MeetingSnapshot {
 
 export type MeetingDraft =
   | { mode: "host"; name: string; language: string; roleNames: string[] }
-  | { mode: "join"; name: string; language: string; meetingCode: string };
+  | { mode: "join"; name: string; language: string; meetingCode: string }
+  // The Encuentro transcript/AI layer riding on top of an external meeting
+  // (Jitsi/Zoom/Meet). `externalKey` is the shared room key on our backend;
+  // `jitsiRoom` is the actual room the embedded Jitsi iframe joins; `roomLabel`
+  // is what we show the user.
+  | {
+      mode: "companion";
+      name: string;
+      language: string;
+      externalKey: string;
+      jitsiRoom: string;
+      roomLabel: string;
+    };
 
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "error";

@@ -8,6 +8,7 @@ import {
   cancelMeetingCleanup,
   createMeeting,
   getMeeting,
+  getOrCreateCompanionMeeting,
   promoteNextHost,
   removeParticipant,
   scheduleMeetingCleanupIfEmpty,
@@ -184,6 +185,55 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
         ack?.({ ok: true, meeting: toSnapshot(meeting), selfId: socket.id });
       } catch (err) {
         ack?.({ ok: false, error: "No se pudo unir a la reunión." });
+      }
+    }
+  );
+
+  // Join the Encuentro "companion" layer that rides on top of an external
+  // meeting (Jitsi/Zoom/Meet). The external platform handles audio/video; this
+  // just puts the caller into a shared room -- keyed by the external meeting --
+  // where our transcript/translation/AI layer lives. From here on it's an
+  // ordinary participant, so transcript-line/chat/set-language/disconnect all
+  // reuse the exact same handlers as a native meeting.
+  socket.on(
+    "join-companion",
+    (payload: { externalKey: string; name: string; language: string }, ack) => {
+      try {
+        const externalKey = String(payload?.externalKey ?? "").trim();
+        const name = String(payload?.name ?? "").slice(0, MAX_NAME_LENGTH).trim();
+        const language = String(payload?.language ?? "es-AR");
+
+        if (!externalKey) {
+          ack?.({ ok: false, error: "Falta la referencia de la reunión externa." });
+          return;
+        }
+        if (!name) {
+          ack?.({ ok: false, error: "Ingresá tu nombre para unirte." });
+          return;
+        }
+
+        const { meeting, created } = getOrCreateCompanionMeeting(externalKey);
+        cancelMeetingCleanup(meeting.id);
+        // No host semantics here -- an external meeting has its own host on the
+        // other platform; the companion layer is a flat group of note-takers.
+        const participant = addParticipant(meeting, socket.id, name, language, false);
+        currentMeetingId = meeting.id;
+        socket.join(roomName(meeting.id));
+
+        if (created) {
+          void db.createMeetingRecord({
+            id: meeting.dbId,
+            joinCode: meeting.id,
+            hostName: name,
+            roles: [],
+          });
+        }
+        persistParticipants(meeting);
+
+        socket.to(roomName(meeting.id)).emit("participant-joined", { participant });
+        ack?.({ ok: true, meeting: toSnapshot(meeting), selfId: socket.id });
+      } catch (err) {
+        ack?.({ ok: false, error: "No se pudo unir a la reunión externa." });
       }
     }
   );

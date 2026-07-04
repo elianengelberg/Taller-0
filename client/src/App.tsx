@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { MeetingProvider } from "./context/MeetingContext";
 import ExternalJoin from "./pages/ExternalJoin";
+import ExternalMeeting from "./pages/ExternalMeeting";
 import HostSetup from "./pages/HostSetup";
 import History from "./pages/History";
 import JoinForm from "./pages/JoinForm";
@@ -20,6 +21,8 @@ export default function App() {
         <Route path="/unirse/:code" element={<JoinForm />} />
         {/* Join a meeting hosted on another platform (paste a Zoom/Meet/Jitsi link). */}
         <Route path="/externa" element={<ExternalJoin />} />
+        {/* The embedded external meeting + Encuentro's transcript/AI overlay. */}
+        <Route path="/externa/reunion" element={<ExternalMeeting />} />
         <Route path="/reunion" element={<Meeting />} />
         <Route path="/historial" element={<History />} />
         <Route path="/historial/:id" element={<MeetingDetail />} />

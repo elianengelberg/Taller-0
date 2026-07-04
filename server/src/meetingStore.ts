@@ -38,6 +38,38 @@ export function getMeeting(meetingId: string): Meeting | undefined {
   return meetings.get(meetingId.toUpperCase());
 }
 
+// A "companion" meeting rides alongside a call hosted on ANOTHER platform
+// (Jitsi/Zoom/Meet). Instead of a random join code, its id is derived
+// deterministically from the external room, so everyone who opens the same
+// external link through Encuentro lands in the SAME companion room and shares
+// one live transcript/AI layer -- even though the actual audio/video is
+// handled by the other platform. Reuses the exact same Meeting object as
+// native meetings, so every downstream handler (transcript-line, chat,
+// persistence, cleanup) works unchanged.
+export function getOrCreateCompanionMeeting(externalKey: string): {
+  meeting: Meeting;
+  created: boolean;
+} {
+  const id = externalKey.toUpperCase();
+  const existing = meetings.get(id);
+  if (existing) return { meeting: existing, created: false };
+
+  const meeting: Meeting = {
+    id,
+    dbId: randomUUID(),
+    hostId: "",
+    createdAt: Date.now(),
+    roles: [],
+    participants: new Map(),
+    historicalParticipants: new Map(),
+    pendingHostReclaim: null,
+    chat: [],
+    transcript: [],
+  };
+  meetings.set(id, meeting);
+  return { meeting, created: true };
+}
+
 // A meeting doesn't get deleted the instant it empties out: a flaky wifi
 // connection or a backgrounded tab can disconnect everyone for a few
 // seconds and we don't want the meeting code to go stale (and become

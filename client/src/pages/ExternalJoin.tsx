@@ -1,22 +1,25 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "../components/Button";
-import JitsiEmbed from "../components/JitsiEmbed";
 import Logo from "../components/Logo";
+import { useMeeting } from "../context/MeetingContext";
+import { LANGUAGES } from "../lib/languages";
 import { DetectedMeeting, detectMeetingPlatform } from "../lib/meetingPlatforms";
 import { cardClass, inputClass, labelClass } from "../lib/ui";
 
 // Entry point for joining a meeting hosted on ANOTHER platform (Zoom, Meet,
 // Jitsi...). Paste a link -> we detect the platform and route it: Jitsi runs
-// embedded here, our own links jump to the native join flow, and everything
-// else shows an honest "recognized, here's how to open it" card (with the
-// real join integration filled in per-platform over the coming phases).
+// embedded (with Encuentro's transcript/AI layer on top), our own links jump
+// to the native join flow, and everything else shows an honest "recognized,
+// here's how to open it" card (with the real join integration filled in
+// per-platform over the coming phases).
 export default function ExternalJoin() {
   const navigate = useNavigate();
+  const { startCompanionDraft } = useMeeting();
   const [link, setLink] = useState("");
   const [name, setName] = useState("");
+  const [language, setLanguage] = useState(LANGUAGES[0].code);
   const [detected, setDetected] = useState<DetectedMeeting | null>(null);
-  const [joining, setJoining] = useState(false);
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -31,30 +34,18 @@ export default function ExternalJoin() {
     setDetected(result);
   }
 
-  // Once we have a name + a Jitsi room, show the embedded meeting full-bleed
-  // with our header on top -- our interface around a real external call.
-  if (joining && detected?.platform === "jitsi" && detected.meetingId) {
-    return (
-      <div className="flex h-dvh flex-col bg-ink-950">
-        <header className="flex items-center justify-between border-b border-ink-700 bg-ink-900 px-4 py-3 sm:px-6">
-          <Logo />
-          <button
-            type="button"
-            onClick={() => navigate("/", { replace: true })}
-            className="text-sm font-medium text-ink-300 hover:text-white"
-          >
-            Salir
-          </button>
-        </header>
-        <div className="flex-1 overflow-hidden">
-          <JitsiEmbed
-            roomName={detected.meetingId}
-            displayName={name.trim() || "Invitado"}
-            onLeave={() => navigate("/", { replace: true })}
-          />
-        </div>
-      </div>
-    );
+  function joinJitsi(room: string) {
+    startCompanionDraft({
+      name: name.trim() || "Invitado",
+      language,
+      // Lowercased to match how Jitsi itself normalizes room names, so two
+      // people who paste slightly differently-cased links still share one
+      // Encuentro companion room.
+      externalKey: `jitsi:${room.toLowerCase()}`,
+      jitsiRoom: room,
+      roomLabel: `Jitsi · ${room}`,
+    });
+    navigate("/externa/reunion");
   }
 
   return (
@@ -100,6 +91,28 @@ export default function ExternalJoin() {
               />
             </div>
 
+            <div>
+              <label className={labelClass} htmlFor="language">
+                Idioma en el que vas a hablar
+              </label>
+              <select
+                id="language"
+                className={inputClass}
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+              >
+                {LANGUAGES.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {lang.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1.5 text-xs text-ink-400">
+                Se usa para tus subtítulos y traducción en vivo con la IA de Encuentro, encima de la
+                reunión externa.
+              </p>
+            </div>
+
             <div className="flex gap-3 pt-2">
               <Button type="button" variant="ghost" className="flex-1" onClick={() => navigate("/")}>
                 Volver
@@ -113,7 +126,7 @@ export default function ExternalJoin() {
           {detected && (
             <DetectionResult
               detected={detected}
-              onJoinJitsi={() => setJoining(true)}
+              onJoinJitsi={() => detected.meetingId && joinJitsi(detected.meetingId)}
             />
           )}
         </div>

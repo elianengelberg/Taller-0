@@ -131,6 +131,13 @@ interface MeetingContextValue {
   hostParticipant: Participant | null;
   startHostDraft: (info: { name: string; language: string; roleNames: string[] }) => void;
   startJoinDraft: (info: { name: string; language: string; meetingCode: string }) => void;
+  startCompanionDraft: (info: {
+    name: string;
+    language: string;
+    externalKey: string;
+    jitsiRoom: string;
+    roomLabel: string;
+  }) => void;
   clearDraft: () => void;
   connect: () => void;
   sendChatMessage: (text: string) => void;
@@ -175,24 +182,35 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     // is what tells us this "connect" is a *re*connect, not the first one
     // (the very first connect always happens before selfId is set).
     socket.on("connect", () => {
-      if (!selfIdRef.current || !meetingRef.current || !draftRef.current) return;
-      const { name, language } = draftRef.current;
+      const draft = draftRef.current;
+      if (!selfIdRef.current || !meetingRef.current || !draft) return;
+      const onRejoin = (res: { ok: boolean; meeting?: MeetingSnapshot; selfId?: string; error?: string }) => {
+        if (res.ok && res.meeting && res.selfId) {
+          setSelfId(res.selfId);
+          dispatch({ type: "SNAPSHOT_LOADED", meeting: res.meeting });
+          setConnectionStatus("connected");
+        } else {
+          setConnectionStatus("error");
+          setConnectionError(res.error ?? "Se perdió la conexión con la reunión.");
+        }
+      };
+      // A companion session rejoins by its external-room key; a native meeting
+      // rejoins by its code (and reclaims host if it had it).
+      if (draft.mode === "companion") {
+        socket.emit(
+          "join-companion",
+          { externalKey: draft.externalKey, name: draft.name, language: draft.language },
+          onRejoin
+        );
+        return;
+      }
       socket.emit(
         "join-meeting",
         // `resumeParticipantId` is our old socket id (from before the drop) --
         // it tells the server this is the same person resuming, so it can
         // hand host status back if we were host when we got disconnected.
-        { meetingId: meetingRef.current.id, name, language, resumeParticipantId: selfIdRef.current },
-        (res: { ok: boolean; meeting?: MeetingSnapshot; selfId?: string; error?: string }) => {
-          if (res.ok && res.meeting && res.selfId) {
-            setSelfId(res.selfId);
-            dispatch({ type: "SNAPSHOT_LOADED", meeting: res.meeting });
-            setConnectionStatus("connected");
-          } else {
-            setConnectionStatus("error");
-            setConnectionError(res.error ?? "Se perdió la conexión con la reunión.");
-          }
-        }
+        { meetingId: meetingRef.current.id, name: draft.name, language: draft.language, resumeParticipantId: selfIdRef.current },
+        onRejoin
       );
     });
 
@@ -291,6 +309,19 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const startCompanionDraft = useCallback(
+    (info: {
+      name: string;
+      language: string;
+      externalKey: string;
+      jitsiRoom: string;
+      roomLabel: string;
+    }) => {
+      setDraft({ mode: "companion", ...info });
+    },
+    []
+  );
+
   const clearDraft = useCallback(() => setDraft(null), []);
 
   const connect = useCallback(() => {
@@ -300,35 +331,35 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     setConnectionError(null);
     if (!socket.connected) socket.connect();
 
+    const onResult = (fallbackError: string) =>
+      (res: { ok: boolean; meeting?: MeetingSnapshot; selfId?: string; error?: string }) => {
+        if (res.ok && res.meeting && res.selfId) {
+          setSelfId(res.selfId);
+          dispatch({ type: "SNAPSHOT_LOADED", meeting: res.meeting });
+          setConnectionStatus("connected");
+        } else {
+          setConnectionStatus("error");
+          setConnectionError(res.error ?? fallbackError);
+        }
+      };
+
     if (draft.mode === "host") {
       socket.emit(
         "create-meeting",
         { hostName: draft.name, hostLanguage: draft.language, roles: draft.roleNames },
-        (res: { ok: boolean; meeting?: MeetingSnapshot; selfId?: string; error?: string }) => {
-          if (res.ok && res.meeting && res.selfId) {
-            setSelfId(res.selfId);
-            dispatch({ type: "SNAPSHOT_LOADED", meeting: res.meeting });
-            setConnectionStatus("connected");
-          } else {
-            setConnectionStatus("error");
-            setConnectionError(res.error ?? "No se pudo crear la reunión.");
-          }
-        }
+        onResult("No se pudo crear la reunión.")
+      );
+    } else if (draft.mode === "companion") {
+      socket.emit(
+        "join-companion",
+        { externalKey: draft.externalKey, name: draft.name, language: draft.language },
+        onResult("No se pudo unir a la reunión externa.")
       );
     } else {
       socket.emit(
         "join-meeting",
         { meetingId: draft.meetingCode, name: draft.name, language: draft.language },
-        (res: { ok: boolean; meeting?: MeetingSnapshot; selfId?: string; error?: string }) => {
-          if (res.ok && res.meeting && res.selfId) {
-            setSelfId(res.selfId);
-            dispatch({ type: "SNAPSHOT_LOADED", meeting: res.meeting });
-            setConnectionStatus("connected");
-          } else {
-            setConnectionStatus("error");
-            setConnectionError(res.error ?? "No se pudo unir a la reunión.");
-          }
-        }
+        onResult("No se pudo unir a la reunión.")
       );
     }
   }, [draft]);
@@ -404,6 +435,7 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     hostParticipant,
     startHostDraft,
     startJoinDraft,
+    startCompanionDraft,
     clearDraft,
     connect,
     sendChatMessage,
