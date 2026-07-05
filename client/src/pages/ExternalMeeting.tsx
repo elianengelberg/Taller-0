@@ -7,18 +7,46 @@ import LiveCaption from "../components/LiveCaption";
 import Logo from "../components/Logo";
 import SidePanel from "../components/SidePanel";
 import TranscriptPanel from "../components/TranscriptPanel";
+import ZoomEmbed from "../components/ZoomEmbed";
 import { CaptionsIcon, PhoneOffIcon, SparklesIcon, TranscriptIcon } from "../components/icons";
 import { useMeeting } from "../context/MeetingContext";
-import { AUTO_LANG, ORIGINAL_LANG, useLineTranslations } from "../hooks/useLineTranslations";
+import { AUTO_LANG, useLineTranslations } from "../hooks/useLineTranslations";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { askMeetingAI } from "../lib/api";
+import { CompanionEmbed } from "../types";
 
 type PanelKey = "transcript" | "ai" | null;
 
-// The Encuentro layer that runs ON TOP of an external meeting (Jitsi today).
-// The external platform handles audio/video (the embedded iframe); we add our
+// Renders the actual external-meeting pane for a companion session. One branch
+// per embeddable platform; adding Teams later means adding a case here.
+function CompanionEmbedPane({
+  embed,
+  displayName,
+  onLeave,
+}: {
+  embed: CompanionEmbed;
+  displayName: string;
+  onLeave: () => void;
+}) {
+  switch (embed.kind) {
+    case "jitsi":
+      return <JitsiEmbed roomName={embed.roomName} displayName={displayName} onLeave={onLeave} />;
+    case "zoom":
+      return (
+        <ZoomEmbed
+          meetingNumber={embed.meetingNumber}
+          passcode={embed.passcode}
+          displayName={displayName}
+          onLeave={onLeave}
+        />
+      );
+  }
+}
+
+// The Encuentro layer that runs ON TOP of an external meeting (Jitsi, Zoom...).
+// The external platform handles audio/video (the embedded pane); we add our
 // live subtitles, transcript, translation and AI. The trick that makes this
-// possible without reaching inside the cross-origin iframe: our transcription
+// possible without reaching inside the cross-origin embed: our transcription
 // listens to the user's OWN microphone (Web Speech API), exactly like the
 // native app, and syncs everyone's captions through our backend keyed by the
 // shared external-room key (see join-companion). So two people who both open
@@ -72,8 +100,8 @@ export default function ExternalMeeting() {
     if (!captionsOn) setInterimCaption(null);
   }, [captionsOn]);
 
-  // Our own microphone, transcribed in the browser -- independent of Jitsi's
-  // own audio (which lives in the iframe we can't touch).
+  // Our own microphone, transcribed in the browser -- independent of the
+  // external platform's own audio (which lives in an embed we can't touch).
   useSpeechRecognition({
     lang: spokenLang,
     active: connectionStatus === "connected",
@@ -142,8 +170,8 @@ export default function ExternalMeeting() {
             {connectionError ?? "No se pudo conectar la capa de Encuentro."}
           </div>
         ) : (
-          <JitsiEmbed
-            roomName={draft.jitsiRoom}
+          <CompanionEmbedPane
+            embed={draft.embed}
             displayName={draft.name}
             onLeave={() => {
               leaveMeeting();

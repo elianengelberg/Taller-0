@@ -13,6 +13,7 @@ import { explainError } from "../lib/explainError";
 import { getSocket } from "../lib/socket";
 import {
   ChatMessage,
+  CompanionEmbed,
   ConnectionStatus,
   MeetingDraft,
   MeetingSnapshot,
@@ -135,8 +136,8 @@ interface MeetingContextValue {
     name: string;
     language: string;
     externalKey: string;
-    jitsiRoom: string;
     roomLabel: string;
+    embed: CompanionEmbed;
   }) => void;
   clearDraft: () => void;
   connect: () => void;
@@ -314,8 +315,8 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
       name: string;
       language: string;
       externalKey: string;
-      jitsiRoom: string;
       roomLabel: string;
+      embed: CompanionEmbed;
     }) => {
       setDraft({ mode: "companion", ...info });
     },

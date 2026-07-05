@@ -8,11 +8,11 @@ import { DetectedMeeting, detectMeetingPlatform } from "../lib/meetingPlatforms"
 import { cardClass, inputClass, labelClass } from "../lib/ui";
 
 // Entry point for joining a meeting hosted on ANOTHER platform (Zoom, Meet,
-// Jitsi...). Paste a link -> we detect the platform and route it: Jitsi runs
-// embedded (with Encuentro's transcript/AI layer on top), our own links jump
-// to the native join flow, and everything else shows an honest "recognized,
-// here's how to open it" card (with the real join integration filled in
-// per-platform over the coming phases).
+// Jitsi...). Paste a link -> we detect the platform and route it: Zoom and
+// Jitsi run embedded (with Encuentro's transcript/AI layer on top), our own
+// links jump to the native join flow, and everything else shows an honest
+// "recognized, here's how to open it" card (with the real join integration
+// filled in per-platform over the coming phases).
 export default function ExternalJoin() {
   const navigate = useNavigate();
   const { startCompanionDraft } = useMeeting();
@@ -34,18 +34,37 @@ export default function ExternalJoin() {
     setDetected(result);
   }
 
-  function joinJitsi(room: string) {
-    startCompanionDraft({
-      name: name.trim() || "Invitado",
-      language,
-      // Lowercased to match how Jitsi itself normalizes room names, so two
-      // people who paste slightly differently-cased links still share one
-      // Encuentro companion room.
-      externalKey: `jitsi:${room.toLowerCase()}`,
-      jitsiRoom: room,
-      roomLabel: `Jitsi · ${room}`,
-    });
-    navigate("/externa/reunion");
+  // Starts a companion session for a detected embeddable meeting: builds the
+  // shared backend room key (deterministic from the meeting's own id, so
+  // everyone who opens the same link lands together) and the per-platform
+  // embed descriptor, then jumps into the overlay page.
+  function joinDetected(target: DetectedMeeting) {
+    const base = { name: name.trim() || "Invitado", language };
+
+    if (target.platform === "jitsi" && target.meetingId) {
+      const room = target.meetingId;
+      startCompanionDraft({
+        ...base,
+        // Lowercased to match how Jitsi normalizes room names, so two people
+        // who paste slightly differently-cased links still share one room.
+        externalKey: `jitsi:${room.toLowerCase()}`,
+        roomLabel: `Jitsi · ${room}`,
+        embed: { kind: "jitsi", roomName: room },
+      });
+      navigate("/externa/reunion");
+      return;
+    }
+
+    if (target.platform === "zoom" && target.meetingId) {
+      const mn = target.meetingId;
+      startCompanionDraft({
+        ...base,
+        externalKey: `zoom:${mn}`,
+        roomLabel: `Zoom · ${mn}`,
+        embed: { kind: "zoom", meetingNumber: mn, passcode: target.passcode },
+      });
+      navigate("/externa/reunion");
+    }
   }
 
   return (
@@ -124,10 +143,7 @@ export default function ExternalJoin() {
           </form>
 
           {detected && (
-            <DetectionResult
-              detected={detected}
-              onJoinJitsi={() => detected.meetingId && joinJitsi(detected.meetingId)}
-            />
+            <DetectionResult detected={detected} onJoinEmbed={() => joinDetected(detected)} />
           )}
         </div>
       </div>
@@ -137,10 +153,10 @@ export default function ExternalJoin() {
 
 function DetectionResult({
   detected,
-  onJoinJitsi,
+  onJoinEmbed,
 }: {
   detected: DetectedMeeting;
-  onJoinJitsi: () => void;
+  onJoinEmbed: () => void;
 }) {
   const { platform, info, url, meetingId } = detected;
 
@@ -153,6 +169,11 @@ function DetectionResult({
     );
   }
 
+  // Embeddable + we actually pulled a meeting id out of the link -> offer the
+  // in-app join. (A Zoom personal/vanity link, or an incomplete paste, can be
+  // "embed"-capable yet have no number, in which case we can't join it.)
+  const canEmbed = info.joinMode === "embed" && Boolean(meetingId);
+
   return (
     <div className="mt-5 rounded-xl border border-ink-700 bg-ink-900/60 p-4">
       <p className="text-sm text-ink-300">
@@ -161,8 +182,8 @@ function DetectionResult({
         {meetingId ? <span className="text-ink-400"> · {meetingId}</span> : null}.
       </p>
 
-      {platform === "jitsi" ? (
-        <Button className="mt-4 w-full" onClick={onJoinJitsi}>
+      {canEmbed ? (
+        <Button className="mt-4 w-full" onClick={onJoinEmbed}>
           Unirme acá dentro
         </Button>
       ) : (
@@ -170,7 +191,9 @@ function DetectionResult({
           <p className="mt-2 text-xs text-ink-400">
             {info.joinMode === "overlay-extension"
               ? "Esta plataforma no permite embeberse; se integra con una extensión del navegador (próximamente)."
-              : "La conexión embebida a esta plataforma todavía no está disponible. Por ahora podés abrirla en su propia página."}
+              : info.joinMode === "embed"
+                ? "No pudimos extraer el número de la reunión del enlace. Pegá el enlace completo (con el número) para unirte acá dentro."
+                : "La conexión embebida a esta plataforma todavía no está disponible. Por ahora podés abrirla en su propia página."}
           </p>
           {url && (
             <a

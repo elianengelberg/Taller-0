@@ -47,20 +47,27 @@ export interface MeetingSnapshot {
   transcript: TranscriptLine[];
 }
 
+// What the embedded pane actually renders for a companion session, per
+// platform. Adding a new embeddable platform later (e.g. Teams) = one more
+// variant here + one branch in ExternalMeeting; nothing else changes.
+export type CompanionEmbed =
+  | { kind: "jitsi"; roomName: string }
+  | { kind: "zoom"; meetingNumber: string; passcode?: string };
+
 export type MeetingDraft =
   | { mode: "host"; name: string; language: string; roleNames: string[] }
   | { mode: "join"; name: string; language: string; meetingCode: string }
   // The Encuentro transcript/AI layer riding on top of an external meeting
-  // (Jitsi/Zoom/Meet). `externalKey` is the shared room key on our backend;
-  // `jitsiRoom` is the actual room the embedded Jitsi iframe joins; `roomLabel`
-  // is what we show the user.
+  // (Jitsi/Zoom/...). `externalKey` is the shared room key on our backend that
+  // everyone opening the same link lands in; `embed` describes which platform
+  // pane to render and how; `roomLabel` is what we show the user.
   | {
       mode: "companion";
       name: string;
       language: string;
       externalKey: string;
-      jitsiRoom: string;
       roomLabel: string;
+      embed: CompanionEmbed;
     };
 
 export type ConnectionStatus = "idle" | "connecting" | "connected" | "error";

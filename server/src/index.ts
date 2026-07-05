@@ -9,6 +9,7 @@ import { answerAcrossMeetings } from "./globalAi";
 import { registerSocketHandlers } from "./socketHandlers";
 import { createRecordingUploadUrl, storageEnabled } from "./storage";
 import { translateText } from "./translate";
+import { generateMeetingSdkSignature, zoomEnabled } from "./zoom";
 
 const PORT = Number(process.env.PORT) || 4000;
 // Trim a trailing slash: the browser's Origin header never has one (it's
@@ -35,6 +36,33 @@ app.post("/api/translate", async (req, res) => {
     res.json({ translatedText });
   } catch (err) {
     res.status(502).json({ error: "No se pudo traducir el texto en este momento." });
+  }
+});
+
+// Mints the Zoom Meeting SDK "signature" (a JWT) the browser needs to join an
+// embedded Zoom meeting. The signing secret lives only here -- the client
+// posts the meeting number and gets back an opaque, short-lived token. Returns
+// 503 (not 500) when Zoom credentials aren't configured, so the client can
+// show an honest "Zoom no está configurado" message instead of a generic error.
+app.post("/api/zoom/signature", (req, res) => {
+  if (!zoomEnabled) {
+    res.status(503).json({ error: "La integración con Zoom no está configurada en el servidor." });
+    return;
+  }
+  const rawNumber = req.body?.meetingNumber;
+  const meetingNumber = typeof rawNumber === "string" ? rawNumber.replace(/\D/g, "") : String(rawNumber ?? "");
+  if (!meetingNumber) {
+    res.status(400).json({ error: "meetingNumber es obligatorio." });
+    return;
+  }
+  // We only ever join as an attendee (role 0). Starting/hosting a meeting
+  // (role 1) needs a ZAK and only works for the app account's own meetings.
+  const role = req.body?.role === 1 ? 1 : 0;
+  try {
+    const signature = generateMeetingSdkSignature({ meetingNumber, role });
+    res.json({ signature });
+  } catch {
+    res.status(502).json({ error: "No se pudo generar la autorización de Zoom." });
   }
 });
 

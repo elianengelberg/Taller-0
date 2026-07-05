@@ -101,6 +101,29 @@ export async function askAllMeetingsAI(question: string): Promise<{ answer?: str
   }
 }
 
+// Asks our backend for a Zoom Meeting SDK signature (a short-lived JWT). The
+// signing secret never leaves the server -- we only ever get back the finished
+// token. `role` is 0 (attendee) for the meetings we join. Returns an `error`
+// string (e.g. Zoom isn't configured) instead of throwing, so the embed can
+// show it inline.
+export async function fetchZoomSignature(
+  meetingNumber: string,
+  role: 0 | 1 = 0
+): Promise<{ signature?: string; error?: string }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/zoom/signature`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ meetingNumber, role }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo autorizar el ingreso a Zoom." };
+    return { signature: data.signature };
+  } catch {
+    return { error: "No pudimos conectar con el servidor para autorizar Zoom." };
+  }
+}
+
 export async function requestRecordingUploadUrl(
   meetingDbId: string,
   contentType: string

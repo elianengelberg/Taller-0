@@ -54,9 +54,9 @@ export const PLATFORM_REGISTRY: Record<MeetingPlatform, PlatformInfo> = {
     joinMode: "embed",
     official: true,
     requires: [
-      "App de tipo Meeting SDK en Zoom Marketplace (SDK Key + Secret)",
-      "Endpoint del servidor que firme la signature con el Secret",
-      "Cabeceras COOP/COEP en el host del cliente para el SDK web de Zoom",
+      "App de Zoom Marketplace con Meeting SDK habilitado (Client ID + Client Secret)",
+      "ZOOM_SDK_KEY / ZOOM_SDK_SECRET en el servidor (endpoint /api/zoom/signature)",
+      "Meeting SDK web (Component View) cargado desde el CDN de Zoom con patchJsMedia",
     ],
   },
   "google-meet": {
