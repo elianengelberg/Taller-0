@@ -4,6 +4,20 @@
 // use (createClient -> init/join/leaveMeeting/on). Mirrors the shape of the
 // official @zoom/meetingsdk `embedded` types.
 
+interface ZoomCustomSize {
+  width: number;
+  height: number;
+}
+
+// By default the Component View renders a small, draggable, resizable video
+// popper. We pin it to the container size and a fixed view so it fills our
+// embed pane instead of floating in a corner.
+interface ZoomVideoOptions {
+  isResizable?: boolean;
+  viewSizes?: { default?: ZoomCustomSize; ribbon?: ZoomCustomSize };
+  defaultViewType?: "minimized" | "speaker" | "ribbon" | "gallery" | "active";
+}
+
 interface ZoomInitOptions {
   zoomAppRoot: HTMLElement;
   language?: string;
@@ -11,8 +25,13 @@ interface ZoomInitOptions {
   // cross-origin isolation (SharedArrayBuffer). Lets us skip COOP/COEP headers
   // that would otherwise break our cross-origin Jitsi iframe and other embeds.
   patchJsMedia?: boolean;
+  // Leave the meeting immediately on page unload instead of a failover delay.
+  leaveOnPageUnload?: boolean;
   assetPath?: string;
   debug?: boolean;
+  customize?: {
+    video?: ZoomVideoOptions;
+  };
 }
 
 interface ZoomJoinOptions {
@@ -29,11 +48,18 @@ interface ZoomJoinOptions {
   tk?: string;
 }
 
+// connection-change reports the meeting connection lifecycle. `state` is one of
+// Zoom's connection states ('Connected' | 'Closed' | 'Fail' | 'Reconnecting').
+interface ZoomConnectionChangePayload {
+  state?: string;
+  reason?: string;
+}
+
 interface ZoomEmbeddedClient {
   init(options: ZoomInitOptions): Promise<unknown>;
   join(options: ZoomJoinOptions): Promise<unknown>;
   leaveMeeting(): Promise<unknown>;
-  on(event: "connection-change", callback: (payload: { state?: string }) => void): void;
+  on(event: "connection-change", callback: (payload: ZoomConnectionChangePayload) => void): void;
   off?(event: string, callback: (payload: unknown) => void): void;
 }
 
