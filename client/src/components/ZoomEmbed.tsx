@@ -133,15 +133,30 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
         return;
       }
 
-      // 3. Init the embedded client. patchJsMedia lets video work without
-      //    cross-origin isolation (no COOP/COEP, which would break Jitsi).
+      // 3. Init the embedded client. By default the Component View renders a
+      //    small draggable popper (or nothing visible if the container isn't
+      //    sized), so we pin the video to the container's real size and a fixed
+      //    view so it fills the pane. patchJsMedia loads the media deps from
+      //    Zoom's CDN.
       step("Iniciando Zoom…");
+      const rect = containerRef.current.getBoundingClientRect();
+      const width = Math.max(Math.floor(rect.width), 360);
+      const height = Math.max(Math.floor(rect.height), 320);
+      log(`container ${width}x${height}`);
+
       client = ZoomMtgEmbedded.createClient() as unknown as ZoomEmbeddedClient;
       await client.init({
         zoomAppRoot: containerRef.current,
         language: "es-ES",
         patchJsMedia: true,
         leaveOnPageUnload: true,
+        customize: {
+          video: {
+            isResizable: false,
+            viewSizes: { default: { width, height } },
+            defaultViewType: "speaker",
+          },
+        },
       });
       if (disposed) return;
       log("init done");
