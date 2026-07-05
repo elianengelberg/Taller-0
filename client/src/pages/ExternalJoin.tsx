@@ -64,6 +64,19 @@ export default function ExternalJoin() {
         embed: { kind: "zoom", meetingNumber: mn, passcode: target.passcode },
       });
       navigate("/externa/reunion");
+      return;
+    }
+
+    if (target.platform === "microsoft-teams" && target.url) {
+      startCompanionDraft({
+        ...base,
+        // Prefer the stable meeting thread id for the shared room key; fall
+        // back to the full URL if we couldn't extract it.
+        externalKey: `teams:${target.meetingId ?? target.url.toLowerCase()}`,
+        roomLabel: "Microsoft Teams",
+        embed: { kind: "teams", meetingLink: target.url },
+      });
+      navigate("/externa/reunion");
     }
   }
 
@@ -169,10 +182,13 @@ function DetectionResult({
     );
   }
 
-  // Embeddable + we actually pulled a meeting id out of the link -> offer the
-  // in-app join. (A Zoom personal/vanity link, or an incomplete paste, can be
-  // "embed"-capable yet have no number, in which case we can't join it.)
-  const canEmbed = info.joinMode === "embed" && Boolean(meetingId);
+  // Embeddable + we actually have what the join needs -> offer the in-app join.
+  // Teams joins by its full URL; Zoom/Jitsi need the meeting id we parsed out.
+  // (A Zoom personal/vanity link, or an incomplete paste, can be "embed"-capable
+  // yet have no number, in which case we can't join it.)
+  const canEmbed =
+    info.joinMode === "embed" &&
+    (platform === "microsoft-teams" ? Boolean(url) : Boolean(meetingId));
 
   return (
     <div className="mt-5 rounded-xl border border-ink-700 bg-ink-900/60 p-4">

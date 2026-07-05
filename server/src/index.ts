@@ -8,6 +8,7 @@ import { explainError } from "./explainError";
 import { answerAcrossMeetings } from "./globalAi";
 import { registerSocketHandlers } from "./socketHandlers";
 import { createRecordingUploadUrl, storageEnabled } from "./storage";
+import { createTeamsUserToken, teamsEnabled } from "./teams";
 import { translateText } from "./translate";
 import { generateMeetingSdkSignature, zoomEnabled } from "./zoom";
 
@@ -63,6 +64,23 @@ app.post("/api/zoom/signature", (req, res) => {
     res.json({ signature });
   } catch {
     res.status(502).json({ error: "No se pudo generar la autorización de Zoom." });
+  }
+});
+
+// Issues an ACS access token so the browser can join a Teams meeting via
+// Azure Communication Services (Teams interop). The ACS connection string
+// stays server-side; the client gets only a short-lived per-session token.
+// 503 when Teams/ACS isn't configured, so the client shows an honest message.
+app.post("/api/teams/token", async (_req, res) => {
+  if (!teamsEnabled) {
+    res.status(503).json({ error: "La integración con Microsoft Teams no está configurada en el servidor." });
+    return;
+  }
+  try {
+    const credentials = await createTeamsUserToken();
+    res.json(credentials);
+  } catch {
+    res.status(502).json({ error: "No se pudo generar el acceso a Teams." });
   }
 });
 

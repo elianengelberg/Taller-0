@@ -72,9 +72,13 @@ export const PLATFORM_REGISTRY: Record<MeetingPlatform, PlatformInfo> = {
   "microsoft-teams": {
     platform: "microsoft-teams",
     label: "Microsoft Teams",
-    joinMode: "redirect",
+    joinMode: "embed",
     official: true,
-    requires: ["Azure Communication Services / Microsoft Graph (integración futura)"],
+    requires: [
+      "Recurso de Azure Communication Services (ACS_CONNECTION_STRING en el servidor)",
+      "Endpoint /api/teams/token que emite el token ACS (interop de Teams)",
+      "SDK @azure/communication-calling en el cliente para unirse por el link",
+    ],
   },
   jitsi: {
     platform: "jitsi",
@@ -112,6 +116,16 @@ export interface DetectedMeeting {
 
 // People paste links with and without the scheme ("zoom.us/j/123" vs the full
 // https URL), so tolerate a missing scheme instead of failing to detect.
+// Teams links are URL-encoded; decode defensively (a malformed % sequence
+// throws) so we can pull the meeting thread id out of the path.
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function normalizeUrl(raw: string): URL | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -165,8 +179,14 @@ export function detectMeetingPlatform(
     return build("google-meet", { meetingId: code?.toLowerCase() });
   }
 
+  // Teams join links carry the meeting's stable thread id
+  // (19:meeting_XXXX@thread.v2, usually URL-encoded). We surface it as the
+  // meetingId so everyone who pastes the same link shares one companion room;
+  // the full URL is what ACS actually joins (see TeamsMeetingLinkLocator).
   if (host === "teams.microsoft.com" || host === "teams.live.com" || host.endsWith(".teams.microsoft.com")) {
-    return build("microsoft-teams");
+    const decodedPath = safeDecode(url.pathname);
+    const threadId = decodedPath.match(/(19:meeting_[^/@]+@thread\.v2)/i)?.[1];
+    return build("microsoft-teams", { meetingId: threadId?.toLowerCase() });
   }
 
   // Only the hosted meet.jit.si here; self-hosted Jitsi lives on arbitrary

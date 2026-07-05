@@ -52,7 +52,8 @@ export interface MeetingSnapshot {
 // variant here + one branch in ExternalMeeting; nothing else changes.
 export type CompanionEmbed =
   | { kind: "jitsi"; roomName: string }
-  | { kind: "zoom"; meetingNumber: string; passcode?: string };
+  | { kind: "zoom"; meetingNumber: string; passcode?: string }
+  | { kind: "teams"; meetingLink: string };
 
 export type MeetingDraft =
   | { mode: "host"; name: string; language: string; roleNames: string[] }

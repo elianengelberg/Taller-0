@@ -124,6 +124,29 @@ export async function fetchZoomSignature(
   }
 }
 
+// Asks our backend for a short-lived Azure Communication Services access token
+// so the browser can join a Microsoft Teams meeting (Teams interop). The ACS
+// connection string never leaves the server. Returns an `error` string instead
+// of throwing so the embed can show it inline.
+export async function fetchTeamsToken(): Promise<{
+  token?: string;
+  userId?: string;
+  error?: string;
+}> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/teams/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo autorizar el ingreso a Teams." };
+    return { token: data.token, userId: data.userId };
+  } catch {
+    return { error: "No pudimos conectar con el servidor para autorizar Teams." };
+  }
+}
+
 export async function requestRecordingUploadUrl(
   meetingDbId: string,
   contentType: string

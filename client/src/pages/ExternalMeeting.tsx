@@ -6,6 +6,7 @@ import JitsiEmbed from "../components/JitsiEmbed";
 import LiveCaption from "../components/LiveCaption";
 import Logo from "../components/Logo";
 import SidePanel from "../components/SidePanel";
+import TeamsEmbed from "../components/TeamsEmbed";
 import TranscriptPanel from "../components/TranscriptPanel";
 import ZoomEmbed from "../components/ZoomEmbed";
 import { CaptionsIcon, PhoneOffIcon, SparklesIcon, TranscriptIcon } from "../components/icons";
@@ -18,7 +19,7 @@ import { CompanionEmbed } from "../types";
 type PanelKey = "transcript" | "ai" | null;
 
 // Renders the actual external-meeting pane for a companion session. One branch
-// per embeddable platform; adding Teams later means adding a case here.
+// per embeddable platform; adding a new platform means adding a case here.
 function CompanionEmbedPane({
   embed,
   displayName,
@@ -40,6 +41,8 @@ function CompanionEmbedPane({
           onLeave={onLeave}
         />
       );
+    case "teams":
+      return <TeamsEmbed meetingLink={embed.meetingLink} displayName={displayName} onLeave={onLeave} />;
   }
 }
 
