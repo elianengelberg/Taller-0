@@ -17,6 +17,20 @@ interface Props {
   onLeave?: () => void;
 }
 
+// Turns raw ACS/Teams errors into a clear Spanish message. The most common one
+// is "Teams for life": ACS interop can only join Teams for WORK/SCHOOL
+// meetings, never personal/free Teams meetings -- a Microsoft limitation.
+function friendlyTeamsError(raw: string): string {
+  const lower = raw.toLowerCase();
+  if (lower.includes("teams for life") || lower.includes("teams for consumer")) {
+    return "Esta es una reunión de Teams personal/gratuita, y Microsoft no permite unirse a ese tipo desde una app externa. Probá con una reunión de Teams de trabajo o escuela (cuenta Microsoft 365).";
+  }
+  if (lower.includes("invalid meeting link") || lower.includes("meeting link")) {
+    return "El enlace de la reunión de Teams no es válido o expiró. Copiá de nuevo el enlace completo desde Teams.";
+  }
+  return raw ? `No se pudo unir a la reunión de Teams: ${raw}` : "No se pudo unir a la reunión de Teams.";
+}
+
 // Runs a real Microsoft Teams meeting embedded inside our layout via Azure
 // Communication Services (ACS) "Teams interop" -- the official way to join an
 // arbitrary Teams meeting by its link from a third-party web app (Teams has no
@@ -179,11 +193,11 @@ export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props)
     start().catch((e: unknown) => {
       console.error("[TeamsEmbed] fatal", e);
       if (disposed) return;
-      const msg =
+      const raw =
         e && typeof e === "object" && "message" in e && typeof (e as { message?: unknown }).message === "string"
           ? (e as { message: string }).message
-          : "No se pudo unir a la reunión de Teams.";
-      setError(msg);
+          : "";
+      setError(friendlyTeamsError(raw));
       setStatus("error");
     });
 
