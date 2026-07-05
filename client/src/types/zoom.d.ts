@@ -1,8 +1,8 @@
-// Minimal typings for Zoom's Meeting SDK for web, Component View
-// (zoom-meeting-embedded-*.min.js). It's loaded at runtime from source.zoom.us
-// and attaches ZoomMtgEmbedded to window, so we declare just the surface we
-// use (createClient -> init/join/leaveMeeting/on). Mirrors the shape of the
-// official @zoom/meetingsdk `embedded` types.
+// Minimal typings for the surface we use of Zoom's Meeting SDK for web,
+// Component View (@zoom/meetingsdk/embedded): createClient ->
+// init/join/leaveMeeting/on. We cast the SDK's client to ZoomEmbeddedClient so
+// our call sites are typed against just what we use, mirroring the shape of the
+// official `embedded` types.
 
 interface ZoomCustomSize {
   width: number;
@@ -63,12 +63,4 @@ interface ZoomEmbeddedClient {
   leaveMeeting(): Promise<unknown>;
   on(event: "connection-change", callback: (payload: ZoomConnectionChangePayload) => void): void;
   off?(event: string, callback: (payload: unknown) => void): void;
-}
-
-interface ZoomMtgEmbedded {
-  createClient(): ZoomEmbeddedClient;
-}
-
-interface Window {
-  ZoomMtgEmbedded?: ZoomMtgEmbedded;
 }

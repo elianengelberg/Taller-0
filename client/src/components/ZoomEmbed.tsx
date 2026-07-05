@@ -86,7 +86,12 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
 
   useEffect(() => {
     let disposed = false;
-    let settled = false;
+    // `handedOff` = Zoom's UI is showing; `errored` = we're showing our error
+    // panel. Kept separate so a join failure AFTER the hand-off (e.g. wrong
+    // passcode) still surfaces our "Reintentar" overlay -- a single "settled"
+    // flag used to swallow that error and leave only Zoom's own dialog.
+    let handedOff = false;
+    let errored = false;
     const t0 = Date.now();
     let phaseText = "Autorizando el ingreso a Zoom…";
     const log = (m: string) => console.log(`[ZoomEmbed +${Date.now() - t0}ms] ${m}`);
@@ -96,15 +101,15 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
       log(text);
     };
     const fail = (msg: string) => {
-      if (disposed || settled) return;
-      settled = true;
+      if (disposed || errored) return;
+      errored = true;
       log(`ERROR: ${msg}`);
       setError(msg);
       setStatus("error");
     };
     const handOff = () => {
-      if (disposed || settled) return;
-      settled = true;
+      if (disposed || handedOff || errored) return;
+      handedOff = true;
       log("handed off to Zoom UI");
       setStatus("in-zoom");
     };
@@ -112,6 +117,7 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
     log(`start meeting=${meetingNumber} crossOriginIsolated=${window.crossOriginIsolated} retry=${retry}`);
 
     const watchdog = window.setTimeout(() => {
+      if (disposed || handedOff || errored) return;
       fail(
         `Zoom se quedó en: "${phaseText}". ` +
           (phaseText.startsWith("Autorizando")
@@ -172,12 +178,13 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
         if (disposed) return;
         log("init done");
 
+        // Registered once (client is created once). It must only use stable
+        // refs -- not this effect run's `fail`/`disposed`, which go stale on a
+        // retry. "Closed" = the user left / meeting ended; join failures are
+        // handled by the join() promise below, per attempt.
         client.on("connection-change", (payload) => {
-          log(`connection-change: ${payload?.state ?? "?"} ${payload?.reason ?? ""}`);
+          console.log(`[ZoomEmbed] connection-change: ${payload?.state ?? "?"} ${payload?.reason ?? ""}`);
           if (payload?.state === "Closed") onLeaveRef.current?.();
-          else if (payload?.state === "Fail") {
-            fail(payload?.reason || "Zoom no pudo conectar la reunión. Revisá la contraseña.");
-          }
         });
 
         clientRef.current = client;
@@ -211,41 +218,61 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [retry]);
 
-  if (status === "error") {
-    const retryNow = () => {
-      setError(null);
-      setStatus("preparing");
-      setPhase("Reintentando…");
-      setRetry((n) => n + 1);
-    };
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
-        <p className="max-w-md text-sm text-brand-300">{error}</p>
-        <div className="w-full max-w-xs text-left">
-          <label className="mb-1 block text-xs text-ink-300" htmlFor="zoom-inline-passcode">
-            Contraseña de la reunión (texto, la que muestra Zoom — no el código del enlace)
-          </label>
-          <input
-            id="zoom-inline-passcode"
-            className="w-full rounded-lg border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-white outline-none focus:border-brand-500"
-            placeholder="Ej: 123456"
-            value={localPasscode}
-            onChange={(e) => setLocalPasscode(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && retryNow()}
-            autoFocus
-          />
-        </div>
-        <Button onClick={retryNow}>Reintentar</Button>
-      </div>
-    );
-  }
+  const retryNow = () => {
+    setError(null);
+    setStatus("preparing");
+    setPhase("Reintentando…");
+    setRetry((n) => n + 1);
+  };
 
+  // The Zoom container is ALWAYS mounted (we never unmount it on error), so the
+  // initialized client stays alive and a retry just re-joins -- no re-init, no
+  // black screen. Our error panel is a full-screen overlay with a very high
+  // z-index so it covers Zoom's own "contraseña incorrecta / Aceptar" dialog:
+  // the user only ever sees our "Reintentar", and re-joining dismisses Zoom's
+  // dialog automatically.
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
+
       {status === "preparing" && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center">
           <p className="text-sm text-ink-300">{phase}</p>
+        </div>
+      )}
+
+      {status === "error" && (
+        <div
+          className="fixed inset-0 flex flex-col items-center justify-center gap-4 bg-ink-950/95 p-6 text-center"
+          // Max 32-bit z-index: guaranteed above Zoom's own error dialog, so the
+          // user only ever sees our "Reintentar" (not Zoom's "Aceptar").
+          style={{ zIndex: 2147483647 }}
+        >
+          <p className="max-w-md text-sm text-brand-300">{error}</p>
+          <div className="w-full max-w-xs text-left">
+            <label className="mb-1 block text-xs text-ink-300" htmlFor="zoom-inline-passcode">
+              Contraseña de la reunión (texto, la que muestra Zoom — no el código del enlace)
+            </label>
+            <input
+              id="zoom-inline-passcode"
+              className="w-full rounded-lg border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-white outline-none focus:border-brand-500"
+              placeholder="Ej: 123456"
+              value={localPasscode}
+              onChange={(e) => setLocalPasscode(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && retryNow()}
+              autoFocus
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <Button onClick={retryNow}>Reintentar</Button>
+            <button
+              type="button"
+              onClick={() => onLeaveRef.current?.()}
+              className="text-sm text-ink-400 hover:text-ink-200"
+            >
+              Salir
+            </button>
+          </div>
         </div>
       )}
     </div>
