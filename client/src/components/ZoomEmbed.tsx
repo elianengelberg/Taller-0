@@ -29,9 +29,6 @@ interface Props {
   onLeave?: () => void;
 }
 
-// If we're still preparing after this long, something is wedged (Render cold
-// start, a blocked SDK asset, a hung init). Turn the silent hang into an
-// actionable error naming the exact phase we got stuck in.
 const WATCHDOG_MS = 70_000;
 
 // Zoom rejects join() with a { type, reason } object, not an Error, so pull the
@@ -51,25 +48,19 @@ function zoomErrorMessage(e: unknown, fallback: string): string {
 // SDK's own DOM; our AI/transcription overlay works by listening to the user's
 // OWN microphone (see ExternalMeeting), not by reaching into Zoom.
 //
-// Flow: ask our backend for a signed join token (the SDK secret never touches
-// the browser) -> load the SDK from Zoom's CDN -> createClient/init/join. Once
-// join() is invoked we HAND OFF to Zoom's own UI. Each phase is surfaced on
-// screen and logged, and a watchdog converts a hang into a named error, so a
-// stuck join is diagnosable instead of an infinite "Preparando…".
+// The SDK is initialized exactly ONCE per mount (init loads media workers and
+// a global PubSub that must not be double-loaded -- re-initing on a retry left
+// the UI black). A retry (e.g. after a wrong passcode) reuses the same client
+// and only calls join() again.
 export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeave }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState("Autorizando el ingreso a Zoom…");
-  // "preparing": our overlay (signature + SDK load + init).
-  // "in-zoom": handed off -- Zoom's own UI is showing.
-  // "error": something failed; show the reason + a retry.
   const [status, setStatus] = useState<"preparing" | "in-zoom" | "error">("preparing");
   const [retry, setRetry] = useState(0);
-  // The plain meeting passcode. Zoom's Web SDK ONLY accepts the plain passcode
-  // (never the encrypted `pwd` from the link), so a wrong/blank one fails with
-  // "contraseña incorrecta". We let the user enter/fix it inline on failure and
-  // retry without leaving the page. Read via a ref so a retry picks up the
-  // latest typed value without re-running the effect on every keystroke.
+  // Plain passcode (Zoom's Web SDK never accepts the encrypted link `pwd`). The
+  // user can fix it inline on failure; read via a ref so a retry uses the
+  // latest value without re-running the effect on every keystroke.
   const [localPasscode, setLocalPasscode] = useState(passcode ?? "");
   const passcodeRef = useRef(localPasscode);
   passcodeRef.current = localPasscode;
@@ -77,10 +68,25 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
   const onLeaveRef = useRef(onLeave);
   onLeaveRef.current = onLeave;
 
+  // The embedded client persists across retries so we init once and only
+  // re-join on retry.
+  const clientRef = useRef<ZoomEmbeddedClient | null>(null);
+
+  // Leave the meeting only when the component actually unmounts (not on retry).
+  useEffect(() => {
+    return () => {
+      try {
+        clientRef.current?.leaveMeeting();
+      } catch {
+        // never joined / already gone
+      }
+      clientRef.current = null;
+    };
+  }, []);
+
   useEffect(() => {
     let disposed = false;
-    let settled = false; // handed off or errored -- stop the watchdog acting
-    let client: ZoomEmbeddedClient | null = null;
+    let settled = false;
     const t0 = Date.now();
     let phaseText = "Autorizando el ingreso a Zoom…";
     const log = (m: string) => console.log(`[ZoomEmbed +${Date.now() - t0}ms] ${m}`);
@@ -89,7 +95,6 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
       if (!disposed) setPhase(text);
       log(text);
     };
-
     const fail = (msg: string) => {
       if (disposed || settled) return;
       settled = true;
@@ -104,7 +109,7 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
       setStatus("in-zoom");
     };
 
-    log(`start meeting=${meetingNumber} crossOriginIsolated=${window.crossOriginIsolated}`);
+    log(`start meeting=${meetingNumber} crossOriginIsolated=${window.crossOriginIsolated} retry=${retry}`);
 
     const watchdog = window.setTimeout(() => {
       fail(
@@ -126,67 +131,60 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
       }
       log("got signature");
 
-      // 2. Load the official SDK from the bundled npm package (code-split into
-      //    its own chunk via dynamic import). We do NOT load it from Zoom's CDN
-      //    <script> anymore: that external load was failing ("No se pudo cargar
-      //    el SDK"). Bundling removes that failure point; the SDK still fetches
-      //    its audio/video worker assets from source.zoom.us at runtime.
-      step("Cargando el SDK de Zoom…");
-      // Must run BEFORE the import: the UMD factory reads the globals at eval time.
-      exposeReactGlobals();
-      const ZoomMtgEmbedded = (await import("@zoom/meetingsdk/embedded")).default;
-      if (disposed) return;
-      if (!containerRef.current) {
-        fail("No se pudo preparar el contenedor de Zoom.");
-        return;
+      // 2 + 3. Load + init the SDK ONCE. On a retry the client already exists,
+      //         so we skip straight to re-joining (re-initing double-loads the
+      //         media/PubSub globals and leaves the UI black).
+      if (!clientRef.current) {
+        step("Cargando el SDK de Zoom…");
+        exposeReactGlobals();
+        const ZoomMtgEmbedded = (await import("@zoom/meetingsdk/embedded")).default;
+        if (disposed) return;
+        if (!containerRef.current) {
+          fail("No se pudo preparar el contenedor de Zoom.");
+          return;
+        }
+
+        step("Iniciando Zoom…");
+        const rect = containerRef.current.getBoundingClientRect();
+        const width = Math.max(Math.floor(rect.width), 360);
+        const height = Math.max(Math.floor(rect.height), 320);
+        log(`container ${width}x${height}`);
+
+        const client = ZoomMtgEmbedded.createClient() as unknown as ZoomEmbeddedClient;
+        await client.init({
+          zoomAppRoot: containerRef.current,
+          language: "es-ES",
+          patchJsMedia: true,
+          leaveOnPageUnload: true,
+          customize: {
+            video: {
+              isResizable: false,
+              viewSizes: { default: { width, height } },
+              // Gallery shows every participant as a tile (with their name even
+              // if the camera is off), so the pane isn't a blank black frame.
+              defaultViewType: "gallery",
+            },
+          },
+        });
+        if (disposed) return;
+        log("init done");
+
+        client.on("connection-change", (payload) => {
+          log(`connection-change: ${payload?.state ?? "?"} ${payload?.reason ?? ""}`);
+          if (payload?.state === "Closed") onLeaveRef.current?.();
+          else if (payload?.state === "Fail") {
+            fail(payload?.reason || "Zoom no pudo conectar la reunión. Revisá la contraseña.");
+          }
+        });
+
+        clientRef.current = client;
       }
 
-      // 3. Init the embedded client. By default the Component View renders a
-      //    small draggable popper (or nothing visible if the container isn't
-      //    sized), so we pin the video to the container's real size and a fixed
-      //    view so it fills the pane. patchJsMedia loads the media deps from
-      //    Zoom's CDN.
-      step("Iniciando Zoom…");
-      const rect = containerRef.current.getBoundingClientRect();
-      const width = Math.max(Math.floor(rect.width), 360);
-      const height = Math.max(Math.floor(rect.height), 320);
-      log(`container ${width}x${height}`);
-
-      client = ZoomMtgEmbedded.createClient() as unknown as ZoomEmbeddedClient;
-      await client.init({
-        zoomAppRoot: containerRef.current,
-        language: "es-ES",
-        patchJsMedia: true,
-        leaveOnPageUnload: true,
-        customize: {
-          video: {
-            isResizable: false,
-            viewSizes: { default: { width, height } },
-            defaultViewType: "speaker",
-          },
-        },
-      });
-      if (disposed) return;
-      log("init done");
-
-      // Listeners must be registered AFTER init(); before init they no-op.
-      client.on("connection-change", (payload) => {
-        log(`connection-change: ${payload?.state ?? "?"} ${payload?.reason ?? ""}`);
-        if (payload?.state === "Closed") onLeaveRef.current?.();
-        else if (payload?.state === "Fail") {
-          fail(payload?.reason || "Zoom no pudo conectar la reunión. Revisá la contraseña.");
-        }
-      });
-
-      // 4. Hand off to Zoom's own UI so its connecting / waiting-room /
-      //    connected / error states are visible instead of our overlay.
+      // 4. Hand off to Zoom's own UI, then join.
       step("Uniéndote a la reunión…");
       handOff();
 
-      // Zoom's `password` expects the PLAIN passcode; the link's `pwd` is an
-      // encrypted token that doesn't work, so we pass the plain passcode the
-      // user typed (in the form or the inline retry field).
-      const result = await client.join({
+      const result = await clientRef.current.join({
         signature,
         meetingNumber,
         password: passcodeRef.current.trim() || undefined,
@@ -206,19 +204,15 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
     return () => {
       disposed = true;
       window.clearTimeout(watchdog);
-      try {
-        client?.leaveMeeting();
-      } catch {
-        // Never joined / already gone -- nothing to clean up.
-      }
     };
-  }, [meetingNumber, passcode, displayName, retry]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retry]);
 
   if (status === "error") {
     const retryNow = () => {
       setError(null);
       setStatus("preparing");
-      setPhase("Autorizando el ingreso a Zoom…");
+      setPhase("Reintentando…");
       setRetry((n) => n + 1);
     };
     return (
