@@ -54,7 +54,11 @@ export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props)
       if (!disposed) setHasRemoteVideo(remoteRenderers.current.size > 0);
     };
 
+    const t0 = Date.now();
+    const log = (m: string) => console.log(`[TeamsEmbed +${Date.now() - t0}ms] ${m}`);
+
     async function start() {
+      log("pidiendo token ACS");
       const { token, error: tokenError } = await fetchTeamsToken();
       if (disposed) return;
       if (!token) {
@@ -62,16 +66,19 @@ export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props)
         setStatus("error");
         return;
       }
+      log("token OK, cargando SDK ACS");
 
       const sdk = await import("@azure/communication-calling");
       const { AzureCommunicationTokenCredential } = await import("@azure/communication-common");
       if (disposed) return;
+      log("SDK cargado, creando callAgent");
 
       const callClient = new sdk.CallClient();
       const credential = new AzureCommunicationTokenCredential(token);
       const callAgent = await callClient.createCallAgent(credential, { displayName: displayName || "Invitado" });
       agentRef.current = callAgent;
       if (disposed) return;
+      log("callAgent creado");
 
       // Best-effort local camera preview; join audio-only if it's unavailable
       // or the user denies permission.
@@ -97,6 +104,7 @@ export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props)
       }
       if (disposed) return;
 
+      log(`uniéndose a la reunión de Teams (video=${Boolean(localVideoStream)})`);
       const call = callAgent.join(
         { meetingLink },
         localVideoStream ? { videoOptions: { localVideoStreams: [localVideoStream] } } : undefined
@@ -105,8 +113,14 @@ export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props)
 
       call.on("stateChanged", () => {
         if (disposed) return;
+        log(`call state: ${call.state}`);
         if (call.state === "Connected") setStatus("joined");
-        else if (call.state === "Disconnected") onLeaveRef.current?.();
+        else if (call.state === "Disconnected") {
+          // callEndReason carries why (e.g. lobby rejection, invalid link).
+          const reason = call.callEndReason;
+          log(`disconnected reason code=${reason?.code} subCode=${reason?.subCode}`);
+          onLeaveRef.current?.();
+        }
       });
 
       const renderRemoteStream = async (stream: RemoteVideoStream) => {
@@ -163,8 +177,13 @@ export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props)
     }
 
     start().catch((e: unknown) => {
+      console.error("[TeamsEmbed] fatal", e);
       if (disposed) return;
-      setError(e instanceof Error ? e.message : "No se pudo unir a la reunión de Teams.");
+      const msg =
+        e && typeof e === "object" && "message" in e && typeof (e as { message?: unknown }).message === "string"
+          ? (e as { message: string }).message
+          : "No se pudo unir a la reunión de Teams.";
+      setError(msg);
       setStatus("error");
     });
 
