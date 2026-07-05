@@ -5,13 +5,22 @@ import IconButton from "../components/IconButton";
 import JitsiEmbed from "../components/JitsiEmbed";
 import LiveCaption from "../components/LiveCaption";
 import Logo from "../components/Logo";
+import RecordingBanner from "../components/RecordingBanner";
 import SidePanel from "../components/SidePanel";
 import TeamsEmbed from "../components/TeamsEmbed";
 import TranscriptPanel from "../components/TranscriptPanel";
 import ZoomEmbed from "../components/ZoomEmbed";
-import { CaptionsIcon, PhoneOffIcon, SparklesIcon, TranscriptIcon } from "../components/icons";
+import {
+  CaptionsIcon,
+  PhoneOffIcon,
+  RecordIcon,
+  SparklesIcon,
+  StopIcon,
+  TranscriptIcon,
+} from "../components/icons";
 import { useMeeting } from "../context/MeetingContext";
 import { AUTO_LANG, useLineTranslations } from "../hooks/useLineTranslations";
+import { useRecorder } from "../hooks/useRecorder";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { askMeetingAI } from "../lib/api";
 import { CompanionEmbed } from "../types";
@@ -46,14 +55,14 @@ function CompanionEmbedPane({
   }
 }
 
-// The Encuentro layer that runs ON TOP of an external meeting (Jitsi, Zoom...).
-// The external platform handles audio/video (the embedded pane); we add our
-// live subtitles, transcript, translation and AI. The trick that makes this
-// possible without reaching inside the cross-origin embed: our transcription
-// listens to the user's OWN microphone (Web Speech API), exactly like the
-// native app, and syncs everyone's captions through our backend keyed by the
-// shared external-room key (see join-companion). So two people who both open
-// the same link through Encuentro see each other's translated captions.
+// The Encuentro layer that runs ON TOP of an external meeting (Jitsi, Zoom,
+// Teams...). The external platform handles audio/video (the embedded pane, with
+// its own mic/camera/share controls); we add a fixed Encuentro toolbar with our
+// live subtitles, transcript, translation, AI assistant and recording. The
+// trick that makes this possible without reaching inside the cross-origin
+// embed: our transcription listens to the user's OWN microphone (Web Speech
+// API) and syncs everyone's captions through our backend keyed by the shared
+// external-room key (see join-companion).
 export default function ExternalMeeting() {
   const navigate = useNavigate();
   const {
@@ -117,54 +126,43 @@ export default function ExternalMeeting() {
 
   const { getTranslation } = useLineTranslations(meeting?.transcript ?? [], targetLang);
 
+  // Records the whole tab (the embedded meeting + captions) with its audio.
+  // No local mic stream here -- the external platform owns the mic -- but
+  // getDisplayMedia with "share tab audio" captures the meeting's audio.
+  const recorder = useRecorder({ micStream: null, meetingDbId: meeting?.dbId ?? null });
+  function toggleRecording() {
+    if (recorder.status === "recording") recorder.stop();
+    else if (recorder.status === "idle" || recorder.status === "error") void recorder.start();
+  }
+
+  function togglePanel(panel: Exclude<PanelKey, null>) {
+    setActivePanel((current) => (current === panel ? null : panel));
+  }
+
+  function handleLeave() {
+    leaveMeeting();
+    navigate("/", { replace: true });
+  }
+
   if (!draft || draft.mode !== "companion") return null;
 
   const lastLine = meeting?.transcript[meeting.transcript.length - 1] ?? null;
+  const participantCount = meeting?.participants.length ?? 0;
+  const recording = recorder.status === "recording";
 
   return (
     <div className="flex h-dvh flex-col bg-ink-950">
-      <header className="flex items-center justify-between gap-2 border-b border-ink-700 bg-ink-900 px-3 py-2 sm:px-6">
+      {/* Minimal top bar: brand + which meeting we're on + who's here. All the
+          actions live in the fixed toolbar at the bottom (like Zoom / our own
+          meeting), so nothing floats around. */}
+      <header className="flex items-center justify-between gap-2 border-b border-ink-700 bg-ink-900 px-4 py-2.5 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <Logo />
           <span className="hidden truncate text-xs text-ink-400 sm:inline">{draft.roomLabel}</span>
         </div>
-        <div className="flex items-center gap-1 sm:gap-2">
-          <IconButton
-            label="Mostrar u ocultar los subtítulos en vivo"
-            caption="Subtítulos"
-            active={captionsOn}
-            onClick={() => setCaptionsOn((v) => !v)}
-          >
-            <CaptionsIcon className="h-5 w-5" />
-          </IconButton>
-          <IconButton
-            label="Ver la transcripción completa"
-            caption="Transcripción"
-            active={activePanel === "transcript"}
-            onClick={() => setActivePanel((p) => (p === "transcript" ? null : "transcript"))}
-          >
-            <TranscriptIcon className="h-5 w-5" />
-          </IconButton>
-          <IconButton
-            label="Preguntarle a la IA sobre esta reunión"
-            caption="IA"
-            active={activePanel === "ai"}
-            onClick={() => setActivePanel((p) => (p === "ai" ? null : "ai"))}
-          >
-            <SparklesIcon className="h-5 w-5" />
-          </IconButton>
-          <IconButton
-            label="Salir de la reunión"
-            caption="Salir"
-            danger
-            onClick={() => {
-              leaveMeeting();
-              navigate("/", { replace: true });
-            }}
-          >
-            <PhoneOffIcon className="h-5 w-5" />
-          </IconButton>
-        </div>
+        <span className="whitespace-nowrap text-xs font-medium text-ink-400">
+          {participantCount} en Encuentro
+        </span>
       </header>
 
       <div className="relative flex-1 overflow-hidden">
@@ -176,10 +174,7 @@ export default function ExternalMeeting() {
           <CompanionEmbedPane
             embed={draft.embed}
             displayName={draft.name}
-            onLeave={() => {
-              leaveMeeting();
-              navigate("/", { replace: true });
-            }}
+            onLeave={handleLeave}
           />
         )}
 
@@ -190,6 +185,18 @@ export default function ExternalMeeting() {
             captionsOn && interimCaption ? { speakerName: draft.name || "Vos", text: interimCaption } : null
           }
         />
+
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 p-3 sm:p-4">
+          <div className="pointer-events-auto mx-auto max-w-md">
+            <RecordingBanner
+              status={recorder.status}
+              uploadStatus={recorder.uploadStatus}
+              error={recorder.error}
+              resultUrl={recorder.resultUrl}
+              onDismiss={recorder.reset}
+            />
+          </div>
+        </div>
 
         {activePanel === "transcript" && (
           <div className="absolute inset-y-0 right-0 z-20 w-full sm:w-96">
@@ -206,13 +213,13 @@ export default function ExternalMeeting() {
         )}
 
         {activePanel === "ai" && (
-          <div className="absolute inset-y-0 right-0 z-20 w-full sm:w-96">
-            <SidePanel title="IA de la reunión" onClose={() => setActivePanel(null)}>
+          <div className="absolute inset-y-0 right-0 z-20 w-full sm:w-[26rem]">
+            <SidePanel title="Asistente IA" onClose={() => setActivePanel(null)}>
               {meeting?.dbId ? (
                 <AiChatBox
                   title="Preguntale a la IA"
-                  description="Responde en base a lo que se transcribió de esta reunión."
-                  placeholder='Ej: "¿qué se dijo hasta ahora?"'
+                  description="Tu asistente durante la reunión: responde sobre lo que se está diciendo, resume y saca conclusiones."
+                  placeholder='Ej: "resumime lo que se dijo hasta ahora"'
                   emptyHint="La IA usa la transcripción en vivo de esta reunión externa."
                   onAsk={(q) => askMeetingAI(meeting.dbId, q)}
                 />
@@ -222,6 +229,51 @@ export default function ExternalMeeting() {
             </SidePanel>
           </div>
         )}
+      </div>
+
+      {/* Fixed bottom toolbar -- the Encuentro layer's controls. Mic / camera /
+          screen-share / participants come from the embedded platform's own
+          toolbar; these are the tools we add on top. */}
+      <div className="flex items-center justify-center gap-2 border-t border-ink-700 bg-ink-900 px-3 py-3 sm:gap-3 sm:px-6">
+        <IconButton
+          label="Mostrar u ocultar los subtítulos en vivo"
+          caption="Subtítulos"
+          active={captionsOn}
+          onClick={() => setCaptionsOn((v) => !v)}
+        >
+          <CaptionsIcon className="h-5 w-5" />
+        </IconButton>
+        <IconButton
+          label="Ver la transcripción completa y traducciones"
+          caption="Transcripción"
+          active={activePanel === "transcript"}
+          onClick={() => togglePanel("transcript")}
+        >
+          <TranscriptIcon className="h-5 w-5" />
+        </IconButton>
+        <IconButton
+          label="Abrir el asistente de IA de la reunión"
+          caption="Asistente IA"
+          active={activePanel === "ai"}
+          onClick={() => togglePanel("ai")}
+        >
+          <SparklesIcon className="h-5 w-5" />
+        </IconButton>
+        <IconButton
+          label={
+            recording
+              ? "Detener grabación"
+              : 'Grabar la reunión (elegí "esta pestaña" y tildá compartir audio)'
+          }
+          caption={recording ? "Grabando" : "Grabar"}
+          danger={recording}
+          onClick={toggleRecording}
+        >
+          {recording ? <StopIcon className="h-5 w-5" /> : <RecordIcon className="h-5 w-5" />}
+        </IconButton>
+        <IconButton label="Salir de la reunión" caption="Salir" danger onClick={handleLeave}>
+          <PhoneOffIcon className="h-5 w-5" />
+        </IconButton>
       </div>
     </div>
   );

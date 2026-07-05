@@ -158,7 +158,10 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
           leaveOnPageUnload: true,
           customize: {
             video: {
+              // Static, non-draggable, fixed to the pane -- so the meeting
+              // can't be dragged around and stays tidy.
               isResizable: false,
+              popper: { disableDraggable: true },
               viewSizes: { default: { width, height } },
               // Gallery shows every participant as a tile (with their name even
               // if the camera is off), so the pane isn't a blank black frame.

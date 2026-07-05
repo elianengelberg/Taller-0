@@ -11,6 +11,7 @@ import {
   PhoneOffIcon,
   RecordIcon,
   ScreenShareIcon,
+  SparklesIcon,
   StopIcon,
   TranscriptIcon,
 } from "./icons";
@@ -31,6 +32,8 @@ interface ControlBarProps {
   onToggleParticipants: () => void;
   transcriptOpen: boolean;
   onToggleTranscript: () => void;
+  aiOpen: boolean;
+  onToggleAi: () => void;
   recording: boolean;
   onToggleRecording: () => void;
   sharingScreen: boolean;
@@ -54,6 +57,8 @@ export default function ControlBar({
   onToggleParticipants,
   transcriptOpen,
   onToggleTranscript,
+  aiOpen,
+  onToggleAi,
   recording,
   onToggleRecording,
   sharingScreen,
@@ -131,6 +136,14 @@ export default function ControlBar({
         </IconButton>
         <IconButton label="Chat" caption="Chat" active={chatOpen} badge={chatUnread} onClick={onToggleChat}>
           <ChatIcon className="h-5 w-5" />
+        </IconButton>
+        <IconButton
+          label="Abrir el asistente de IA de la reunión"
+          caption="Asistente IA"
+          active={aiOpen}
+          onClick={onToggleAi}
+        >
+          <SparklesIcon className="h-5 w-5" />
         </IconButton>
         <IconButton
           label={

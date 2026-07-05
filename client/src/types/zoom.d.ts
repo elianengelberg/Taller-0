@@ -16,6 +16,8 @@ interface ZoomVideoOptions {
   isResizable?: boolean;
   viewSizes?: { default?: ZoomCustomSize; ribbon?: ZoomCustomSize };
   defaultViewType?: "minimized" | "speaker" | "ribbon" | "gallery" | "active";
+  // disableDraggable pins the video so it can't be dragged around the pane.
+  popper?: { disableDraggable?: boolean };
 }
 
 interface ZoomInitOptions {
