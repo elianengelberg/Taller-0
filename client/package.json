@@ -12,6 +12,7 @@
   "dependencies": {
     "@azure/communication-calling": "^1.43.1",
     "@azure/communication-common": "^2.4.2",
+    "@zoom/meetingsdk": "6.2.0",
     "buffer": "^6.0.3",
     "events": "^3.3.0",
     "process": "^0.11.10",

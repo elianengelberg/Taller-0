@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Button from "./Button";
 import { fetchZoomSignature } from "../lib/api";
-import { loadZoomSdk } from "../lib/zoom";
 
 interface Props {
   meetingNumber: string;
@@ -102,19 +101,23 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
       }
       log("got signature");
 
-      // 2. Official SDK bundle from Zoom's CDN.
+      // 2. Load the official SDK from the bundled npm package (code-split into
+      //    its own chunk via dynamic import). We do NOT load it from Zoom's CDN
+      //    <script> anymore: that external load was failing ("No se pudo cargar
+      //    el SDK"). Bundling removes that failure point; the SDK still fetches
+      //    its audio/video worker assets from source.zoom.us at runtime.
       step("Cargando el SDK de Zoom…");
-      await loadZoomSdk();
+      const ZoomMtgEmbedded = (await import("@zoom/meetingsdk/embedded")).default;
       if (disposed) return;
-      if (!containerRef.current || !window.ZoomMtgEmbedded) {
-        fail("No se pudo cargar el SDK de Zoom.");
+      if (!containerRef.current) {
+        fail("No se pudo preparar el contenedor de Zoom.");
         return;
       }
 
       // 3. Init the embedded client. patchJsMedia lets video work without
       //    cross-origin isolation (no COOP/COEP, which would break Jitsi).
       step("Iniciando Zoom…");
-      client = window.ZoomMtgEmbedded.createClient();
+      client = ZoomMtgEmbedded.createClient() as unknown as ZoomEmbeddedClient;
       await client.init({
         zoomAppRoot: containerRef.current,
         language: "es-ES",
