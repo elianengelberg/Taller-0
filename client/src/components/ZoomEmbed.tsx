@@ -1,6 +1,23 @@
 import { useEffect, useRef, useState } from "react";
+import * as ReactNamespace from "react";
+import * as ReactDOMNamespace from "react-dom";
+import * as ReactDOMClientNamespace from "react-dom/client";
 import Button from "./Button";
 import { fetchZoomSignature } from "../lib/api";
+
+// The Zoom embedded SDK ships as a UMD bundle that expects `React` and
+// `ReactDOM` as GLOBALS (it lists them as externals). When Vite bundles it the
+// UMD wrapper falls into its global branch and reads globalThis.React /
+// globalThis.ReactDOM -- which don't exist in a normal ESM app, so it throws
+// "React is not defined". We expose them just before loading the SDK. ReactDOM
+// must carry both the classic API (render/createPortal) and createRoot (which
+// moved to react-dom/client in React 18), since the UMD uses the same global
+// for both slots.
+function exposeReactGlobals(): void {
+  const g = globalThis as unknown as { React?: unknown; ReactDOM?: unknown };
+  if (!g.React) g.React = ReactNamespace;
+  if (!g.ReactDOM) g.ReactDOM = { ...ReactDOMNamespace, ...ReactDOMClientNamespace };
+}
 
 interface Props {
   meetingNumber: string;
@@ -107,6 +124,8 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
       //    el SDK"). Bundling removes that failure point; the SDK still fetches
       //    its audio/video worker assets from source.zoom.us at runtime.
       step("Cargando el SDK de Zoom…");
+      // Must run BEFORE the import: the UMD factory reads the globals at eval time.
+      exposeReactGlobals();
       const ZoomMtgEmbedded = (await import("@zoom/meetingsdk/embedded")).default;
       if (disposed) return;
       if (!containerRef.current) {
