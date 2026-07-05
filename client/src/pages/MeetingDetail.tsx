@@ -5,6 +5,7 @@ import Button from "../components/Button";
 import Logo from "../components/Logo";
 import RoleBadge from "../components/RoleBadge";
 import { askMeetingAI, fetchMeetingDetail, MeetingHistoryDetail } from "../lib/api";
+import { isExternalMeeting, meetingSourceLabel } from "../lib/meetingPlatforms";
 import { cardClass } from "../lib/ui";
 
 export default function MeetingDetail() {
@@ -56,9 +57,18 @@ export default function MeetingDetail() {
           </Link>
         </div>
 
-        <h1 className="text-2xl font-bold text-white">
-          Reunión de {meeting.hostName} <span className="text-ink-500">· {meeting.joinCode}</span>
-        </h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-bold text-white">Reunión de {meeting.hostName}</h1>
+          <span
+            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+              isExternalMeeting(meeting.joinCode)
+                ? "bg-brand-500/15 text-brand-300"
+                : "bg-ink-700/70 text-ink-300"
+            }`}
+          >
+            {meetingSourceLabel(meeting.joinCode)}
+          </span>
+        </div>
         <p className="mt-1 text-sm text-ink-400">
           {new Date(meeting.startedAt).toLocaleString([], {
             dateStyle: "medium",

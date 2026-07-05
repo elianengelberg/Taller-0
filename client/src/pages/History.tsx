@@ -4,6 +4,7 @@ import AiChatBox from "../components/AiChatBox";
 import Button from "../components/Button";
 import Logo from "../components/Logo";
 import { askAllMeetingsAI, fetchMeetingsHistory, MeetingHistorySummary } from "../lib/api";
+import { isExternalMeeting, meetingSourceLabel } from "../lib/meetingPlatforms";
 import { cardClass } from "../lib/ui";
 
 export default function History() {
@@ -81,9 +82,10 @@ export default function History() {
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate font-semibold text-white">
-                      Reunión de {m.hostName} <span className="text-ink-500">· {m.joinCode}</span>
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate font-semibold text-white">Reunión de {m.hostName}</p>
+                      <SourceChip joinCode={m.joinCode} />
+                    </div>
                     <p className="mt-1 text-sm text-ink-400">
                       {new Date(m.startedAt).toLocaleString([], {
                         dateStyle: "medium",
@@ -106,5 +108,20 @@ export default function History() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Shows WHERE the meeting happened (Encuentro / Zoom / Teams / Jitsi) instead
+// of the raw join code or external link, which was long and confusing.
+function SourceChip({ joinCode }: { joinCode: string }) {
+  const external = isExternalMeeting(joinCode);
+  return (
+    <span
+      className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+        external ? "bg-brand-500/15 text-brand-300" : "bg-ink-700/70 text-ink-300"
+      }`}
+    >
+      {meetingSourceLabel(joinCode)}
+    </span>
   );
 }

@@ -103,6 +103,30 @@ export const PLATFORM_REGISTRY: Record<MeetingPlatform, PlatformInfo> = {
   },
 };
 
+// A saved meeting's join code is either a native code (e.g. "ABC123") or an
+// external companion key ("ZOOM:123", "TEAMS:...", "JITSI:room"). For history
+// display we only want to show WHERE it happened -- never the raw (often long)
+// key/link, which just confuses people.
+export function meetingSourceLabel(joinCode: string): string {
+  const prefix = joinCode.match(/^([a-z-]+):/i)?.[1]?.toLowerCase();
+  switch (prefix) {
+    case "zoom":
+      return "Zoom";
+    case "teams":
+      return "Microsoft Teams";
+    case "jitsi":
+      return "Jitsi";
+    case "google-meet":
+      return "Google Meet";
+    default:
+      return "Encuentro";
+  }
+}
+
+export function isExternalMeeting(joinCode: string): boolean {
+  return /^[a-z-]+:/i.test(joinCode);
+}
+
 export interface DetectedMeeting {
   platform: MeetingPlatform;
   info: PlatformInfo;
