@@ -43,7 +43,10 @@ function friendlyTeamsError(raw: string): string {
 export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props) {
   const gridRef = useRef<HTMLDivElement>(null);
   const localTileRef = useRef<HTMLDivElement>(null);
-  const [status, setStatus] = useState<"connecting" | "joined" | "error">("connecting");
+  // "companion" = personal/free Teams that can't be embedded: the real call
+  // opens in its own tab and Encuentro's subtitle/transcript/AI layer (which
+  // runs off the user's mic in ExternalMeeting) keeps working alongside it.
+  const [status, setStatus] = useState<"connecting" | "joined" | "error" | "companion">("connecting");
   const [error, setError] = useState<string | null>(null);
   const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
   const [micOn, setMicOn] = useState(true);
@@ -197,6 +200,13 @@ export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props)
         e && typeof e === "object" && "message" in e && typeof (e as { message?: unknown }).message === "string"
           ? (e as { message: string }).message
           : "";
+      // Personal/free Teams can't be embedded (Microsoft blocks it), but our
+      // subtitle/transcript/AI layer still works off the mic -- fall back to
+      // "companion mode": open the real call in its own tab, keep Encuentro here.
+      if (raw.toLowerCase().includes("teams for life") || raw.toLowerCase().includes("teams for consumer")) {
+        setStatus("companion");
+        return;
+      }
       setError(friendlyTeamsError(raw));
       setStatus("error");
     });
@@ -261,6 +271,30 @@ export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props)
     } catch {
       /* ignore transient video errors */
     }
+  }
+
+  if (status === "companion") {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+        <p className="max-w-md text-sm text-ink-200">
+          Esta reunión de Teams es <span className="text-white">personal/gratuita</span> y Microsoft no
+          permite embeberla. Abrila en Teams en otra pestaña — los{" "}
+          <span className="text-white">subtítulos, la transcripción y la IA de Encuentro</span> siguen
+          funcionando acá con tu micrófono.
+        </p>
+        <a
+          href={meetingLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-xl bg-brand-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-600"
+        >
+          Abrir la reunión en Teams
+        </a>
+        <p className="max-w-md text-xs text-ink-500">
+          Dejá esta pestaña abierta al lado de Teams para ver los subtítulos y usar el asistente de IA.
+        </p>
+      </div>
+    );
   }
 
   if (status === "error") {
