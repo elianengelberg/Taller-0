@@ -65,6 +65,14 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
   // "error": something failed; show the reason + a retry.
   const [status, setStatus] = useState<"preparing" | "in-zoom" | "error">("preparing");
   const [retry, setRetry] = useState(0);
+  // The plain meeting passcode. Zoom's Web SDK ONLY accepts the plain passcode
+  // (never the encrypted `pwd` from the link), so a wrong/blank one fails with
+  // "contraseña incorrecta". We let the user enter/fix it inline on failure and
+  // retry without leaving the page. Read via a ref so a retry picks up the
+  // latest typed value without re-running the effect on every keystroke.
+  const [localPasscode, setLocalPasscode] = useState(passcode ?? "");
+  const passcodeRef = useRef(localPasscode);
+  passcodeRef.current = localPasscode;
 
   const onLeaveRef = useRef(onLeave);
   onLeaveRef.current = onLeave;
@@ -163,8 +171,11 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
 
       // Listeners must be registered AFTER init(); before init they no-op.
       client.on("connection-change", (payload) => {
-        log(`connection-change: ${payload?.state ?? "?"}`);
+        log(`connection-change: ${payload?.state ?? "?"} ${payload?.reason ?? ""}`);
         if (payload?.state === "Closed") onLeaveRef.current?.();
+        else if (payload?.state === "Fail") {
+          fail(payload?.reason || "Zoom no pudo conectar la reunión. Revisá la contraseña.");
+        }
       });
 
       // 4. Hand off to Zoom's own UI so its connecting / waiting-room /
@@ -173,11 +184,12 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
       handOff();
 
       // Zoom's `password` expects the PLAIN passcode; the link's `pwd` is an
-      // encrypted token that doesn't work, so we only pass what the user typed.
+      // encrypted token that doesn't work, so we pass the plain passcode the
+      // user typed (in the form or the inline retry field).
       const result = await client.join({
         signature,
         meetingNumber,
-        password: passcode || undefined,
+        password: passcodeRef.current.trim() || undefined,
         userName: displayName || "Invitado",
       });
       log(`join resolved: ${JSON.stringify(result)}`);
@@ -203,19 +215,30 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
   }, [meetingNumber, passcode, displayName, retry]);
 
   if (status === "error") {
+    const retryNow = () => {
+      setError(null);
+      setStatus("preparing");
+      setPhase("Autorizando el ingreso a Zoom…");
+      setRetry((n) => n + 1);
+    };
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
         <p className="max-w-md text-sm text-brand-300">{error}</p>
-        <Button
-          onClick={() => {
-            setError(null);
-            setStatus("preparing");
-            setPhase("Autorizando el ingreso a Zoom…");
-            setRetry((n) => n + 1);
-          }}
-        >
-          Reintentar
-        </Button>
+        <div className="w-full max-w-xs text-left">
+          <label className="mb-1 block text-xs text-ink-300" htmlFor="zoom-inline-passcode">
+            Contraseña de la reunión (texto, la que muestra Zoom — no el código del enlace)
+          </label>
+          <input
+            id="zoom-inline-passcode"
+            className="w-full rounded-lg border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-white outline-none focus:border-brand-500"
+            placeholder="Ej: 123456"
+            value={localPasscode}
+            onChange={(e) => setLocalPasscode(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && retryNow()}
+            autoFocus
+          />
+        </div>
+        <Button onClick={retryNow}>Reintentar</Button>
       </div>
     );
   }
