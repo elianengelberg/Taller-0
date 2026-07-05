@@ -19,6 +19,7 @@ export default function ExternalJoin() {
   const [link, setLink] = useState("");
   const [name, setName] = useState("");
   const [language, setLanguage] = useState(LANGUAGES[0].code);
+  const [passcode, setPasscode] = useState("");
   const [detected, setDetected] = useState<DetectedMeeting | null>(null);
 
   function handleSubmit(event: FormEvent) {
@@ -61,7 +62,9 @@ export default function ExternalJoin() {
         ...base,
         externalKey: `zoom:${mn}`,
         roomLabel: `Zoom · ${mn}`,
-        embed: { kind: "zoom", meetingNumber: mn, passcode: target.passcode },
+        // The plain passcode the user typed (if any). We deliberately ignore
+        // the link's `pwd`: it's an encrypted token the Meeting SDK rejects.
+        embed: { kind: "zoom", meetingNumber: mn, passcode: passcode.trim() || undefined },
       });
       navigate("/externa/reunion");
       return;
@@ -104,6 +107,7 @@ export default function ExternalJoin() {
                 onChange={(e) => {
                   setLink(e.target.value);
                   setDetected(null);
+                  setPasscode("");
                 }}
                 required
               />
@@ -156,7 +160,12 @@ export default function ExternalJoin() {
           </form>
 
           {detected && (
-            <DetectionResult detected={detected} onJoinEmbed={() => joinDetected(detected)} />
+            <DetectionResult
+              detected={detected}
+              passcode={passcode}
+              onPasscodeChange={setPasscode}
+              onJoinEmbed={() => joinDetected(detected)}
+            />
           )}
         </div>
       </div>
@@ -166,9 +175,13 @@ export default function ExternalJoin() {
 
 function DetectionResult({
   detected,
+  passcode,
+  onPasscodeChange,
   onJoinEmbed,
 }: {
   detected: DetectedMeeting;
+  passcode: string;
+  onPasscodeChange: (value: string) => void;
   onJoinEmbed: () => void;
 }) {
   const { platform, info, url, meetingId } = detected;
@@ -199,9 +212,30 @@ function DetectionResult({
       </p>
 
       {canEmbed ? (
-        <Button className="mt-4 w-full" onClick={onJoinEmbed}>
-          Unirme acá dentro
-        </Button>
+        <>
+          {platform === "zoom" && (
+            <div className="mt-4">
+              <label className={labelClass} htmlFor="zoom-passcode">
+                Contraseña de la reunión (si tiene)
+              </label>
+              <input
+                id="zoom-passcode"
+                className={inputClass}
+                placeholder="Ej: 123456"
+                value={passcode}
+                onChange={(e) => onPasscodeChange(e.target.value)}
+                maxLength={20}
+              />
+              <p className="mt-1.5 text-xs text-ink-400">
+                Es la contraseña que Zoom muestra junto al ID (no el código del enlace). Dejala vacía
+                si la reunión no pide contraseña.
+              </p>
+            </div>
+          )}
+          <Button className="mt-4 w-full" onClick={onJoinEmbed}>
+            Unirme acá dentro
+          </Button>
+        </>
       ) : (
         <>
           <p className="mt-2 text-xs text-ink-400">
