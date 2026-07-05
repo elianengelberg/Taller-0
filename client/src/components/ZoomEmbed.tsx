@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import Button from "./Button";
 import { fetchZoomSignature } from "../lib/api";
 import { loadZoomSdk } from "../lib/zoom";
 
@@ -12,12 +13,18 @@ interface Props {
   onLeave?: () => void;
 }
 
+// If we're still preparing after this long, something is wedged (Render cold
+// start, a blocked SDK asset, a hung init). Turn the silent hang into an
+// actionable error naming the exact phase we got stuck in.
+const WATCHDOG_MS = 70_000;
+
 // Zoom rejects join() with a { type, reason } object, not an Error, so pull the
 // human-readable reason out when we can.
 function zoomErrorMessage(e: unknown, fallback: string): string {
-  if (e && typeof e === "object" && "reason" in e) {
-    const reason = (e as { reason?: unknown }).reason;
-    if (typeof reason === "string" && reason.trim()) return reason;
+  if (e && typeof e === "object") {
+    const obj = e as { reason?: unknown; message?: unknown };
+    if (typeof obj.reason === "string" && obj.reason.trim()) return obj.reason;
+    if (typeof obj.message === "string" && obj.message.trim()) return obj.message;
   }
   if (e instanceof Error && e.message) return e.message;
   return fallback;
@@ -30,110 +37,148 @@ function zoomErrorMessage(e: unknown, fallback: string): string {
 //
 // Flow: ask our backend for a signed join token (the SDK secret never touches
 // the browser) -> load the SDK from Zoom's CDN -> createClient/init/join. Once
-// join() is invoked we HAND OFF to Zoom's own UI, which renders its own
-// connecting / waiting-room / connected states -- our "preparing" overlay only
-// covers the brief signature-fetch + SDK-load phase, so it can never mask a
-// meeting that actually connected.
+// join() is invoked we HAND OFF to Zoom's own UI. Each phase is surfaced on
+// screen and logged, and a watchdog converts a hang into a named error, so a
+// stuck join is diagnosable instead of an infinite "Preparando…".
 export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeave }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
-  // "preparing": our overlay (fetching signature + loading SDK + init).
+  const [phase, setPhase] = useState("Autorizando el ingreso a Zoom…");
+  // "preparing": our overlay (signature + SDK load + init).
   // "in-zoom": handed off -- Zoom's own UI is showing.
-  // "error": something failed; show the reason instead of the embed.
+  // "error": something failed; show the reason + a retry.
   const [status, setStatus] = useState<"preparing" | "in-zoom" | "error">("preparing");
+  const [retry, setRetry] = useState(0);
 
   const onLeaveRef = useRef(onLeave);
   onLeaveRef.current = onLeave;
 
   useEffect(() => {
     let disposed = false;
+    let settled = false; // handed off or errored -- stop the watchdog acting
     let client: ZoomEmbeddedClient | null = null;
+    const t0 = Date.now();
+    let phaseText = "Autorizando el ingreso a Zoom…";
+    const log = (m: string) => console.log(`[ZoomEmbed +${Date.now() - t0}ms] ${m}`);
+    const step = (text: string) => {
+      phaseText = text;
+      if (!disposed) setPhase(text);
+      log(text);
+    };
+
+    const fail = (msg: string) => {
+      if (disposed || settled) return;
+      settled = true;
+      log(`ERROR: ${msg}`);
+      setError(msg);
+      setStatus("error");
+    };
+    const handOff = () => {
+      if (disposed || settled) return;
+      settled = true;
+      log("handed off to Zoom UI");
+      setStatus("in-zoom");
+    };
+
+    log(`start meeting=${meetingNumber} crossOriginIsolated=${window.crossOriginIsolated}`);
+
+    const watchdog = window.setTimeout(() => {
+      fail(
+        `Zoom se quedó en: "${phaseText}". ` +
+          (phaseText.startsWith("Autorizando")
+            ? "El servidor puede estar despertando (Render tarda hasta ~1 min la primera vez). Probá reintentar."
+            : "Puede ser un bloqueo del SDK de Zoom o de la red. Abrí la consola (F12) y contame qué error aparece.")
+      );
+    }, WATCHDOG_MS);
 
     async function start() {
-      // 1. Get the signed join token from our server (503 if Zoom isn't set up).
+      // 1. Signed join token from our server (503 if Zoom isn't configured).
+      step("Autorizando el ingreso a Zoom…");
       const { signature, error: sigError } = await fetchZoomSignature(meetingNumber, 0);
       if (disposed) return;
       if (!signature) {
-        setError(sigError ?? "No se pudo autorizar el ingreso a Zoom.");
-        setStatus("error");
+        fail(sigError ?? "No se pudo autorizar el ingreso a Zoom.");
+        return;
+      }
+      log("got signature");
+
+      // 2. Official SDK bundle from Zoom's CDN.
+      step("Cargando el SDK de Zoom…");
+      await loadZoomSdk();
+      if (disposed) return;
+      if (!containerRef.current || !window.ZoomMtgEmbedded) {
+        fail("No se pudo cargar el SDK de Zoom.");
         return;
       }
 
-      // 2. Load the official SDK bundle from Zoom's CDN.
-      await loadZoomSdk();
-      if (disposed || !containerRef.current || !window.ZoomMtgEmbedded) return;
-
-      // 3. Init. By default the Component View is a small draggable popper, so
-      //    we pin it to the container's real size and a fixed view so it fills
-      //    the pane. patchJsMedia lets video work without cross-origin
-      //    isolation (no COOP/COEP, which would break the Jitsi iframe).
-      const rect = containerRef.current.getBoundingClientRect();
-      const width = Math.max(Math.floor(rect.width), 360);
-      const height = Math.max(Math.floor(rect.height), 320);
-
+      // 3. Init the embedded client. patchJsMedia lets video work without
+      //    cross-origin isolation (no COOP/COEP, which would break Jitsi).
+      step("Iniciando Zoom…");
       client = window.ZoomMtgEmbedded.createClient();
       await client.init({
         zoomAppRoot: containerRef.current,
         language: "es-ES",
         patchJsMedia: true,
         leaveOnPageUnload: true,
-        customize: {
-          video: {
-            isResizable: false,
-            viewSizes: { default: { width, height } },
-            defaultViewType: "speaker",
-          },
-        },
       });
       if (disposed) return;
+      log("init done");
 
-      // Event listeners must be registered AFTER init() -- registering them on a
-      // freshly-created (un-inited) client silently no-ops, which previously
-      // meant we never learned the meeting closed.
+      // Listeners must be registered AFTER init(); before init they no-op.
       client.on("connection-change", (payload) => {
+        log(`connection-change: ${payload?.state ?? "?"}`);
         if (payload?.state === "Closed") onLeaveRef.current?.();
       });
 
-      // 4. Hand off to Zoom's own UI now, so its connecting / waiting-room /
-      //    connected states are visible instead of our overlay masking them.
-      setStatus("in-zoom");
+      // 4. Hand off to Zoom's own UI so its connecting / waiting-room /
+      //    connected / error states are visible instead of our overlay.
+      step("Uniéndote a la reunión…");
+      handOff();
 
-      // Zoom's `password` field expects the PLAIN meeting passcode -- the `pwd`
-      // in a share link is an encrypted token that does NOT work here, so we
-      // only pass a passcode the user actually typed.
+      // Zoom's `password` expects the PLAIN passcode; the link's `pwd` is an
+      // encrypted token that doesn't work, so we only pass what the user typed.
       const result = await client.join({
         signature,
         meetingNumber,
         password: passcode || undefined,
         userName: displayName || "Invitado",
       });
-      // join() can resolve with an ExecutedFailure object instead of throwing.
+      log(`join resolved: ${JSON.stringify(result)}`);
       if (!disposed && result && typeof result === "object" && "reason" in result) {
-        setError(zoomErrorMessage(result, "No se pudo unir a la reunión de Zoom."));
-        setStatus("error");
+        fail(zoomErrorMessage(result, "No se pudo unir a la reunión de Zoom."));
       }
     }
 
     start().catch((e: unknown) => {
-      if (disposed) return;
-      setError(zoomErrorMessage(e, "No se pudo unir a la reunión de Zoom."));
-      setStatus("error");
+      console.error("[ZoomEmbed] fatal", e);
+      fail(zoomErrorMessage(e, "No se pudo unir a la reunión de Zoom."));
     });
 
     return () => {
       disposed = true;
+      window.clearTimeout(watchdog);
       try {
         client?.leaveMeeting();
       } catch {
         // Never joined / already gone -- nothing to clean up.
       }
     };
-  }, [meetingNumber, passcode, displayName]);
+  }, [meetingNumber, passcode, displayName, retry]);
 
   if (status === "error") {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-center">
-        <p className="max-w-sm text-sm text-brand-300">{error}</p>
+      <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+        <p className="max-w-md text-sm text-brand-300">{error}</p>
+        <Button
+          onClick={() => {
+            setError(null);
+            setStatus("preparing");
+            setPhase("Autorizando el ingreso a Zoom…");
+            setRetry((n) => n + 1);
+          }}
+        >
+          Reintentar
+        </Button>
       </div>
     );
   }
@@ -143,7 +188,7 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
       <div ref={containerRef} className="h-full w-full" />
       {status === "preparing" && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center">
-          <p className="text-sm text-ink-300">Preparando Zoom…</p>
+          <p className="text-sm text-ink-300">{phase}</p>
         </div>
       )}
     </div>
