@@ -79,8 +79,12 @@ app.post("/api/teams/token", async (_req, res) => {
   try {
     const credentials = await createTeamsUserToken();
     res.json(credentials);
-  } catch {
-    res.status(502).json({ error: "No se pudo generar el acceso a Teams." });
+  } catch (err) {
+    // Surface the real reason so a misconfigured ACS connection string /
+    // Azure error is diagnosable from the client instead of an opaque 502.
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error("[teams] token error:", detail);
+    res.status(502).json({ error: `No se pudo generar el acceso a Teams: ${detail}` });
   }
 });
 
