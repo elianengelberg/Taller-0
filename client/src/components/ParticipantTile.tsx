@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Participant, Role } from "../types";
-import { ScreenShareIcon } from "./icons";
+import { HandIcon, ScreenShareIcon } from "./icons";
 import RoleBadge from "./RoleBadge";
 
 interface Props {
@@ -84,6 +84,12 @@ export default function ParticipantTile({ participant, role, stream, isSelf, spe
         <RoleBadge role={role} size="sm" />
       </div>
 
+      {participant.handRaised && (
+        <span className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-ink-950 shadow-soft">
+          <HandIcon className="h-3.5 w-3.5 animate-bounce" />
+          Mano
+        </span>
+      )}
       {participant.isHost && (
         <span className="absolute left-2 top-2 rounded-full bg-brand-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-soft">
           Anfitrión

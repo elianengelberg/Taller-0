@@ -33,6 +33,7 @@ type MeetingAction =
   | { type: "TRANSCRIPT_LINE_TRANSLATIONS"; lineId: string; translations: Record<string, string> }
   | { type: "MEDIA_STATE"; participantId: string; muted: boolean; cameraOff: boolean }
   | { type: "SCREEN_SHARE"; participantId: string; sharingScreen: boolean }
+  | { type: "HAND_RAISED"; participantId: string; raised: boolean }
   | { type: "LANGUAGE_CHANGED"; participantId: string; language: string }
   | { type: "HOST_CHANGED"; hostId: string }
   | { type: "RESET" };
@@ -100,6 +101,13 @@ function meetingReducer(state: MeetingSnapshot | null, action: MeetingAction): M
           p.id === action.participantId ? { ...p, sharingScreen: action.sharingScreen } : p
         ),
       };
+    case "HAND_RAISED":
+      return {
+        ...state,
+        participants: state.participants.map((p) =>
+          p.id === action.participantId ? { ...p, handRaised: action.raised } : p
+        ),
+      };
     case "LANGUAGE_CHANGED":
       return {
         ...state,
@@ -147,6 +155,7 @@ interface MeetingContextValue {
   sendTranscriptLine: (alternatives: string[], lang: string) => void;
   setMediaState: (muted: boolean, cameraOff: boolean) => void;
   setSharingScreen: (sharing: boolean) => void;
+  setHandRaised: (raised: boolean) => void;
   setSelfLanguage: (language: string) => void;
   leaveMeeting: () => void;
 }
@@ -255,6 +264,12 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
       }
     );
     socket.on(
+      "hand-raised",
+      (payload: { participantId: string; raised: boolean }) => {
+        dispatch({ type: "HAND_RAISED", ...payload });
+      }
+    );
+    socket.on(
       "language-changed",
       (payload: { participantId: string; language: string }) => {
         dispatch({ type: "LANGUAGE_CHANGED", ...payload });
@@ -290,6 +305,7 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
       socket.off("transcript-line-translations");
       socket.off("media-state");
       socket.off("screen-share");
+      socket.off("hand-raised");
       socket.off("language-changed");
       socket.off("host-changed");
       socket.off("connect_error");
@@ -400,6 +416,10 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     socketRef.current.emit("screen-share", { sharing });
   }, []);
 
+  const setHandRaised = useCallback((raised: boolean) => {
+    socketRef.current.emit("raise-hand", { raised });
+  }, []);
+
   const setSelfLanguage = useCallback((language: string) => {
     socketRef.current.emit("set-language", { language });
   }, []);
@@ -445,6 +465,7 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     sendTranscriptLine,
     setMediaState,
     setSharingScreen,
+    setHandRaised,
     setSelfLanguage,
     leaveMeeting,
   };

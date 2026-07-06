@@ -224,6 +224,14 @@ export function SettingsIcon({ className }: IconProps) {
   );
 }
 
+export function HandIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...common}>
+      <path d="M8 11V5.5a1.5 1.5 0 0 1 3 0V11m0 0V4.5a1.5 1.5 0 0 1 3 0V11m0 0V6a1.5 1.5 0 0 1 3 0v7.5c0 3.6-2.4 6.5-6 6.5-2.2 0-3.8-1-4.9-2.8l-2.3-3.8a1.5 1.5 0 0 1 2.4-1.8L8 14V8a1.5 1.5 0 0 1 3 0" />
+    </svg>
+  );
+}
+
 export function SpeakerIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" className={className} {...common}>

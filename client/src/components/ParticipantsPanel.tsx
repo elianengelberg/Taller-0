@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMeeting } from "../context/MeetingContext";
 import { inputClass } from "../lib/ui";
 import Button from "./Button";
+import { HandIcon } from "./icons";
 import RoleBadge from "./RoleBadge";
 import SidePanel from "./SidePanel";
 
@@ -12,8 +13,12 @@ export default function ParticipantsPanel({ onClose }: { onClose: () => void }) 
 
   if (!meeting) return null;
 
+  // Host first, then anyone with their hand up (so the person running the
+  // meeting sees who wants to speak at a glance), then everyone else by
+  // join order.
   const participants = [...meeting.participants].sort((a, b) => {
     if (a.isHost !== b.isHost) return a.isHost ? -1 : 1;
+    if (a.handRaised !== b.handRaised) return a.handRaised ? -1 : 1;
     return a.joinedAt - b.joinedAt;
   });
 
@@ -67,10 +72,15 @@ export default function ParticipantsPanel({ onClose }: { onClose: () => void }) 
                   {participant.name.slice(0, 2).toUpperCase()}
                 </span>
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-white">
-                    {participant.name}
-                    {isSelf ? " (vos)" : ""}
-                    {participant.isHost ? " · Anfitrión" : ""}
+                  <p className="flex items-center gap-1.5 truncate text-sm font-medium text-white">
+                    <span className="truncate">
+                      {participant.name}
+                      {isSelf ? " (vos)" : ""}
+                      {participant.isHost ? " · Anfitrión" : ""}
+                    </span>
+                    {participant.handRaised && (
+                      <HandIcon className="h-4 w-4 shrink-0 animate-bounce text-amber-400" />
+                    )}
                   </p>
                   <RoleBadge role={role} size="sm" />
                 </div>

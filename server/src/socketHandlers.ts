@@ -514,6 +514,18 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
     });
   });
 
+  socket.on("raise-hand", (payload: { raised?: boolean }) => {
+    const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
+    if (!meeting) return;
+    const participant = meeting.participants.get(socket.id);
+    if (!participant) return;
+    participant.handRaised = Boolean(payload?.raised);
+    io.to(roomName(meeting.id)).emit("hand-raised", {
+      participantId: participant.id,
+      raised: participant.handRaised,
+    });
+  });
+
   socket.on("leave-meeting", () => {
     handleDeparture();
   });

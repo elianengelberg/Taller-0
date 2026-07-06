@@ -5,6 +5,7 @@ import {
   CameraOffIcon,
   CaptionsIcon,
   ChatIcon,
+  HandIcon,
   MicIcon,
   MicOffIcon,
   PeopleIcon,
@@ -23,6 +24,8 @@ interface ControlBarProps {
   cameraOff: boolean;
   onToggleMic: () => void;
   onToggleCamera: () => void;
+  handRaised: boolean;
+  onToggleHand: () => void;
   captionsOn: boolean;
   captionsSupported: boolean;
   onToggleCaptions: () => void;
@@ -50,6 +53,8 @@ export default function ControlBar({
   cameraOff,
   onToggleMic,
   onToggleCamera,
+  handRaised,
+  onToggleHand,
   captionsOn,
   captionsSupported,
   onToggleCaptions,
@@ -106,6 +111,14 @@ export default function ControlBar({
           onClick={onToggleCamera}
         >
           {cameraOff ? <CameraOffIcon className="h-5 w-5" /> : <CameraIcon className="h-5 w-5" />}
+        </IconButton>
+        <IconButton
+          label={handRaised ? "Bajar la mano" : "Levantar la mano"}
+          caption="Mano"
+          active={handRaised}
+          onClick={onToggleHand}
+        >
+          <HandIcon className="h-5 w-5" />
         </IconButton>
         <IconButton
           label={captionsSupported ? "Subtítulos en vivo" : "Subtítulos no disponibles en este navegador"}

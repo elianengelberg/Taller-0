@@ -14,6 +14,7 @@ import TranscriptPanel from "../components/TranscriptPanel";
 import VideoGrid from "../components/VideoGrid";
 import { useMeeting } from "../context/MeetingContext";
 import { askMeetingAI } from "../lib/api";
+import { recentCaptionEntries } from "../lib/captionLines";
 import { useActiveSpeakers } from "../hooks/useActiveSpeakers";
 import { useLocalMedia } from "../hooks/useLocalMedia";
 import { AUTO_LANG, ORIGINAL_LANG, useLineTranslations } from "../hooks/useLineTranslations";
@@ -37,6 +38,7 @@ export default function Meeting() {
     self,
     setMediaState,
     setSharingScreen,
+    setHandRaised,
     setSelfLanguage,
     sendTranscriptLine,
     leaveMeeting,
@@ -213,7 +215,10 @@ export default function Meeting() {
     );
   }
 
-  const lastTranscriptLine = meeting.transcript[meeting.transcript.length - 1] ?? null;
+  // The live-caption stack: the latest line per recent speaker, so if two or
+  // three people talk at once each keeps their own row instead of one caption
+  // flickering as it's overwritten.
+  const captionLines = captionsOn ? recentCaptionEntries(meeting.transcript, getTranslation) : [];
 
   return (
     // `h-dvh` (dynamic viewport height), not `h-screen` (100vh): mobile
@@ -228,8 +233,14 @@ export default function Meeting() {
         </span>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        <main className="relative flex-1 overflow-y-auto p-4 sm:p-6">
+      {/* relative so a side panel can overlay just the video area on mobile
+          (see SidePanel) without covering the header or control bar. */}
+      <div className="relative flex flex-1 overflow-hidden">
+        {/* min-w-0 lets this column actually shrink when a side panel opens
+            (a flex item's default min-width:auto would otherwise keep it at
+            its content's min width and squeeze/overlap the panel); overflow-x
+            clip stops a wide video tile from spilling sideways over the panel. */}
+        <main className="relative min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6">
           {media.error && (
             <div className="mb-4 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm text-brand-300">
               {media.error}
@@ -260,10 +271,7 @@ export default function Meeting() {
             speaking={activeSpeakers}
           />
           <LiveCaption
-            line={captionsOn ? lastTranscriptLine : null}
-            translatedText={
-              captionsOn && lastTranscriptLine ? getTranslation(lastTranscriptLine.id) : undefined
-            }
+            lines={captionLines}
             localInterim={
               captionsOn && interimCaption ? { speakerName: self?.name ?? "Vos", text: interimCaption } : null
             }
@@ -325,6 +333,8 @@ export default function Meeting() {
         cameraOff={media.cameraOff}
         onToggleMic={media.toggleMic}
         onToggleCamera={media.toggleCamera}
+        handRaised={Boolean(self?.handRaised)}
+        onToggleHand={() => setHandRaised(!self?.handRaised)}
         captionsOn={captionsOn}
         captionsSupported={captionsSupported}
         onToggleCaptions={() => setCaptionsOn((v) => !v)}

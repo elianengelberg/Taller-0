@@ -23,6 +23,7 @@ import { AUTO_LANG, useLineTranslations } from "../hooks/useLineTranslations";
 import { useRecorder } from "../hooks/useRecorder";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { askMeetingAI } from "../lib/api";
+import { recentCaptionEntries } from "../lib/captionLines";
 import { CompanionEmbed } from "../types";
 
 type PanelKey = "transcript" | "ai" | null;
@@ -146,7 +147,9 @@ export default function ExternalMeeting() {
 
   if (!draft || draft.mode !== "companion") return null;
 
-  const lastLine = meeting?.transcript[meeting.transcript.length - 1] ?? null;
+  const captionLines = captionsOn
+    ? recentCaptionEntries(meeting?.transcript ?? [], getTranslation)
+    : [];
   const participantCount = meeting?.participants.length ?? 0;
   const recording = recorder.status === "recording";
 
@@ -179,8 +182,7 @@ export default function ExternalMeeting() {
         )}
 
         <LiveCaption
-          line={captionsOn ? lastLine : null}
-          translatedText={captionsOn && lastLine ? getTranslation(lastLine.id) : undefined}
+          lines={captionLines}
           localInterim={
             captionsOn && interimCaption ? { speakerName: draft.name || "Vos", text: interimCaption } : null
           }
