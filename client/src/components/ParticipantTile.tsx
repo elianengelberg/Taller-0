@@ -9,12 +9,13 @@ interface Props {
   stream: MediaStream | null;
   isSelf: boolean;
   speakerId?: string | null;
+  speaking?: boolean;
 }
 
 // setSinkId is non-standard and typed loosely across browsers.
 type WithSinkId = HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> };
 
-export default function ParticipantTile({ participant, role, stream, isSelf, speakerId }: Props) {
+export default function ParticipantTile({ participant, role, stream, isSelf, speakerId, speaking }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -38,8 +39,15 @@ export default function ParticipantTile({ participant, role, stream, isSelf, spe
   // camera itself is toggled off.
   const showVideo = Boolean(stream) && (!participant.cameraOff || participant.sharingScreen);
 
+  // A soft ring while this person is talking -- the active-speaker cue every
+  // other meeting app uses. Muted people never light up (their track is
+  // silent), so it stays meaningful.
+  const speakingRing = speaking && !participant.muted ? "ring-2 ring-brand-400 ring-offset-2 ring-offset-ink-950" : "ring-0";
+
   return (
-    <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-2xl bg-ink-900 shadow-soft">
+    <div
+      className={`relative flex aspect-video items-center justify-center overflow-hidden rounded-2xl bg-ink-900 shadow-soft transition-all duration-150 ${speakingRing}`}
+    >
       {/* Always keep <video> mounted once we have a stream: conditionally
           rendering it in/out of the tree meant the DOM node (and its
           srcObject binding) got recreated every time the camera toggled

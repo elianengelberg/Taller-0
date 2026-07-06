@@ -11,6 +11,8 @@ interface Props {
   remoteStreams: Record<string, MediaStream>;
   // Chosen audio output device (see Opciones panel); applied to remote tiles.
   speakerId?: string | null;
+  // participantId -> true when they're currently talking (active-speaker ring).
+  speaking?: Record<string, boolean>;
 }
 
 // Older iOS/iPadOS Safari never implemented the standard Fullscreen API on
@@ -29,6 +31,7 @@ export default function VideoGrid({
   localStream,
   remoteStreams,
   speakerId,
+  speaking,
 }: Props) {
   const presenter = participants.find((p) => p.sharingScreen) ?? null;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -73,6 +76,7 @@ export default function VideoGrid({
         stream={stream}
         isSelf={isSelf}
         speakerId={speakerId}
+        speaking={Boolean(speaking?.[participant.id])}
       />
     );
   }

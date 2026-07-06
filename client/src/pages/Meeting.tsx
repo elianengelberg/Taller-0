@@ -14,6 +14,7 @@ import TranscriptPanel from "../components/TranscriptPanel";
 import VideoGrid from "../components/VideoGrid";
 import { useMeeting } from "../context/MeetingContext";
 import { askMeetingAI } from "../lib/api";
+import { useActiveSpeakers } from "../hooks/useActiveSpeakers";
 import { useLocalMedia } from "../hooks/useLocalMedia";
 import { AUTO_LANG, ORIGINAL_LANG, useLineTranslations } from "../hooks/useLineTranslations";
 import { useRecorder } from "../hooks/useRecorder";
@@ -100,6 +101,15 @@ export default function Meeting() {
     localStream: media.stream,
     enabled: media.ready,
   });
+
+  // Who's currently talking, for the active-speaker highlight (like Zoom/Meet).
+  const speakerStreams = useMemo(() => {
+    const map: Record<string, MediaStream | null> = {};
+    if (selfId && media.stream) map[selfId] = media.stream;
+    for (const [id, s] of Object.entries(remoteStreams)) map[id] = s;
+    return map;
+  }, [selfId, media.stream, remoteStreams]);
+  const activeSpeakers = useActiveSpeakers(speakerStreams);
 
   const screenShare = useScreenShare({
     localStream: media.stream,
@@ -247,6 +257,7 @@ export default function Meeting() {
             localStream={media.stream}
             remoteStreams={remoteStreams}
             speakerId={media.activeSpeakerId}
+            speaking={activeSpeakers}
           />
           <LiveCaption
             line={captionsOn ? lastTranscriptLine : null}
