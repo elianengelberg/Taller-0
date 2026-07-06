@@ -186,17 +186,13 @@ export default function ExternalMeeting() {
           }
         />
 
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 p-3 sm:p-4">
-          <div className="pointer-events-auto mx-auto max-w-md">
-            <RecordingBanner
-              status={recorder.status}
-              uploadStatus={recorder.uploadStatus}
-              error={recorder.error}
-              resultUrl={recorder.resultUrl}
-              onDismiss={recorder.reset}
-            />
-          </div>
-        </div>
+        <RecordingBanner
+          status={recorder.status}
+          uploadStatus={recorder.uploadStatus}
+          error={recorder.error}
+          resultUrl={recorder.resultUrl}
+          onDismiss={recorder.reset}
+        />
 
         {activePanel === "transcript" && (
           <div className="absolute inset-y-0 right-0 z-20 w-full sm:w-96">
