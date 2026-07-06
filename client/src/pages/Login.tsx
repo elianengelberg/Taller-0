@@ -3,6 +3,8 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import Button from "../components/Button";
 import Logo from "../components/Logo";
 import { useAuth } from "../context/AuthContext";
+import { claimMeeting } from "../lib/api";
+import { clearUnsavedMeeting } from "../lib/unsavedMeeting";
 import { cardClass, inputClass, labelClass } from "../lib/ui";
 
 export default function Login() {
@@ -11,7 +13,8 @@ export default function Login() {
   const { login } = useAuth();
   // Where to go back to after logging in (set by the protected-route redirect),
   // falling back to the history page.
-  const from = (location.state as { from?: string } | null)?.from ?? "/historial";
+  const state = location.state as { from?: string; claimMeetingId?: string } | null;
+  const from = state?.from ?? "/historial";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +31,12 @@ export default function Login() {
       setError(err);
       return;
     }
-    navigate(from, { replace: true });
+    // Arrived here from the post-call "save this meeting?" prompt -- attach
+    // the guest meeting to this account now that we're logged in.
+    if (state?.claimMeetingId) {
+      void claimMeeting(state.claimMeetingId).then(() => clearUnsavedMeeting());
+    }
+    navigate(state?.claimMeetingId ? "/historial" : from, { replace: true });
   }
 
   return (

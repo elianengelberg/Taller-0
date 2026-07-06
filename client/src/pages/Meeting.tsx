@@ -9,13 +9,16 @@ import LoadingDots from "../components/LoadingDots";
 import Logo from "../components/Logo";
 import ParticipantsPanel from "../components/ParticipantsPanel";
 import RecordingBanner from "../components/RecordingBanner";
+import SaveMeetingPrompt from "../components/SaveMeetingPrompt";
 import SettingsPanel from "../components/SettingsPanel";
 import SidePanel from "../components/SidePanel";
 import TranscriptPanel from "../components/TranscriptPanel";
 import VideoGrid from "../components/VideoGrid";
+import { useAuth } from "../context/AuthContext";
 import { useMeeting } from "../context/MeetingContext";
 import { askMeetingAI } from "../lib/api";
 import { recentCaptionEntries } from "../lib/captionLines";
+import { setUnsavedMeeting } from "../lib/unsavedMeeting";
 import { useActiveSpeakers } from "../hooks/useActiveSpeakers";
 import { useLocalMedia } from "../hooks/useLocalMedia";
 import { AUTO_LANG, ORIGINAL_LANG, useLineTranslations } from "../hooks/useLineTranslations";
@@ -44,6 +47,7 @@ function useIsDesktop(): boolean {
 
 export default function Meeting() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const {
     draft,
     connectionStatus,
@@ -223,7 +227,26 @@ export default function Meeting() {
   }
   const closePanel = (panel: Panel) => setOpenPanels((cur) => cur.filter((p) => p !== panel));
 
+  // Guests (no account) get one chance, right as they leave, to attach this
+  // meeting's transcript/chat to an account -- otherwise it stays ownerless
+  // and unreachable forever (see .claude/memory/log.md). `pendingLeave` holds
+  // the meeting's dbId captured before leaveMeeting() clears it.
+  const [pendingLeave, setPendingLeave] = useState<string | null>(null);
   function handleLeave() {
+    if (!user && meeting?.dbId) {
+      setPendingLeave(meeting.dbId);
+      return;
+    }
+    leaveMeeting();
+    navigate("/", { replace: true });
+  }
+  function confirmSaveMeeting() {
+    const dbId = pendingLeave!;
+    leaveMeeting();
+    navigate("/ingresar", { state: { claimMeetingId: dbId }, replace: true });
+  }
+  function skipSaveMeeting() {
+    setUnsavedMeeting({ dbId: pendingLeave!, joinCode: meeting?.id ?? "", endedAt: Date.now() });
     leaveMeeting();
     navigate("/", { replace: true });
   }
@@ -408,6 +431,7 @@ export default function Meeting() {
         onToggleSettings={() => togglePanel("settings")}
         onLeave={handleLeave}
       />
+      {pendingLeave && <SaveMeetingPrompt onSave={confirmSaveMeeting} onSkip={skipSaveMeeting} />}
     </div>
   );
 }

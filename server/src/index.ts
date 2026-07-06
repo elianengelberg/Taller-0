@@ -6,6 +6,7 @@ import { answerFromMeeting } from "./ai";
 import { hashPassword, signToken, verifyPassword, verifyToken } from "./auth";
 import {
   attachRecording,
+  claimMeeting,
   createUser,
   dbEnabled,
   getMeetingDetail,
@@ -231,6 +232,14 @@ app.post("/api/meetings/:id/recording-complete", async (req, res) => {
   }
   await attachRecording(req.params.id, publicUrl);
   res.json({ ok: true });
+});
+
+// Lets a just-registered/logged-in user claim a meeting they created/joined
+// as a guest (before this call, owner_id is NULL) so it appears in their
+// history. No-ops (ok: false) if the meeting already has a different owner.
+app.post("/api/meetings/:id/claim", requireAuth, async (req, res) => {
+  const ok = await claimMeeting(req.params.id, (req as AuthedRequest).userId!);
+  res.json({ ok });
 });
 
 app.post("/api/meetings/:id/ask", requireAuth, async (req, res) => {

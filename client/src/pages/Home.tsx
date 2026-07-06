@@ -4,10 +4,16 @@ import AccountMenu from "../components/AccountMenu";
 import Button from "../components/Button";
 import Logo from "../components/Logo";
 import { CaptionsIcon, GlobeIcon, PeopleIcon, SparklesIcon } from "../components/icons";
+import { useAuth } from "../context/AuthContext";
+import { getUnsavedMeeting } from "../lib/unsavedMeeting";
 import { cardClass } from "../lib/ui";
 
 export default function Home() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  // A guest who skipped the post-call save prompt gets a second chance here,
+  // on their next visit -- see SaveMeetingPrompt / unsavedMeeting.ts.
+  const unsaved = !user ? getUnsavedMeeting() : null;
 
   return (
     <div className="flex min-h-screen flex-col bg-ink-950">
@@ -23,6 +29,35 @@ export default function Home() {
           <AccountMenu />
         </div>
       </header>
+
+      {!user && (
+        <div className="mx-5 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-3 text-center text-sm text-brand-200 sm:mx-10">
+          {unsaved ? (
+            <>
+              Tenés una reunión reciente sin guardar.{" "}
+              <Link to="/ingresar" state={{ claimMeetingId: unsaved.dbId }} className="font-semibold underline">
+                Iniciá sesión
+              </Link>{" "}
+              o{" "}
+              <Link to="/registrarse" state={{ claimMeetingId: unsaved.dbId }} className="font-semibold underline">
+                creá una cuenta
+              </Link>{" "}
+              para guardarla en tu historial antes de que se pierda.
+            </>
+          ) : (
+            <>
+              <Link to="/ingresar" className="font-semibold underline">
+                Iniciá sesión
+              </Link>{" "}
+              o{" "}
+              <Link to="/registrarse" className="font-semibold underline">
+                creá una cuenta
+              </Link>{" "}
+              para guardar el historial de tus reuniones.
+            </>
+          )}
+        </div>
+      )}
 
       <main className="flex flex-1 flex-col items-center px-6 pb-20 pt-6">
         <div className="w-full max-w-4xl text-center">

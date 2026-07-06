@@ -6,6 +6,7 @@ import JitsiEmbed from "../components/JitsiEmbed";
 import LiveCaption from "../components/LiveCaption";
 import Logo from "../components/Logo";
 import RecordingBanner from "../components/RecordingBanner";
+import SaveMeetingPrompt from "../components/SaveMeetingPrompt";
 import SidePanel from "../components/SidePanel";
 import TeamsEmbed from "../components/TeamsEmbed";
 import TranscriptPanel from "../components/TranscriptPanel";
@@ -18,12 +19,14 @@ import {
   StopIcon,
   TranscriptIcon,
 } from "../components/icons";
+import { useAuth } from "../context/AuthContext";
 import { useMeeting } from "../context/MeetingContext";
 import { AUTO_LANG, useLineTranslations } from "../hooks/useLineTranslations";
 import { useRecorder } from "../hooks/useRecorder";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { askMeetingAI } from "../lib/api";
 import { recentCaptionEntries } from "../lib/captionLines";
+import { setUnsavedMeeting } from "../lib/unsavedMeeting";
 import { CompanionEmbed } from "../types";
 
 type PanelKey = "transcript" | "ai" | null;
@@ -66,6 +69,7 @@ function CompanionEmbedPane({
 // external-room key (see join-companion).
 export default function ExternalMeeting() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const {
     draft,
     connectionStatus,
@@ -140,7 +144,23 @@ export default function ExternalMeeting() {
     setActivePanel((current) => (current === panel ? null : panel));
   }
 
+  // Same guest-save prompt as the native meeting -- see Meeting.tsx.
+  const [pendingLeave, setPendingLeave] = useState<string | null>(null);
   function handleLeave() {
+    if (!user && meeting?.dbId) {
+      setPendingLeave(meeting.dbId);
+      return;
+    }
+    leaveMeeting();
+    navigate("/", { replace: true });
+  }
+  function confirmSaveMeeting() {
+    const dbId = pendingLeave!;
+    leaveMeeting();
+    navigate("/ingresar", { state: { claimMeetingId: dbId }, replace: true });
+  }
+  function skipSaveMeeting() {
+    setUnsavedMeeting({ dbId: pendingLeave!, joinCode: meeting?.id ?? "", endedAt: Date.now() });
     leaveMeeting();
     navigate("/", { replace: true });
   }
@@ -273,6 +293,7 @@ export default function ExternalMeeting() {
           <PhoneOffIcon className="h-5 w-5" />
         </IconButton>
       </div>
+      {pendingLeave && <SaveMeetingPrompt onSave={confirmSaveMeeting} onSkip={skipSaveMeeting} />}
     </div>
   );
 }

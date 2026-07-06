@@ -3,13 +3,16 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import Button from "../components/Button";
 import Logo from "../components/Logo";
 import { useAuth } from "../context/AuthContext";
+import { claimMeeting } from "../lib/api";
+import { clearUnsavedMeeting } from "../lib/unsavedMeeting";
 import { cardClass, inputClass, labelClass } from "../lib/ui";
 
 export default function Register() {
   const navigate = useNavigate();
   const location = useLocation();
   const { register } = useAuth();
-  const from = (location.state as { from?: string } | null)?.from ?? "/historial";
+  const state = location.state as { from?: string; claimMeetingId?: string } | null;
+  const from = state?.from ?? "/historial";
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,7 +32,10 @@ export default function Register() {
       setError(err);
       return;
     }
-    navigate(from, { replace: true });
+    if (state?.claimMeetingId) {
+      void claimMeeting(state.claimMeetingId).then(() => clearUnsavedMeeting());
+    }
+    navigate(state?.claimMeetingId ? "/historial" : from, { replace: true });
   }
 
   return (

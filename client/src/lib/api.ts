@@ -247,3 +247,19 @@ export async function confirmRecordingComplete(
     // best-effort -- the recording is still on the user's device either way
   }
 }
+
+// Attaches an ownerless meeting (created/joined as a guest) to the just
+// logged-in/registered account so it shows up in their history.
+export async function claimMeeting(meetingDbId: string): Promise<boolean> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/meetings/${meetingDbId}/claim`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    if (!res.ok) return false;
+    const data = await res.json().catch(() => ({}));
+    return Boolean(data.ok);
+  } catch {
+    return false;
+  }
+}

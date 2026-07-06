@@ -262,6 +262,20 @@ export function attachRecording(id: string, url: string): Promise<void> {
   }, undefined);
 }
 
+// Lets a guest who created/joined an ownerless meeting (owner_id NULL --
+// nobody was logged in at the time) claim it after registering/logging in,
+// so it shows up in their history instead of being lost forever. Guarded by
+// `owner_id IS NULL` so it can't steal a meeting someone else already owns.
+export function claimMeeting(id: string, ownerId: string): Promise<boolean> {
+  return safe(async () => {
+    const result = await pool!.query(
+      `UPDATE meetings SET owner_id = $2 WHERE id = $1 AND owner_id IS NULL`,
+      [id, ownerId]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }, false);
+}
+
 // Only ever returns meetings owned by `ownerId` -- history is private per
 // account, so a logged-in user never sees anyone else's meetings.
 export function listMeetings(ownerId: string, limit = 50): Promise<MeetingSummary[]> {
