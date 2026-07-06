@@ -11,6 +11,7 @@ import {
   PhoneOffIcon,
   RecordIcon,
   ScreenShareIcon,
+  SettingsIcon,
   SparklesIcon,
   StopIcon,
   TranscriptIcon,
@@ -38,6 +39,8 @@ interface ControlBarProps {
   onToggleRecording: () => void;
   sharingScreen: boolean;
   onToggleScreenShare: () => void;
+  settingsOpen: boolean;
+  onToggleSettings: () => void;
   onLeave: () => void;
 }
 
@@ -63,6 +66,8 @@ export default function ControlBar({
   onToggleRecording,
   sharingScreen,
   onToggleScreenShare,
+  settingsOpen,
+  onToggleSettings,
   onLeave,
 }: ControlBarProps) {
   const leaveButton = (
@@ -81,11 +86,11 @@ export default function ControlBar({
         <div className="sm:hidden">{leaveButton}</div>
       </div>
 
-      {/* A 3-column grid keeps every control visible in tidy rows on a
+      {/* A 5-column grid keeps every control visible in tidy rows on a
           phone-width screen instead of overflowing off the right edge of a
-          single row -- 9 controls become 3 even rows of 3, and it collapses
+          single row -- 10 controls become 2 even rows of 5, and it collapses
           back to a single centered row once there's enough width for it. */}
-      <div className="grid grid-cols-3 gap-x-2 gap-y-3 justify-items-center sm:flex sm:flex-1 sm:items-center sm:justify-center sm:gap-3">
+      <div className="grid grid-cols-5 gap-x-1 gap-y-3 justify-items-center sm:flex sm:flex-1 sm:items-center sm:justify-center sm:gap-3">
         <IconButton
           label={muted ? "Activar micrófono" : "Silenciar micrófono"}
           caption={muted ? "Silenciado" : "Micrófono"}
@@ -156,6 +161,14 @@ export default function ControlBar({
           onClick={onToggleRecording}
         >
           {recording ? <StopIcon className="h-5 w-5" /> : <RecordIcon className="h-5 w-5" />}
+        </IconButton>
+        <IconButton
+          label="Opciones: elegir micrófono, cámara y parlante"
+          caption="Opciones"
+          active={settingsOpen}
+          onClick={onToggleSettings}
+        >
+          <SettingsIcon className="h-5 w-5" />
         </IconButton>
       </div>
 

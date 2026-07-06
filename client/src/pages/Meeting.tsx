@@ -8,6 +8,7 @@ import LiveCaption from "../components/LiveCaption";
 import Logo from "../components/Logo";
 import ParticipantsPanel from "../components/ParticipantsPanel";
 import RecordingBanner from "../components/RecordingBanner";
+import SettingsPanel from "../components/SettingsPanel";
 import SidePanel from "../components/SidePanel";
 import TranscriptPanel from "../components/TranscriptPanel";
 import VideoGrid from "../components/VideoGrid";
@@ -21,7 +22,7 @@ import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { useWebRTC } from "../hooks/useWebRTC";
 import { getSocket } from "../lib/socket";
 
-type PanelKey = "participants" | "chat" | "transcript" | "ai" | null;
+type PanelKey = "participants" | "chat" | "transcript" | "ai" | "settings" | null;
 
 export default function Meeting() {
   const navigate = useNavigate();
@@ -92,7 +93,7 @@ export default function Meeting() {
     [meeting, selfId]
   );
 
-  const { remoteStreams, replaceVideoTrack, removeVideoTrack } = useWebRTC({
+  const { remoteStreams, replaceVideoTrack, removeVideoTrack, replaceTrack } = useWebRTC({
     socket: getSocket(),
     selfId,
     peerIds,
@@ -245,6 +246,7 @@ export default function Meeting() {
             selfId={selfId}
             localStream={media.stream}
             remoteStreams={remoteStreams}
+            speakerId={media.activeSpeakerId}
           />
           <LiveCaption
             line={captionsOn ? lastTranscriptLine : null}
@@ -292,6 +294,18 @@ export default function Meeting() {
             )}
           </SidePanel>
         )}
+        {activePanel === "settings" && (
+          <SettingsPanel
+            devices={media.devices}
+            activeMicId={media.activeMicId}
+            activeCameraId={media.activeCameraId}
+            activeSpeakerId={media.activeSpeakerId}
+            onSelectMic={(id) => void media.switchMic(id, replaceTrack)}
+            onSelectCamera={(id) => void media.switchCamera(id, replaceTrack)}
+            onSelectSpeaker={media.setActiveSpeakerId}
+            onClose={() => setActivePanel(null)}
+          />
+        )}
       </div>
 
       <ControlBar
@@ -316,6 +330,8 @@ export default function Meeting() {
         onToggleRecording={toggleRecording}
         sharingScreen={screenShare.sharing}
         onToggleScreenShare={toggleScreenShare}
+        settingsOpen={activePanel === "settings"}
+        onToggleSettings={() => togglePanel("settings")}
         onLeave={handleLeave}
       />
     </div>

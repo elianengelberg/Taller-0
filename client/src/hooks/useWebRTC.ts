@@ -136,5 +136,7 @@ export function useWebRTC({ socket, selfId, peerIds, localStream, enabled }: Use
     });
   }
 
-  return { remoteStreams, replaceVideoTrack, removeVideoTrack };
+  // Same as replaceVideoTrack -- simple-peer's replaceTrack works for any
+  // track kind, so device switches (mic OR camera) reuse it.
+  return { remoteStreams, replaceVideoTrack, removeVideoTrack, replaceTrack: replaceVideoTrack };
 }

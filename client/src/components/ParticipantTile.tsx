@@ -8,9 +8,13 @@ interface Props {
   role: Role | null;
   stream: MediaStream | null;
   isSelf: boolean;
+  speakerId?: string | null;
 }
 
-export default function ParticipantTile({ participant, role, stream, isSelf }: Props) {
+// setSinkId is non-standard and typed loosely across browsers.
+type WithSinkId = HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> };
+
+export default function ParticipantTile({ participant, role, stream, isSelf, speakerId }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -18,6 +22,16 @@ export default function ParticipantTile({ participant, role, stream, isSelf }: P
       videoRef.current.srcObject = stream;
     }
   }, [stream]);
+
+  // Route this tile's audio to the chosen speaker. Only remote tiles play
+  // audio (our own is muted to avoid echo), so self tiles skip it.
+  useEffect(() => {
+    const el = videoRef.current as WithSinkId | null;
+    if (!el || isSelf || !speakerId || typeof el.setSinkId !== "function") return;
+    el.setSinkId(speakerId).catch(() => {
+      // Output selection not permitted / device gone -- keep the default.
+    });
+  }, [speakerId, isSelf, stream]);
 
   // While sharing a screen, the shared content rides the same video track
   // slot the camera normally uses -- keep showing it even if the person's

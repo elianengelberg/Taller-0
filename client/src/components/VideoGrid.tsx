@@ -9,6 +9,8 @@ interface Props {
   selfId: string | null;
   localStream: MediaStream | null;
   remoteStreams: Record<string, MediaStream>;
+  // Chosen audio output device (see Opciones panel); applied to remote tiles.
+  speakerId?: string | null;
 }
 
 // Older iOS/iPadOS Safari never implemented the standard Fullscreen API on
@@ -20,7 +22,14 @@ function fullscreenSupported(): boolean {
   return typeof document.exitFullscreen === "function";
 }
 
-export default function VideoGrid({ participants, roles, selfId, localStream, remoteStreams }: Props) {
+export default function VideoGrid({
+  participants,
+  roles,
+  selfId,
+  localStream,
+  remoteStreams,
+  speakerId,
+}: Props) {
   const presenter = participants.find((p) => p.sharingScreen) ?? null;
   const containerRef = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
@@ -63,6 +72,7 @@ export default function VideoGrid({ participants, roles, selfId, localStream, re
         role={role}
         stream={stream}
         isSelf={isSelf}
+        speakerId={speakerId}
       />
     );
   }
