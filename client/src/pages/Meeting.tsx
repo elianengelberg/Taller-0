@@ -278,21 +278,19 @@ export default function Meeting() {
           />
         )}
         {activePanel === "ai" && (
-          <div className="w-full border-l border-ink-700 bg-ink-900 sm:w-[26rem]">
-            <SidePanel title="Asistente IA" onClose={() => setActivePanel(null)}>
-              {meeting.dbId ? (
-                <AiChatBox
-                  title="Preguntale a la IA"
-                  description="Tu asistente durante la reunión: responde sobre lo que se está diciendo, resume y saca conclusiones."
-                  placeholder='Ej: "resumime lo que se dijo hasta ahora"'
-                  emptyHint="La IA usa la transcripción en vivo de esta reunión."
-                  onAsk={(q) => askMeetingAI(meeting.dbId, q)}
-                />
-              ) : (
-                <p className="text-sm text-ink-400">Conectando la reunión…</p>
-              )}
-            </SidePanel>
-          </div>
+          <SidePanel title="Asistente IA" onClose={() => setActivePanel(null)}>
+            {meeting.dbId ? (
+              <AiChatBox
+                title="Preguntale a la IA"
+                description="Tu asistente durante la reunión: responde sobre lo que se está diciendo, resume y saca conclusiones."
+                placeholder='Ej: "resumime lo que se dijo hasta ahora"'
+                emptyHint="La IA usa la transcripción en vivo de esta reunión."
+                onAsk={(q) => askMeetingAI(meeting.dbId, q)}
+              />
+            ) : (
+              <p className="text-sm text-ink-400">Conectando la reunión…</p>
+            )}
+          </SidePanel>
         )}
       </div>
 

@@ -213,7 +213,7 @@ export default function ExternalMeeting() {
         )}
 
         {activePanel === "ai" && (
-          <div className="absolute inset-y-0 right-0 z-20 w-full sm:w-[26rem]">
+          <div className="absolute inset-y-0 right-0 z-20 w-full sm:w-96">
             <SidePanel title="Asistente IA" onClose={() => setActivePanel(null)}>
               {meeting?.dbId ? (
                 <AiChatBox
@@ -253,7 +253,7 @@ export default function ExternalMeeting() {
         </IconButton>
         <IconButton
           label="Abrir el asistente de IA de la reunión"
-          caption="Asistente IA"
+          caption="IA"
           active={activePanel === "ai"}
           onClick={() => togglePanel("ai")}
         >

@@ -81,11 +81,11 @@ export default function ControlBar({
         <div className="sm:hidden">{leaveButton}</div>
       </div>
 
-      {/* A 4-column grid keeps every control visible in two tidy rows on a
+      {/* A 3-column grid keeps every control visible in tidy rows on a
           phone-width screen instead of overflowing off the right edge of a
-          single row (which made "Chat" and "Grabar" unreachable) -- back to
-          a single centered row once there's enough width for it. */}
-      <div className="grid grid-cols-4 gap-x-1 gap-y-3 justify-items-center sm:flex sm:flex-1 sm:items-center sm:justify-center sm:gap-3">
+          single row -- 9 controls become 3 even rows of 3, and it collapses
+          back to a single centered row once there's enough width for it. */}
+      <div className="grid grid-cols-3 gap-x-2 gap-y-3 justify-items-center sm:flex sm:flex-1 sm:items-center sm:justify-center sm:gap-3">
         <IconButton
           label={muted ? "Activar micrófono" : "Silenciar micrófono"}
           caption={muted ? "Silenciado" : "Micrófono"}
@@ -139,7 +139,7 @@ export default function ControlBar({
         </IconButton>
         <IconButton
           label="Abrir el asistente de IA de la reunión"
-          caption="Asistente IA"
+          caption="IA"
           active={aiOpen}
           onClick={onToggleAi}
         >
