@@ -14,6 +14,7 @@ interface Props {
   getTranslation: (lineId: string) => string | undefined;
   spokenLang: string;
   onSpokenLangChange: (lang: string) => void;
+  side?: "left" | "right";
 }
 
 export default function TranscriptPanel({
@@ -24,6 +25,7 @@ export default function TranscriptPanel({
   getTranslation,
   spokenLang,
   onSpokenLangChange,
+  side,
 }: Props) {
   const { meeting } = useMeeting();
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -38,6 +40,7 @@ export default function TranscriptPanel({
     <SidePanel
       title="Transcripción"
       onClose={onClose}
+      side={side}
       headerExtra={
         <select
           className="w-full rounded-lg border border-ink-600 bg-ink-800 px-2 py-1 text-xs text-white focus:border-brand-400 focus:outline-none"

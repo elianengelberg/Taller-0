@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import Button from "../components/Button";
 import Logo from "../components/Logo";
@@ -8,7 +8,9 @@ import { cardClass, inputClass, labelClass } from "../lib/ui";
 
 export default function JoinForm() {
   const navigate = useNavigate();
-  const { startJoinDraft } = useMeeting();
+  const { startJoinDraft, prewarm } = useMeeting();
+  // Warm the backend/socket while they type their name, so joining is instant.
+  useEffect(() => prewarm(), [prewarm]);
   // Present when arriving through a direct invite link (see ShareMenu /
   // /unirse/:code) -- the code is already known, so the form skips straight
   // to name + language instead of asking for it again.

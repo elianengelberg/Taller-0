@@ -7,7 +7,7 @@ import { GlobeIcon, SendIcon } from "./icons";
 import RoleBadge from "./RoleBadge";
 import SidePanel from "./SidePanel";
 
-export default function ChatPanel({ onClose }: { onClose: () => void }) {
+export default function ChatPanel({ onClose, side }: { onClose: () => void; side?: "left" | "right" }) {
   const { meeting, self, hostParticipant, sendChatMessage } = useMeeting();
   const [text, setText] = useState("");
   const [autoTranslate, setAutoTranslate] = useState(false);
@@ -55,6 +55,7 @@ export default function ChatPanel({ onClose }: { onClose: () => void }) {
     <SidePanel
       title="Chat"
       onClose={onClose}
+      side={side}
       headerExtra={
         <label className="flex items-center gap-1.5 pr-1 text-[11px] font-medium leading-tight text-ink-300">
           <input

@@ -14,12 +14,6 @@ export default function Home() {
         <Logo />
         <div className="flex items-center gap-4 sm:gap-6">
           <Link
-            to="/externa"
-            className="hidden whitespace-nowrap text-sm font-medium text-ink-300 hover:text-white sm:block"
-          >
-            Reunión externa
-          </Link>
-          <Link
             to="/historial"
             className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-white"
           >

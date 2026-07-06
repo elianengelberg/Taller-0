@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import { explainError } from "../lib/explainError";
-import { getSocket } from "../lib/socket";
+import { getSocket, SERVER_URL } from "../lib/socket";
 import {
   ChatMessage,
   CompanionEmbed,
@@ -148,6 +148,10 @@ interface MeetingContextValue {
     embed: CompanionEmbed;
   }) => void;
   clearDraft: () => void;
+  // Wakes the backend (Render can cold-start ~tens of seconds) and opens the
+  // socket ahead of time, while the user is still filling in the join/create
+  // form, so actually entering the meeting is near-instant.
+  prewarm: () => void;
   connect: () => void;
   sendChatMessage: (text: string) => void;
   assignRole: (participantId: string, roleId: string | null) => void;
@@ -179,6 +183,13 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
   meetingRef.current = meeting;
   const draftRef = useRef(draft);
   draftRef.current = draft;
+
+  // Wake the backend as soon as the app loads (Render's free tier sleeps and
+  // can take tens of seconds to come back). Doing it here -- not when the user
+  // finally clicks "join" -- means the server is usually already awake by then.
+  useEffect(() => {
+    fetch(`${SERVER_URL}/health`).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const socket = socketRef.current;
@@ -341,6 +352,15 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
 
   const clearDraft = useCallback(() => setDraft(null), []);
 
+  const prewarm = useCallback(() => {
+    // Wake a possibly-sleeping backend right away (fire-and-forget) and start
+    // the socket handshake now, so it's already connected by the time the
+    // user submits the form -- no cold-start wait on the "Conectando" screen.
+    fetch(`${SERVER_URL}/health`).catch(() => {});
+    const socket = socketRef.current;
+    if (!socket.connected) socket.connect();
+  }, []);
+
   const connect = useCallback(() => {
     if (!draft) return;
     const socket = socketRef.current;
@@ -458,6 +478,7 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     startJoinDraft,
     startCompanionDraft,
     clearDraft,
+    prewarm,
     connect,
     sendChatMessage,
     assignRole,

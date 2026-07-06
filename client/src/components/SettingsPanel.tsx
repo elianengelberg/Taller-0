@@ -11,6 +11,7 @@ interface Props {
   onSelectCamera: (deviceId: string) => void;
   onSelectSpeaker: (deviceId: string) => void;
   onClose: () => void;
+  side?: "left" | "right";
 }
 
 // The in-meeting "Opciones" panel: pick which microphone, camera and speaker
@@ -25,6 +26,7 @@ export default function SettingsPanel({
   onSelectCamera,
   onSelectSpeaker,
   onClose,
+  side,
 }: Props) {
   // Some browsers (Firefox) can't route audio output per element, so only
   // offer the speaker picker where it actually works.
@@ -32,7 +34,7 @@ export default function SettingsPanel({
     typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
 
   return (
-    <SidePanel title="Opciones" onClose={onClose}>
+    <SidePanel title="Opciones" onClose={onClose} side={side}>
       <div className="space-y-5">
         <DeviceSelect
           icon={<MicIcon className="h-4 w-4" />}

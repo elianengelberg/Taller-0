@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "../components/Button";
 import Logo from "../components/Logo";
@@ -9,7 +9,9 @@ import { cardClass, inputClass, labelClass } from "../lib/ui";
 
 export default function HostSetup() {
   const navigate = useNavigate();
-  const { startHostDraft } = useMeeting();
+  const { startHostDraft, prewarm } = useMeeting();
+  // Warm the backend/socket while they set up roles, so creating is instant.
+  useEffect(() => prewarm(), [prewarm]);
   const [name, setName] = useState("");
   const [language, setLanguage] = useState(LANGUAGES[0].code);
   const [roleNames, setRoleNames] = useState<string[]>([]);

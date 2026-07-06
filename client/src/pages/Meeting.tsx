@@ -5,6 +5,7 @@ import Button from "../components/Button";
 import ChatPanel from "../components/ChatPanel";
 import ControlBar from "../components/ControlBar";
 import LiveCaption from "../components/LiveCaption";
+import LoadingDots from "../components/LoadingDots";
 import Logo from "../components/Logo";
 import ParticipantsPanel from "../components/ParticipantsPanel";
 import RecordingBanner from "../components/RecordingBanner";
@@ -24,7 +25,22 @@ import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { useWebRTC } from "../hooks/useWebRTC";
 import { getSocket } from "../lib/socket";
 
-type PanelKey = "participants" | "chat" | "transcript" | "ai" | "settings" | null;
+type Panel = "participants" | "chat" | "transcript" | "ai" | "settings";
+
+// True from the sm breakpoint up (matches Tailwind's 640px). Two panels can be
+// open side by side only on desktop; phones stick to one at a time.
+function useIsDesktop(): boolean {
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 640px)").matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 640px)");
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  return isDesktop;
+}
 
 export default function Meeting() {
   const navigate = useNavigate();
@@ -45,7 +61,12 @@ export default function Meeting() {
   } = useMeeting();
 
   const media = useLocalMedia();
-  const [activePanel, setActivePanel] = useState<PanelKey>(null);
+  const isDesktop = useIsDesktop();
+  // Open panels, oldest first. On desktop up to two can be open at once (one
+  // docked left, one right -- e.g. IA on one side, chat on the other); on a
+  // phone only the most recent stays open. Opening a third on desktop evicts
+  // the oldest.
+  const [openPanels, setOpenPanels] = useState<Panel[]>([]);
   const [chatUnread, setChatUnread] = useState(0);
   const [captionsOn, setCaptionsOn] = useState(false);
 
@@ -141,11 +162,11 @@ export default function Meeting() {
   const chatLength = meeting?.chat.length ?? 0;
   const prevChatLengthRef = useRef(chatLength);
   useEffect(() => {
-    if (chatLength > prevChatLengthRef.current && activePanel !== "chat") {
+    if (chatLength > prevChatLengthRef.current && !openPanels.includes("chat")) {
       setChatUnread((count) => count + (chatLength - prevChatLengthRef.current));
     }
     prevChatLengthRef.current = chatLength;
-  }, [chatLength, activePanel]);
+  }, [chatLength, openPanels]);
 
   // Shown instantly as the local speaker talks, before their utterance even
   // finishes -- purely local, never round-trips through the server, so it
@@ -175,7 +196,7 @@ export default function Meeting() {
   // Only worth surfacing the "why is nothing happening" hints while the
   // person is actually looking at captions or the transcript panel -- no
   // need to nag every time someone mutes for an unrelated reason.
-  const watchingTranscription = captionsOn || activePanel === "transcript";
+  const watchingTranscription = captionsOn || openPanels.includes("transcript");
   const captionsMutedHint = watchingTranscription && media.muted;
 
   const { getTranslation } = useLineTranslations(meeting?.transcript ?? [], targetLang);
@@ -189,10 +210,18 @@ export default function Meeting() {
     }
   }
 
-  function togglePanel(panel: PanelKey) {
-    setActivePanel((current) => (current === panel ? null : panel));
-    if (panel === "chat") setChatUnread(0);
+  const maxPanels = isDesktop ? 2 : 1;
+  function togglePanel(panel: Panel) {
+    const willOpen = !openPanels.includes(panel);
+    if (panel === "chat" && willOpen) setChatUnread(0);
+    setOpenPanels((cur) => {
+      if (cur.includes(panel)) return cur.filter((p) => p !== panel);
+      const next = [...cur, panel];
+      // Keep only the most recent `maxPanels` -- opening a third evicts the oldest.
+      return next.slice(Math.max(0, next.length - maxPanels));
+    });
   }
+  const closePanel = (panel: Panel) => setOpenPanels((cur) => cur.filter((p) => p !== panel));
 
   function handleLeave() {
     leaveMeeting();
@@ -202,7 +231,7 @@ export default function Meeting() {
   if (!draft) return null;
 
   if (connectionStatus === "idle" || connectionStatus === "connecting") {
-    return <StatusScreen title="Conectando…" description="Estamos preparando tu reunión." />;
+    return <StatusScreen loading title="Conectando" description="Estamos preparando tu reunión." />;
   }
 
   if (connectionStatus === "error" || !meeting || !selfId) {
@@ -220,6 +249,68 @@ export default function Meeting() {
   // flickering as it's overwritten.
   const captionLines = captionsOn ? recentCaptionEntries(meeting.transcript, getTranslation) : [];
 
+  // Lay the open panels out: on desktop the first goes left and the second
+  // right; a single panel always sits on the right (like before). On mobile
+  // only the most recent one shows, as a full overlay.
+  const panelsToShow = isDesktop ? openPanels : openPanels.slice(-1);
+  const leftPanel = panelsToShow.length === 2 ? panelsToShow[0] : null;
+  const rightPanel = panelsToShow.length === 2 ? panelsToShow[1] : panelsToShow[0] ?? null;
+
+  const meetingDbId = meeting.dbId;
+  function renderPanel(panel: Panel, side: "left" | "right") {
+    switch (panel) {
+      case "participants":
+        return <ParticipantsPanel key="participants" side={side} onClose={() => closePanel("participants")} />;
+      case "chat":
+        return <ChatPanel key="chat" side={side} onClose={() => closePanel("chat")} />;
+      case "transcript":
+        return (
+          <TranscriptPanel
+            key="transcript"
+            side={side}
+            onClose={() => closePanel("transcript")}
+            targetLangChoice={targetLangChoice}
+            resolvedTargetLang={targetLang}
+            onTargetLangChange={handleTargetLangChange}
+            getTranslation={getTranslation}
+            spokenLang={self?.language ?? "es-AR"}
+            onSpokenLangChange={setSelfLanguage}
+          />
+        );
+      case "ai":
+        return (
+          <SidePanel key="ai" title="Asistente IA" side={side} onClose={() => closePanel("ai")}>
+            {meetingDbId ? (
+              <AiChatBox
+                title="Preguntale a la IA"
+                description="Tu asistente durante la reunión: responde sobre lo que se está diciendo, resume y saca conclusiones."
+                placeholder='Ej: "resumime lo que se dijo hasta ahora"'
+                emptyHint="La IA usa la transcripción en vivo de esta reunión."
+                onAsk={(q) => askMeetingAI(meetingDbId, q)}
+              />
+            ) : (
+              <p className="text-sm text-ink-400">Conectando la reunión…</p>
+            )}
+          </SidePanel>
+        );
+      case "settings":
+        return (
+          <SettingsPanel
+            key="settings"
+            side={side}
+            devices={media.devices}
+            activeMicId={media.activeMicId}
+            activeCameraId={media.activeCameraId}
+            activeSpeakerId={media.activeSpeakerId}
+            onSelectMic={(id) => void media.switchMic(id, replaceTrack)}
+            onSelectCamera={(id) => void media.switchCamera(id, replaceTrack)}
+            onSelectSpeaker={media.setActiveSpeakerId}
+            onClose={() => closePanel("settings")}
+          />
+        );
+    }
+  }
+
   return (
     // `h-dvh` (dynamic viewport height), not `h-screen` (100vh): mobile
     // Safari/Chrome count their address bar into 100vh, so with a fixed
@@ -236,6 +327,7 @@ export default function Meeting() {
       {/* relative so a side panel can overlay just the video area on mobile
           (see SidePanel) without covering the header or control bar. */}
       <div className="relative flex flex-1 overflow-hidden">
+        {leftPanel && renderPanel(leftPanel, "left")}
         {/* min-w-0 lets this column actually shrink when a side panel opens
             (a flex item's default min-width:auto would otherwise keep it at
             its content's min width and squeeze/overlap the panel); overflow-x
@@ -285,46 +377,7 @@ export default function Meeting() {
           />
         </main>
 
-        {activePanel === "participants" && <ParticipantsPanel onClose={() => setActivePanel(null)} />}
-        {activePanel === "chat" && <ChatPanel onClose={() => setActivePanel(null)} />}
-        {activePanel === "transcript" && (
-          <TranscriptPanel
-            onClose={() => setActivePanel(null)}
-            targetLangChoice={targetLangChoice}
-            resolvedTargetLang={targetLang}
-            onTargetLangChange={handleTargetLangChange}
-            getTranslation={getTranslation}
-            spokenLang={self?.language ?? "es-AR"}
-            onSpokenLangChange={setSelfLanguage}
-          />
-        )}
-        {activePanel === "ai" && (
-          <SidePanel title="Asistente IA" onClose={() => setActivePanel(null)}>
-            {meeting.dbId ? (
-              <AiChatBox
-                title="Preguntale a la IA"
-                description="Tu asistente durante la reunión: responde sobre lo que se está diciendo, resume y saca conclusiones."
-                placeholder='Ej: "resumime lo que se dijo hasta ahora"'
-                emptyHint="La IA usa la transcripción en vivo de esta reunión."
-                onAsk={(q) => askMeetingAI(meeting.dbId, q)}
-              />
-            ) : (
-              <p className="text-sm text-ink-400">Conectando la reunión…</p>
-            )}
-          </SidePanel>
-        )}
-        {activePanel === "settings" && (
-          <SettingsPanel
-            devices={media.devices}
-            activeMicId={media.activeMicId}
-            activeCameraId={media.activeCameraId}
-            activeSpeakerId={media.activeSpeakerId}
-            onSelectMic={(id) => void media.switchMic(id, replaceTrack)}
-            onSelectCamera={(id) => void media.switchCamera(id, replaceTrack)}
-            onSelectSpeaker={media.setActiveSpeakerId}
-            onClose={() => setActivePanel(null)}
-          />
-        )}
+        {rightPanel && renderPanel(rightPanel, "right")}
       </div>
 
       <ControlBar
@@ -338,20 +391,20 @@ export default function Meeting() {
         captionsOn={captionsOn}
         captionsSupported={captionsSupported}
         onToggleCaptions={() => setCaptionsOn((v) => !v)}
-        chatOpen={activePanel === "chat"}
+        chatOpen={openPanels.includes("chat")}
         chatUnread={chatUnread}
         onToggleChat={() => togglePanel("chat")}
-        participantsOpen={activePanel === "participants"}
+        participantsOpen={openPanels.includes("participants")}
         onToggleParticipants={() => togglePanel("participants")}
-        transcriptOpen={activePanel === "transcript"}
+        transcriptOpen={openPanels.includes("transcript")}
         onToggleTranscript={() => togglePanel("transcript")}
-        aiOpen={activePanel === "ai"}
+        aiOpen={openPanels.includes("ai")}
         onToggleAi={() => togglePanel("ai")}
         recording={recorder.status === "recording"}
         onToggleRecording={toggleRecording}
         sharingScreen={screenShare.sharing}
         onToggleScreenShare={toggleScreenShare}
-        settingsOpen={activePanel === "settings"}
+        settingsOpen={openPanels.includes("settings")}
         onToggleSettings={() => togglePanel("settings")}
         onLeave={handleLeave}
       />
@@ -363,15 +416,20 @@ function StatusScreen({
   title,
   description,
   action,
+  loading,
 }: {
   title: string;
   description: string;
   action?: ReactNode;
+  loading?: boolean;
 }) {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-ink-950 px-6 text-center">
       <Logo />
-      <h1 className="mt-4 text-xl font-bold text-white">{title}</h1>
+      <h1 className="mt-4 flex items-center gap-2 text-xl font-bold text-white">
+        {title}
+        {loading && <LoadingDots className="translate-y-0.5" />}
+      </h1>
       <p className="max-w-sm text-sm text-ink-300">{description}</p>
       {action}
     </div>

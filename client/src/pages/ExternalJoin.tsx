@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "../components/Button";
 import Logo from "../components/Logo";
@@ -15,7 +15,9 @@ import { cardClass, inputClass, labelClass } from "../lib/ui";
 // filled in per-platform over the coming phases).
 export default function ExternalJoin() {
   const navigate = useNavigate();
-  const { startCompanionDraft } = useMeeting();
+  const { startCompanionDraft, prewarm } = useMeeting();
+  // Warm the backend/socket while they paste the link, so joining is instant.
+  useEffect(() => prewarm(), [prewarm]);
   const [link, setLink] = useState("");
   const [name, setName] = useState("");
   const [language, setLanguage] = useState(LANGUAGES[0].code);

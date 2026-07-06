@@ -42,6 +42,25 @@ body {
   }
 }
 
+/* Three dots that pulse in sequence (1 -> 2 -> 3 -> repeat) so a loading
+   screen visibly shows it's working instead of sitting on a static label. */
+.loading-dot {
+  animation: loading-dot-bounce 1.2s ease-in-out infinite;
+}
+
+@keyframes loading-dot-bounce {
+  0%,
+  70%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.3;
+  }
+  35% {
+    transform: translateY(-6px);
+    opacity: 1;
+  }
+}
+
 .caption-fade {
   animation: caption-fade-in 150ms ease-out;
 }

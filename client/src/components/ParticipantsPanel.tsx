@@ -6,7 +6,13 @@ import { HandIcon } from "./icons";
 import RoleBadge from "./RoleBadge";
 import SidePanel from "./SidePanel";
 
-export default function ParticipantsPanel({ onClose }: { onClose: () => void }) {
+export default function ParticipantsPanel({
+  onClose,
+  side,
+}: {
+  onClose: () => void;
+  side?: "left" | "right";
+}) {
   const { meeting, isHost, self, assignRole, addRole } = useMeeting();
   const [newRole, setNewRole] = useState("");
   const [adding, setAdding] = useState(false);
@@ -32,7 +38,7 @@ export default function ParticipantsPanel({ onClose }: { onClose: () => void }) 
   }
 
   return (
-    <SidePanel title={`Participantes (${participants.length})`} onClose={onClose}>
+    <SidePanel title={`Participantes (${participants.length})`} onClose={onClose} side={side}>
       {isHost && (
         <div className="mb-4 rounded-xl border border-dashed border-brand-500/50 bg-brand-500/10 p-3">
           <p className="mb-2 text-xs font-medium text-brand-300">Agregar un rol nuevo</p>

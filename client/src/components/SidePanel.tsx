@@ -7,15 +7,20 @@ interface SidePanelProps {
   children: ReactNode;
   footer?: ReactNode;
   headerExtra?: ReactNode;
+  // Which side this panel is docked on (desktop). Controls the divider border
+  // so a left panel borders on its right and a right panel on its left. Two
+  // panels can be open at once (see Meeting), one on each side.
+  side?: "left" | "right";
 }
 
-export default function SidePanel({ title, onClose, children, footer, headerExtra }: SidePanelProps) {
+export default function SidePanel({ title, onClose, children, footer, headerExtra, side = "right" }: SidePanelProps) {
   // On phones the panel overlays the whole meeting area (absolute inset-0) so
   // it can't get squeezed to a sliver or clipped by the row's overflow. From
   // sm up it's a normal flex column beside the video: shrink-0 keeps its full
   // width and z-10 keeps it painted above the video so no tile overlaps it.
+  const border = side === "left" ? "border-r" : "border-l";
   return (
-    <aside className="panel-enter absolute inset-0 z-20 flex h-full w-full flex-col border-l border-ink-700 bg-ink-900 sm:static sm:z-10 sm:w-96 sm:shrink-0">
+    <aside className={`panel-enter absolute inset-0 z-20 flex h-full w-full flex-col border-ink-700 bg-ink-900 sm:static sm:z-10 sm:w-96 sm:shrink-0 ${border}`}>
       {/* Title + close button are their own row so the close button always
           stays reachable -- previously `headerExtra` (a language dropdown
           with a long label) shared the row with it and, on a narrow phone
