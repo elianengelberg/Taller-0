@@ -37,15 +37,19 @@ export default function LiveCaption({ line, translatedText, localInterim }: Prop
   const showingTranslation = !localInterim && Boolean(translatedText);
 
   return (
-    <div className="caption-fade pointer-events-none absolute inset-x-0 bottom-4 flex justify-center px-4">
-      <div className="max-w-xl rounded-xl bg-black/70 px-4 py-2 text-center text-sm text-white shadow-soft">
-        <span className="font-semibold text-brand-300">{activeLine.speakerName}: </span>
-        {showingTranslation ? translatedText : activeLine.text}
+    <div className="caption-fade pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-4">
+      <div className="max-w-2xl rounded-2xl bg-black/75 px-4 py-2.5 text-center shadow-soft backdrop-blur-md ring-1 ring-white/10">
+        <p className="text-sm leading-snug text-white sm:text-base">
+          <span className="font-semibold text-brand-300">{activeLine.speakerName}: </span>
+          {showingTranslation ? translatedText : activeLine.text}
+        </p>
+        {/* When translated, keep the original visible underneath (muted) so
+            people can follow both what was said and its translation. */}
         {showingTranslation && (
-          <span className="ml-1.5 inline-flex items-center gap-1 align-middle text-[10px] font-medium uppercase tracking-wide text-brand-300">
-            <GlobeIcon className="h-3 w-3" />
-            traducido
-          </span>
+          <p className="mt-1 flex items-center justify-center gap-1.5 text-xs leading-snug text-white/55">
+            <GlobeIcon className="h-3 w-3 shrink-0 text-brand-300/80" />
+            <span className="italic">{activeLine.text}</span>
+          </p>
         )}
       </div>
     </div>
