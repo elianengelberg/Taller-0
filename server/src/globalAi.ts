@@ -42,7 +42,7 @@ function buildIndex(summaries: MeetingSummary[]): string {
     .join("\n");
 }
 
-export async function answerAcrossMeetings(question: string): Promise<AskResult> {
+export async function answerAcrossMeetings(question: string, ownerId: string): Promise<AskResult> {
   if (!anthropicClient) {
     return { ok: false, error: "La función de IA no está configurada en el servidor." };
   }
@@ -51,7 +51,7 @@ export async function answerAcrossMeetings(question: string): Promise<AskResult>
     return { ok: false, error: "Escribí una pregunta." };
   }
 
-  const summaries = await listMeetings(MAX_MEETINGS_IN_INDEX);
+  const summaries = await listMeetings(ownerId, MAX_MEETINGS_IN_INDEX);
   if (summaries.length === 0) {
     return { ok: false, error: "Todavía no hay reuniones guardadas para consultar." };
   }
@@ -66,7 +66,7 @@ export async function answerAcrossMeetings(question: string): Promise<AskResult>
     if (remainingBudget <= 0) break;
     if (summary.messageCount === 0) continue;
 
-    const detail = await getMeetingDetail(summary.id);
+    const detail = await getMeetingDetail(summary.id, ownerId);
     if (!detail || detail.messages.length === 0) continue;
 
     const lines = detail.messages.map((m) => {

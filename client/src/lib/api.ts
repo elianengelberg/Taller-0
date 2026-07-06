@@ -1,4 +1,18 @@
+import { getAuthToken } from "./authToken";
 import { SERVER_URL } from "./socket";
+
+// Attaches the session token (if any) so the private history/AI endpoints
+// accept the request. Spread into a fetch's headers.
+function authHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+}
 
 export interface HistoryParticipant {
   id: string;
@@ -54,15 +68,70 @@ async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Respon
   }
 }
 
+// --- Auth ------------------------------------------------------------------
+
+export async function authRegister(
+  email: string,
+  password: string,
+  name: string
+): Promise<{ token?: string; user?: AuthUser; error?: string }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, name }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo crear la cuenta." };
+    return { token: data.token, user: data.user };
+  } catch {
+    return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };
+  }
+}
+
+export async function authLogin(
+  email: string,
+  password: string
+): Promise<{ token?: string; user?: AuthUser; error?: string }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo iniciar sesión." };
+    return { token: data.token, user: data.user };
+  } catch {
+    return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };
+  }
+}
+
+// Validates the stored token and returns the current user, or null if the
+// token is missing/expired (caller should then treat the user as logged out).
+export async function authMe(): Promise<AuthUser | null> {
+  if (!getAuthToken()) return null;
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/me`, { headers: authHeaders() });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    return data.user ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// --- Meeting history (private per account) ---------------------------------
+
 export async function fetchMeetingsHistory(): Promise<MeetingHistorySummary[]> {
-  const res = await fetchWithTimeout(`${SERVER_URL}/api/meetings`);
+  const res = await fetchWithTimeout(`${SERVER_URL}/api/meetings`, { headers: authHeaders() });
   if (!res.ok) return [];
   const data = await res.json();
   return data.meetings ?? [];
 }
 
 export async function fetchMeetingDetail(id: string): Promise<MeetingHistoryDetail | null> {
-  const res = await fetchWithTimeout(`${SERVER_URL}/api/meetings/${id}`);
+  const res = await fetchWithTimeout(`${SERVER_URL}/api/meetings/${id}`, { headers: authHeaders() });
   if (!res.ok) return null;
   const data = await res.json();
   return data.meeting ?? null;
@@ -75,7 +144,7 @@ export async function askMeetingAI(
   try {
     const res = await fetchWithTimeout(`${SERVER_URL}/api/meetings/${id}/ask`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ question }),
     });
     const data = await res.json().catch(() => ({}));
@@ -90,7 +159,7 @@ export async function askAllMeetingsAI(question: string): Promise<{ answer?: str
   try {
     const res = await fetchWithTimeout(`${SERVER_URL}/api/meetings/ask-all`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ question }),
     });
     const data = await res.json().catch(() => ({}));

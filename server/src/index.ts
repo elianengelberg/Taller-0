@@ -1,9 +1,18 @@
 import cors from "cors";
-import express from "express";
+import express, { NextFunction, Request, Response } from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { answerFromMeeting } from "./ai";
-import { attachRecording, getMeetingDetail, listMeetings } from "./db";
+import { hashPassword, signToken, verifyPassword, verifyToken } from "./auth";
+import {
+  attachRecording,
+  createUser,
+  dbEnabled,
+  getMeetingDetail,
+  getUserByEmail,
+  getUserById,
+  listMeetings,
+} from "./db";
 import { explainError } from "./explainError";
 import { answerAcrossMeetings } from "./globalAi";
 import { registerSocketHandlers } from "./socketHandlers";
@@ -24,6 +33,87 @@ app.use(express.json());
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
+});
+
+// --- Auth ------------------------------------------------------------------
+
+interface AuthedRequest extends Request {
+  userId?: string;
+}
+
+// Gate for the private endpoints (meeting history + its AI). Reads the Bearer
+// token, and 401s if it's missing/expired/forged. On success the caller's user
+// id is attached to the request for owner-scoped queries.
+function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  const header = req.headers.authorization;
+  const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
+  const userId = verifyToken(token);
+  if (!userId) {
+    res.status(401).json({ error: "Iniciá sesión para continuar." });
+    return;
+  }
+  (req as AuthedRequest).userId = userId;
+  next();
+}
+
+const accountsUnavailable = "Las cuentas no están disponibles: falta configurar la base de datos.";
+
+app.post("/api/auth/register", async (req, res) => {
+  if (!dbEnabled) {
+    res.status(503).json({ error: accountsUnavailable });
+    return;
+  }
+  const email = String(req.body?.email ?? "").trim().toLowerCase();
+  const password = String(req.body?.password ?? "");
+  const name = String(req.body?.name ?? "").trim().slice(0, 80);
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    res.status(400).json({ error: "Ingresá un email válido." });
+    return;
+  }
+  if (password.length < 8) {
+    res.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres." });
+    return;
+  }
+  if (!name) {
+    res.status(400).json({ error: "Ingresá tu nombre." });
+    return;
+  }
+  const result = await createUser({ email, name, passwordHash: hashPassword(password) });
+  if (!result.ok) {
+    if (result.reason === "duplicate") {
+      res.status(409).json({ error: "Ya existe una cuenta con ese email." });
+      return;
+    }
+    res.status(503).json({ error: "No se pudo crear la cuenta en este momento." });
+    return;
+  }
+  res.json({ token: signToken(result.user.id), user: result.user });
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  if (!dbEnabled) {
+    res.status(503).json({ error: accountsUnavailable });
+    return;
+  }
+  const email = String(req.body?.email ?? "").trim().toLowerCase();
+  const password = String(req.body?.password ?? "");
+  const user = await getUserByEmail(email);
+  // Same message whether the email is unknown or the password is wrong, so we
+  // don't reveal which emails have accounts.
+  if (!user || !verifyPassword(password, user.passwordHash)) {
+    res.status(401).json({ error: "Email o contraseña incorrectos." });
+    return;
+  }
+  res.json({ token: signToken(user.id), user: { id: user.id, email: user.email, name: user.name } });
+});
+
+app.get("/api/auth/me", requireAuth, async (req, res) => {
+  const user = await getUserById((req as AuthedRequest).userId!);
+  if (!user) {
+    res.status(401).json({ error: "Sesión inválida." });
+    return;
+  }
+  res.json({ user });
 });
 
 app.post("/api/translate", async (req, res) => {
@@ -105,13 +195,13 @@ app.post("/api/explain-error", async (req, res) => {
 // endpoint. All backed by Postgres (see db.ts) -- if DATABASE_URL isn't
 // configured these quietly return empty results instead of erroring, so a
 // deploy without the database doesn't break live video calls.
-app.get("/api/meetings", async (_req, res) => {
-  const meetings = await listMeetings();
+app.get("/api/meetings", requireAuth, async (req, res) => {
+  const meetings = await listMeetings((req as AuthedRequest).userId!);
   res.json({ meetings });
 });
 
-app.get("/api/meetings/:id", async (req, res) => {
-  const meeting = await getMeetingDetail(req.params.id);
+app.get("/api/meetings/:id", requireAuth, async (req, res) => {
+  const meeting = await getMeetingDetail(req.params.id, (req as AuthedRequest).userId!);
   if (!meeting) {
     res.status(404).json({ error: "No encontramos esa reunión." });
     return;
@@ -143,9 +233,9 @@ app.post("/api/meetings/:id/recording-complete", async (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/meetings/:id/ask", async (req, res) => {
+app.post("/api/meetings/:id/ask", requireAuth, async (req, res) => {
   const question = typeof req.body?.question === "string" ? req.body.question : "";
-  const result = await answerFromMeeting(req.params.id, question);
+  const result = await answerFromMeeting(req.params.id, question, (req as AuthedRequest).userId!);
   if (!result.ok) {
     res.status(400).json({ error: result.error });
     return;
@@ -156,9 +246,9 @@ app.post("/api/meetings/:id/ask", async (req, res) => {
 // Same idea as /api/meetings/:id/ask, but grounded across every saved
 // meeting instead of one -- "what did I talk about on the 17th", "what was
 // my last meeting about", etc.
-app.post("/api/meetings/ask-all", async (req, res) => {
+app.post("/api/meetings/ask-all", requireAuth, async (req, res) => {
   const question = typeof req.body?.question === "string" ? req.body.question : "";
-  const result = await answerAcrossMeetings(question);
+  const result = await answerAcrossMeetings(question, (req as AuthedRequest).userId!);
   if (!result.ok) {
     res.status(400).json({ error: result.error });
     return;

@@ -106,7 +106,11 @@ ${lines || "  (sin datos)"}`;
 
 export type AskResult = { ok: true; answer: string } | { ok: false; error: string };
 
-export async function answerFromMeeting(meetingId: string, question: string): Promise<AskResult> {
+export async function answerFromMeeting(
+  meetingId: string,
+  question: string,
+  ownerId: string
+): Promise<AskResult> {
   if (!anthropicClient) {
     return { ok: false, error: "La función de IA no está configurada en el servidor." };
   }
@@ -116,7 +120,7 @@ export async function answerFromMeeting(meetingId: string, question: string): Pr
     return { ok: false, error: "Escribí una pregunta." };
   }
 
-  const meeting = await getMeetingDetail(meetingId);
+  const meeting = await getMeetingDetail(meetingId, ownerId);
   if (!meeting) {
     return { ok: false, error: "No encontramos esa reunión." };
   }

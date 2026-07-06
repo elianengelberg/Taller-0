@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { getAuthToken } from "../lib/authToken";
 import { explainError } from "../lib/explainError";
 import { getSocket, SERVER_URL } from "../lib/socket";
 import {
@@ -220,7 +221,7 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
       if (draft.mode === "companion") {
         socket.emit(
           "join-companion",
-          { externalKey: draft.externalKey, name: draft.name, language: draft.language },
+          { externalKey: draft.externalKey, name: draft.name, language: draft.language, token: getAuthToken() },
           onRejoin
         );
         return;
@@ -383,13 +384,15 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     if (draft.mode === "host") {
       socket.emit(
         "create-meeting",
-        { hostName: draft.name, hostLanguage: draft.language, roles: draft.roleNames },
+        // token (if logged in) ties this meeting to the account so it shows up
+        // in that person's private history.
+        { hostName: draft.name, hostLanguage: draft.language, roles: draft.roleNames, token: getAuthToken() },
         onResult("No se pudo crear la reunión.")
       );
     } else if (draft.mode === "companion") {
       socket.emit(
         "join-companion",
-        { externalKey: draft.externalKey, name: draft.name, language: draft.language },
+        { externalKey: draft.externalKey, name: draft.name, language: draft.language, token: getAuthToken() },
         onResult("No se pudo unir a la reunión externa.")
       );
     } else {

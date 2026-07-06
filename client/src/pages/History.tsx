@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import AccountMenu from "../components/AccountMenu";
 import AiChatBox from "../components/AiChatBox";
 import Button from "../components/Button";
 import Logo from "../components/Logo";
@@ -31,11 +32,14 @@ export default function History() {
   return (
     <div className="min-h-screen bg-ink-950 px-6 py-10">
       <div className="mx-auto max-w-3xl">
-        <div className="mb-8 flex items-center justify-between">
+        <div className="mb-8 flex items-center justify-between gap-3">
           <Logo />
-          <Link to="/" className="text-sm font-medium text-ink-300 hover:text-white">
-            Volver al inicio
-          </Link>
+          <div className="flex items-center gap-4 sm:gap-6">
+            <Link to="/" className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-white">
+              Volver al inicio
+            </Link>
+            <AccountMenu />
+          </div>
         </div>
 
         <h1 className="text-2xl font-bold text-white">Historial de reuniones</h1>

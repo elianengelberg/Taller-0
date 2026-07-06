@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import AccountMenu from "../components/AccountMenu";
 import Button from "../components/Button";
 import Logo from "../components/Logo";
 import { CaptionsIcon, GlobeIcon, PeopleIcon, SparklesIcon } from "../components/icons";
@@ -19,6 +20,7 @@ export default function Home() {
           >
             Historial
           </Link>
+          <AccountMenu />
         </div>
       </header>
 

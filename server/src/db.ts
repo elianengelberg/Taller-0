@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { Pool } from "pg";
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -47,6 +48,24 @@ function migrate(): Promise<void> {
       .then(() =>
         pool.query(`CREATE INDEX IF NOT EXISTS messages_meeting_id_idx ON messages(meeting_id);`)
       )
+      // Accounts: each person's meeting history is private to them.
+      .then(() =>
+        pool.query(
+          `CREATE TABLE IF NOT EXISTS users (
+            id UUID PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            name TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+          );`
+        )
+      )
+      // owner_id ties a meeting to the account that created it (nullable:
+      // meetings created by a guest, or before accounts existed, have none).
+      .then(() => pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS owner_id UUID;`))
+      .then(() =>
+        pool.query(`CREATE INDEX IF NOT EXISTS meetings_owner_id_idx ON meetings(owner_id);`)
+      )
       .then(() => undefined)
       .catch((err) => {
         console.error("No se pudo preparar la base de datos:", err.message);
@@ -57,6 +76,12 @@ function migrate(): Promise<void> {
 
 if (pool) {
   migrate();
+}
+
+export interface PersistedUser {
+  id: string;
+  email: string;
+  name: string;
 }
 
 export interface PersistedRole {
@@ -109,16 +134,73 @@ async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   }
 }
 
+// --- Users -----------------------------------------------------------------
+
+export type CreateUserResult =
+  | { ok: true; user: PersistedUser }
+  | { ok: false; reason: "duplicate" | "unavailable" };
+
+// Emails are expected already normalized (lowercased/trimmed) by the caller so
+// the UNIQUE constraint and lookups stay consistent.
+export async function createUser(params: {
+  email: string;
+  name: string;
+  passwordHash: string;
+}): Promise<CreateUserResult> {
+  if (!pool) return { ok: false, reason: "unavailable" };
+  try {
+    await migrate();
+    const id = randomUUID();
+    await pool.query(`INSERT INTO users (id, email, password_hash, name) VALUES ($1, $2, $3, $4)`, [
+      id,
+      params.email,
+      params.passwordHash,
+      params.name,
+    ]);
+    return { ok: true, user: { id, email: params.email, name: params.name } };
+  } catch (err) {
+    // 23505 = unique_violation (email already registered).
+    if ((err as { code?: string }).code === "23505") return { ok: false, reason: "duplicate" };
+    console.error("Error creando usuario:", (err as Error).message);
+    return { ok: false, reason: "unavailable" };
+  }
+}
+
+export function getUserByEmail(
+  email: string
+): Promise<(PersistedUser & { passwordHash: string }) | null> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `SELECT id, email, name, password_hash FROM users WHERE email = $1`,
+      [email]
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return { id: row.id, email: row.email, name: row.name, passwordHash: row.password_hash };
+  }, null);
+}
+
+export function getUserById(id: string): Promise<PersistedUser | null> {
+  return safe(async () => {
+    const { rows } = await pool!.query(`SELECT id, email, name FROM users WHERE id = $1`, [id]);
+    const row = rows[0];
+    return row ? { id: row.id, email: row.email, name: row.name } : null;
+  }, null);
+}
+
+// --- Meetings --------------------------------------------------------------
+
 export function createMeetingRecord(params: {
   id: string;
   joinCode: string;
   hostName: string;
   roles: PersistedRole[];
+  ownerId?: string | null;
 }): Promise<void> {
   return safe(async () => {
     await pool!.query(
-      `INSERT INTO meetings (id, join_code, host_name, roles) VALUES ($1, $2, $3, $4)`,
-      [params.id, params.joinCode, params.hostName, JSON.stringify(params.roles)]
+      `INSERT INTO meetings (id, join_code, host_name, roles, owner_id) VALUES ($1, $2, $3, $4, $5)`,
+      [params.id, params.joinCode, params.hostName, JSON.stringify(params.roles), params.ownerId ?? null]
     );
   }, undefined);
 }
@@ -180,15 +262,18 @@ export function attachRecording(id: string, url: string): Promise<void> {
   }, undefined);
 }
 
-export function listMeetings(limit = 50): Promise<MeetingSummary[]> {
+// Only ever returns meetings owned by `ownerId` -- history is private per
+// account, so a logged-in user never sees anyone else's meetings.
+export function listMeetings(ownerId: string, limit = 50): Promise<MeetingSummary[]> {
   return safe(async () => {
     const { rows } = await pool!.query(
       `SELECT m.id, m.join_code, m.host_name, m.participants, m.recording_url, m.started_at, m.ended_at,
               (SELECT count(*) FROM messages msg WHERE msg.meeting_id = m.id) AS message_count
        FROM meetings m
+       WHERE m.owner_id = $1
        ORDER BY m.started_at DESC
-       LIMIT $1`,
-      [limit]
+       LIMIT $2`,
+      [ownerId, limit]
     );
     return rows.map(
       (row): MeetingSummary => ({
@@ -205,9 +290,14 @@ export function listMeetings(limit = 50): Promise<MeetingSummary[]> {
   }, []);
 }
 
-export function getMeetingDetail(id: string): Promise<MeetingDetail | null> {
+// Scoped to the owner: a user can only open the detail of their OWN meetings,
+// never someone else's by guessing an id.
+export function getMeetingDetail(id: string, ownerId: string): Promise<MeetingDetail | null> {
   return safe(async () => {
-    const { rows } = await pool!.query(`SELECT * FROM meetings WHERE id = $1`, [id]);
+    const { rows } = await pool!.query(`SELECT * FROM meetings WHERE id = $1 AND owner_id = $2`, [
+      id,
+      ownerId,
+    ]);
     const meeting = rows[0];
     if (!meeting) return null;
 

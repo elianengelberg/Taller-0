@@ -1,4 +1,5 @@
 import { Server, Socket } from "socket.io";
+import { verifyToken } from "./auth";
 import * as db from "./db";
 import {
   addChatMessage,
@@ -90,11 +91,14 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
 
   socket.on(
     "create-meeting",
-    (payload: { hostName: string; hostLanguage: string; roles: string[] }, ack) => {
+    (payload: { hostName: string; hostLanguage: string; roles: string[]; token?: string }, ack) => {
       try {
         const hostName = String(payload?.hostName ?? "").slice(0, MAX_NAME_LENGTH).trim();
         const hostLanguage = String(payload?.hostLanguage ?? "es-AR");
         const roleNames = Array.isArray(payload?.roles) ? payload.roles : [];
+        // If the creator is logged in, tie the meeting to their account so it
+        // shows up in their (private) history -- guests create ownerless ones.
+        const ownerId = verifyToken(payload?.token);
 
         if (!hostName) {
           ack?.({ ok: false, error: "El nombre del anfitrión es obligatorio." });
@@ -117,6 +121,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
           joinCode: meeting.id,
           hostName,
           roles: meeting.roles,
+          ownerId,
         });
         persistParticipants(meeting);
 
@@ -197,11 +202,12 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
   // reuse the exact same handlers as a native meeting.
   socket.on(
     "join-companion",
-    (payload: { externalKey: string; name: string; language: string }, ack) => {
+    (payload: { externalKey: string; name: string; language: string; token?: string }, ack) => {
       try {
         const externalKey = String(payload?.externalKey ?? "").trim();
         const name = String(payload?.name ?? "").slice(0, MAX_NAME_LENGTH).trim();
         const language = String(payload?.language ?? "es-AR");
+        const ownerId = verifyToken(payload?.token);
 
         if (!externalKey) {
           ack?.({ ok: false, error: "Falta la referencia de la reunión externa." });
@@ -221,11 +227,14 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
         socket.join(roomName(meeting.id));
 
         if (created) {
+          // The first (logged-in) person to open this external meeting through
+          // Encuentro owns its companion record, so it lands in their history.
           void db.createMeetingRecord({
             id: meeting.dbId,
             joinCode: meeting.id,
             hostName: name,
             roles: [],
+            ownerId,
           });
         }
         persistParticipants(meeting);
