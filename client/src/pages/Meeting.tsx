@@ -7,6 +7,7 @@ import ControlBar from "../components/ControlBar";
 import LiveCaption from "../components/LiveCaption";
 import LoadingDots from "../components/LoadingDots";
 import Logo from "../components/Logo";
+import { PeopleIcon } from "../components/icons";
 import ParticipantsPanel from "../components/ParticipantsPanel";
 import RecordingBanner from "../components/RecordingBanner";
 import SaveMeetingPrompt from "../components/SaveMeetingPrompt";
@@ -340,11 +341,14 @@ export default function Meeting() {
     // h-screen + no outer scroll, the ControlBar at the bottom could end up
     // rendered below the visible fold with no way to scroll down to it.
     <div className="flex h-dvh flex-col bg-ink-950">
-      <header className="flex items-center justify-between border-b border-ink-700 bg-ink-900 px-4 py-3 sm:px-6">
+      <header className="flex items-center justify-between border-b border-ink-800 bg-ink-900/95 px-4 py-3 shadow-soft backdrop-blur-md sm:px-6">
         <Logo />
-        <span className="text-sm font-medium text-ink-300">
-          {meeting.participants.length} participante{meeting.participants.length === 1 ? "" : "s"}
-        </span>
+        <div className="flex items-center gap-1.5 rounded-full bg-ink-800 px-3 py-1.5 ring-1 ring-ink-700">
+          <PeopleIcon className="h-3.5 w-3.5 text-brand-300" />
+          <span className="text-sm font-medium text-ink-200">
+            {meeting.participants.length} participante{meeting.participants.length === 1 ? "" : "s"}
+          </span>
+        </div>
       </header>
 
       {/* relative so a side panel can overlay just the video area on mobile

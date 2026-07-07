@@ -82,7 +82,7 @@ export default function ControlBar({
   );
 
   return (
-    <div className="flex flex-col gap-3 border-t border-ink-700 bg-ink-900 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+    <div className="flex flex-col gap-3 border-t border-ink-800 bg-ink-900/95 px-3 py-3 shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.35)] backdrop-blur-md sm:flex-row sm:items-center sm:justify-between sm:px-6">
       {/* On phones the "salir" button rides along the same row as the meeting
           code (its own row on desktop, at the far right) so it's never
           competing for space with the icon grid below. */}

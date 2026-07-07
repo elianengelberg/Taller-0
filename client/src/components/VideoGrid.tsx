@@ -114,7 +114,7 @@ export default function VideoGrid({
     );
   }
 
-  return <div className={`grid gap-3 ${gridColumnsFor(participants.length)}`}>{participants.map(tileFor)}</div>;
+  return <div className={`grid gap-4 ${gridColumnsFor(participants.length)}`}>{participants.map(tileFor)}</div>;
 }
 
 function gridColumnsFor(count: number): string {

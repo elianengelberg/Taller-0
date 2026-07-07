@@ -46,7 +46,7 @@ export default function ParticipantTile({ participant, role, stream, isSelf, spe
 
   return (
     <div
-      className={`relative flex aspect-video items-center justify-center overflow-hidden rounded-2xl bg-ink-900 shadow-soft transition-all duration-150 ${speakingRing}`}
+      className={`relative flex aspect-video items-center justify-center overflow-hidden rounded-2xl bg-ink-900 shadow-lg ring-1 ring-white/[0.06] transition-all duration-150 ${speakingRing}`}
     >
       {/* Always keep <video> mounted once we have a stream: conditionally
           rendering it in/out of the tree meant the DOM node (and its
@@ -67,14 +67,18 @@ export default function ParticipantTile({ participant, role, stream, isSelf, spe
       )}
       {!showVideo && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-ink-800 to-ink-900">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-brand-500 text-xl font-bold text-white">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-brand-600 text-xl font-bold text-white shadow-lg ring-4 ring-white/10">
             {initials(participant.name)}
           </div>
         </div>
       )}
 
+      {/* Soft scrim behind the name row so it stays legible over any video
+          content, not just the flat pill -- the same layered look Zoom/Meet
+          use instead of a hard-edged bar. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent" />
       <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 backdrop-blur-sm">
+        <div className="flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 shadow-soft backdrop-blur-sm">
           <span className="max-w-[10rem] truncate text-xs font-medium text-white">
             {participant.name}
             {isSelf ? " (vos)" : ""}
@@ -99,7 +103,7 @@ export default function ParticipantTile({ participant, role, stream, isSelf, spe
         <span
           className={`absolute ${
             participant.isHost ? "left-24" : "left-2"
-          } top-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-soft`}
+          } top-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-soft backdrop-blur-sm`}
         >
           <ScreenShareIcon className="h-3 w-3" />
           Compartiendo pantalla

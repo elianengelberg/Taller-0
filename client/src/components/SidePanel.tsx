@@ -20,7 +20,7 @@ export default function SidePanel({ title, onClose, children, footer, headerExtr
   // width and z-10 keeps it painted above the video so no tile overlaps it.
   const border = side === "left" ? "border-r" : "border-l";
   return (
-    <aside className={`panel-enter absolute inset-0 z-20 flex h-full w-full flex-col border-ink-700 bg-ink-900 sm:static sm:z-10 sm:w-96 sm:shrink-0 ${border}`}>
+    <aside className={`panel-enter absolute inset-0 z-20 flex h-full w-full flex-col border-ink-800 bg-ink-900 shadow-2xl sm:static sm:z-10 sm:w-96 sm:shrink-0 ${border}`}>
       {/* Title + close button are their own row so the close button always
           stays reachable -- previously `headerExtra` (a language dropdown
           with a long label) shared the row with it and, on a narrow phone

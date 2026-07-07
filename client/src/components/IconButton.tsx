@@ -30,11 +30,11 @@ export default function IconButton({
         aria-label={label}
         aria-pressed={active}
         title={label}
-        className={`relative flex h-12 w-12 items-center justify-center rounded-full transition ${
+        className={`relative flex h-12 w-12 items-center justify-center rounded-full shadow-soft ring-1 ring-white/5 transition-all duration-150 hover:scale-105 active:scale-95 ${
           danger
-            ? "bg-red-600 text-white hover:bg-red-700"
+            ? "bg-gradient-to-b from-red-500 to-red-600 text-white shadow-[0_4px_16px_-4px_rgba(220,38,38,0.5)] hover:from-red-500 hover:to-red-700"
             : active
-            ? "bg-brand-500 text-white hover:bg-brand-600"
+            ? "bg-gradient-to-b from-brand-400 to-brand-500 text-white shadow-[0_4px_16px_-4px_rgba(217,119,87,0.5)] hover:from-brand-400 hover:to-brand-600"
             : "bg-ink-800 text-white hover:bg-ink-700"
         }`}
       >
