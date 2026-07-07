@@ -34,3 +34,23 @@ Things that should stick without re-litigating each session. See
   interop only works for Teams Work/School meetings, not "Teams for life"
   (personal). Personal Teams falls back to a companion-mode button (open in a
   new tab + keep the Encuentro overlay).
+- **Third-party secrets NEVER go through chat.** Zoom SDK secret, ACS
+  connection string, Google OAuth Client Secret, Anthropic key: the user
+  creates them in the provider's console and pastes them directly into
+  Render env vars. The Client ID is public and fine to share; the secret is
+  not. Code must degrade gracefully (feature hidden/503) when unset.
+- **CORS origins are compared normalized, never as raw strings.**
+  `normalizeOrigin()` in server/src/index.ts (trim/quotes/trailing-slash/
+  lowercase) + rejection logging. A hand-typed env var broke production once;
+  don't reintroduce exact-string origin comparison.
+- **A stored session token is only deleted on an explicit 401.** Network
+  failures, CORS failures and free-tier cold starts must never log the user
+  out permanently (client/src/lib/api.ts authMe contract).
+- **Logout must never be a single bare click in the header.** It lives inside
+  the account dropdown ("Hola, X" -> Cerrar sesión) because a visible "Salir"
+  button gets read as "go back".
+- **Production endpoints:** frontend https://taller-0.vercel.app (Vercel,
+  auto-deploys this branch), backend https://taller-0.onrender.com (Render
+  Web Service "Taller-0", free tier, ~50s cold starts). Google OAuth redirect
+  URI is pinned to the onrender callback; changing domains means updating
+  Google Cloud + Render env vars together.

@@ -65,3 +65,90 @@ Files: `server/src/auth.ts` (new), `server/src/db.ts`, `server/src/index.ts`,
 `client/src/pages/{Login,Register}.tsx` (new), `client/src/components/{AccountMenu,RequireAuth}.tsx` (new).
 Render setup needed: `AUTH_SECRET` env var (random secret, rotating it logs
 everyone out by design); `DATABASE_URL` was already configured.
+
+## 2026-07-07 -- Account dropdown replaces bare "Salir" button
+What: The header's standalone "Salir" (logout) button was removed -- users
+read it as "go back" and it silently logged them out. "Hola, <nombre>" is now
+a dropdown trigger (avatar + chevron pill) revealing Configuración and Cerrar
+sesión; settings live in a centered modal (rename + change password, new
+PATCH /api/auth/me and POST /api/auth/change-password endpoints).
+Why: real user confusion in production ("toque salir para volver al menu y me
+cerro sesion"). Destructive-ish actions should need a deliberate second click.
+Files: `client/src/components/{AccountMenu,AccountSettingsModal}.tsx`,
+`server/src/index.ts`, `server/src/db.ts`.
+
+## 2026-07-07 -- Google Sign-In (plain OAuth2, no SDK)
+What: Google login via 2 raw fetches (token exchange + userinfo), mirroring
+how zoom.ts/teams.ts avoid heavy client libs. `googleAuthEnabled` gates
+everything on GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI env vars; the client asks
+GET /api/auth/config whether to even show the button. Account merging: same
+email with an existing password account gets google_id linked (not a dup);
+brand-new Google users get password_hash NULL rows, and password login for
+those returns "Esa cuenta se creó con Google". Callback redirects to
+CLIENT_ORIGIN/auth/google?token=..., a tiny page that stores the token and
+hard-reloads "/".
+Why: server-side flow (not Google's JS widget) keeps the client dependency-
+free and the secret server-only. In-memory single-use `state` map (10-min
+TTL) because the app has no cookie middleware for a session-based check.
+Production setup (user-owned, never in chat): Google Cloud OAuth client;
+JS origin = https://taller-0.vercel.app, redirect URI =
+https://taller-0.onrender.com/api/auth/google/callback; consent screen
+published (En producción, 100-user unverified cap is fine for now).
+Files: `server/src/googleAuth.ts` (new), `server/src/{index,db}.ts`,
+`client/src/pages/GoogleCallback.tsx` (new),
+`client/src/components/GoogleButton.tsx` (new), `client/src/lib/api.ts`.
+
+## 2026-07-07 -- CORS: normalize origins + log rejections (prod outage postmortem)
+What: corsOrigin() now normalizes both the env value and the incoming Origin
+(trim, strip quotes, strip trailing slash, lowercase) before comparing, logs
+the allowed origin at boot and every rejection with expected-vs-received.
+Socket.io uses the same function.
+Why: PRODUCTION BUG. After the user edited Render env vars, every browser
+fetch from the Vercel app got CORS-rejected while top-level redirects (which
+skip CORS) kept working -- so Google login "succeeded" (token visible in the
+URL) but the session never stuck, the Google button "disappeared" (the
+/api/auth/config fetch failed too), and register broke. The exact-string
+compare made a single hand-typed character difference in CLIENT_ORIGIN break
+everything silently. Diagnosis key: redirects working + fetches failing =
+CORS, and the absence of `[google-auth] callback error` in Render logs proved
+the server side was fine.
+Files: `server/src/index.ts`.
+
+## 2026-07-07 -- Never clear the auth token on network failure
+What: authMe() now distinguishes 401 (unauthorized: true -> clear token) from
+network/CORS/cold-start failures (keep token, just render logged-out for this
+load). AuthContext only deletes the stored token on the explicit 401.
+Why: the old code treated ANY authMe failure as an invalid session and wiped
+localStorage -- on a free-tier Render backend that cold-starts for 50s+, a
+single transient failure permanently logged people out. This compounded the
+CORS bug above into "Google login doesn't work".
+Files: `client/src/lib/api.ts`, `client/src/context/AuthContext.tsx`.
+
+## 2026-07-07 -- Meeting toolbar: Zoom/Teams hybrid redesign
+What: ControlBar groups controls into 3 clusters (personal AV | meeting
+features | host tools) separated by thin vertical rules (hidden on mobile
+where the grid wraps); "Salir" is a wide labeled red pill apart from the icon
+row; header gains an elapsed-time pill (useElapsedTime, counts from
+connected, hidden on mobile).
+Why: user sent Zoom Workplace + Teams screenshots asking to combine the best
+of both. Teams' grouped toolbar + prominent leave; Zoom's icon+caption style
+was already in place. Kept the app's own warm dark palette, not their brands.
+Files: `client/src/components/ControlBar.tsx`, `client/src/pages/Meeting.tsx`,
+`client/src/components/icons.tsx` (ClockIcon).
+
+## 2026-07-07 -- Full QA sweep methodology + mobile header overflow fix
+What: QA = run the real server locally (npx tsx src/index.ts with
+CLIENT_ORIGIN=http://localhost:4173, no DATABASE_URL -> graceful 503s) + vite
+preview of the prod build + one Playwright script over every route at
+1280x800 and 390x780 collecting console errors, pageerrors, final URLs
+(redirect guards) and `scrollWidth - clientWidth` per page (horizontal
+overflow). Meeting flow tested for real with
+--use-fake-ui-for-media-stream/--use-fake-device-for-media-stream.
+Found: logged-out mobile header overflowed 57px (Logo + Historial + Ingresar
++ Crear cuenta > 390px) -> "Crear cuenta" now hidden below sm (the banner
+under the header repeats both auth actions). Also scanned dist/assets for
+secret patterns (sk-ant, AKIA, GOCSPX, postgres://, PRIVATE KEY) -- clean.
+Why: the overflow check catches a class of mobile bug screenshots alone
+missed for weeks; the element-level culprit finder (getBoundingClientRect
+right > viewport) pinpoints the offender instantly.
+Files: `client/src/components/AccountMenu.tsx`.
