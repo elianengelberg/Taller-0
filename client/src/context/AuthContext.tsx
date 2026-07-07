@@ -23,17 +23,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   // On load, if there's a stored token, confirm it's still valid (and fetch
-  // the current user). An expired/forged token gets cleared silently.
+  // the current user). Only an explicit 401 clears the stored token -- if
+  // the server just couldn't be reached (free-tier cold start, network
+  // blip), the token survives so the next load can retry instead of
+  // permanently logging the person out over a transient outage.
   useEffect(() => {
     let cancelled = false;
     if (!getAuthToken()) {
       setLoading(false);
       return;
     }
-    authMe().then((u) => {
+    authMe().then(({ user: fetchedUser, unauthorized }) => {
       if (cancelled) return;
-      if (!u) setAuthToken(null);
-      setUser(u);
+      if (unauthorized) setAuthToken(null);
+      setUser(fetchedUser);
       setLoading(false);
     });
     return () => {

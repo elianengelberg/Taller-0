@@ -107,17 +107,21 @@ export async function authLogin(
   }
 }
 
-// Validates the stored token and returns the current user, or null if the
-// token is missing/expired (caller should then treat the user as logged out).
-export async function authMe(): Promise<AuthUser | null> {
-  if (!getAuthToken()) return null;
+// Validates the stored token and returns the current user. `unauthorized` is
+// only true when the server explicitly rejected the token (401) -- a network
+// failure (free-tier server cold-starting, CORS hiccup, flaky wifi) must NOT
+// count, because the caller deletes the stored token on that signal and a
+// transient outage would then permanently log the person out.
+export async function authMe(): Promise<{ user: AuthUser | null; unauthorized?: boolean }> {
+  if (!getAuthToken()) return { user: null };
   try {
     const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/me`, { headers: authHeaders() });
-    if (!res.ok) return null;
+    if (res.status === 401) return { user: null, unauthorized: true };
+    if (!res.ok) return { user: null };
     const data = await res.json().catch(() => ({}));
-    return data.user ?? null;
+    return { user: data.user ?? null };
   } catch {
-    return null;
+    return { user: null };
   }
 }
 

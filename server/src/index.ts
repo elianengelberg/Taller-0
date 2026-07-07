@@ -30,13 +30,33 @@ import { translateText } from "./translate";
 import { generateMeetingSdkSignature, zoomEnabled } from "./zoom";
 
 const PORT = Number(process.env.PORT) || 4000;
-// Trim a trailing slash: the browser's Origin header never has one (it's
-// scheme+host+port only), so "https://x.vercel.app/" here would never match
-// and silently break every REST request with a CORS error.
-const CLIENT_ORIGIN = (process.env.CLIENT_ORIGIN || "http://localhost:5173").replace(/\/+$/, "");
+// The browser's Origin header is always lowercase, has no trailing slash and
+// no quotes -- but a hand-typed env var can differ in any of those ways, and
+// a single stray character here silently breaks every API call from the app
+// (while top-level redirects, which skip CORS, keep working -- very
+// confusing to debug). Normalize both sides before comparing, and log any
+// rejection so the mismatch shows up in the server logs instead of only as
+// opaque failed fetches in the browser.
+function normalizeOrigin(value: string): string {
+  return value.trim().replace(/^["']+|["']+$/g, "").replace(/\/+$/, "").toLowerCase();
+}
+const CLIENT_ORIGIN = normalizeOrigin(process.env.CLIENT_ORIGIN || "http://localhost:5173");
+console.log(`[cors] origen permitido: ${CLIENT_ORIGIN}`);
+
+function corsOrigin(
+  origin: string | undefined,
+  cb: (err: Error | null, allow?: boolean) => void
+): void {
+  if (!origin || normalizeOrigin(origin) === CLIENT_ORIGIN) {
+    cb(null, true);
+    return;
+  }
+  console.warn(`[cors] Origin rechazado: "${origin}" (esperado: "${CLIENT_ORIGIN}")`);
+  cb(null, false);
+}
 
 const app = express();
-app.use(cors({ origin: CLIENT_ORIGIN }));
+app.use(cors({ origin: corsOrigin }));
 app.use(express.json());
 
 app.get("/health", (_req, res) => {
@@ -367,7 +387,7 @@ app.post("/api/meetings/ask-all", requireAuth, async (req, res) => {
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
-  cors: { origin: CLIENT_ORIGIN },
+  cors: { origin: corsOrigin },
   // Backgrounded/throttled browser tabs can delay the heartbeat past the
   // default 20s pingTimeout, which reads as a real disconnect and (without
   // this) used to make the meeting "disappear" out from under the host.
