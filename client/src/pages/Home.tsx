@@ -75,6 +75,7 @@ export default function Home() {
 
           <div className="mx-auto mt-10 grid max-w-4xl gap-4 sm:grid-cols-3">
             <ActionCard
+              highlight
               title="Crear una reunión"
               description="Definí roles para tu equipo y arrancá una reunión de Encuentro."
               cta={
@@ -84,6 +85,7 @@ export default function Home() {
               }
             />
             <ActionCard
+              highlight
               title="Tengo un código"
               description="Sumate a una reunión de Encuentro que ya está en marcha."
               cta={
