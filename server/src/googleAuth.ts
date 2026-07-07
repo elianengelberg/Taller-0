@@ -43,8 +43,15 @@ const pendingStates = new Map<string, number>();
 const STATE_TTL_MS = 10 * 60 * 1000;
 
 export function createState(): string {
+  // Sweep expired entries here (the only growth point) so abandoned login
+  // attempts -- people who never finish Google's consent screen -- don't
+  // accumulate in this map forever.
+  const now = Date.now();
+  for (const [key, expiresAt] of pendingStates) {
+    if (expiresAt <= now) pendingStates.delete(key);
+  }
   const state = randomBytes(16).toString("hex");
-  pendingStates.set(state, Date.now() + STATE_TTL_MS);
+  pendingStates.set(state, now + STATE_TTL_MS);
   return state;
 }
 

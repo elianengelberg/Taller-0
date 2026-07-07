@@ -17,6 +17,7 @@ import {
   getUserById,
   linkGoogleId,
   listMeetings,
+  meetingExists,
   updateUserName,
   updateUserPasswordHash,
 } from "./db";
@@ -24,7 +25,7 @@ import { explainError } from "./explainError";
 import { answerAcrossMeetings } from "./globalAi";
 import { consumeState, createState, exchangeGoogleCode, googleAuthEnabled, googleAuthUrl } from "./googleAuth";
 import { registerSocketHandlers } from "./socketHandlers";
-import { createRecordingUploadUrl, storageEnabled } from "./storage";
+import { createRecordingUploadUrl, isOwnRecordingUrl, storageEnabled } from "./storage";
 import { createTeamsUserToken, teamsEnabled } from "./teams";
 import { translateText } from "./translate";
 import { generateMeetingSdkSignature, zoomEnabled } from "./zoom";
@@ -230,7 +231,10 @@ app.get("/api/auth/google/callback", async (req, res) => {
         user = { ...created, passwordHash: null, googleId: profile.googleId };
       }
     }
-    res.redirect(`${CLIENT_ORIGIN}/auth/google?token=${signToken(user.id)}`);
+    // Token travels in the URL FRAGMENT, not a query param: fragments never
+    // leave the browser, so the token can't end up in Vercel's request logs
+    // or a Referer header on its way to the client.
+    res.redirect(`${CLIENT_ORIGIN}/auth/google#token=${signToken(user.id)}`);
   } catch (err) {
     console.error("[google-auth] callback error:", err instanceof Error ? err.message : err);
     res.redirect(`${CLIENT_ORIGIN}/ingresar?googleError=1`);
@@ -241,6 +245,12 @@ app.post("/api/translate", async (req, res) => {
   const { text, source, target } = req.body ?? {};
   if (typeof text !== "string" || typeof source !== "string" || typeof target !== "string") {
     res.status(400).json({ error: "text, source y target son obligatorios." });
+    return;
+  }
+  // Real captions/chat lines are short; anything huge is someone using this
+  // open endpoint as a free translation API on our Anthropic bill.
+  if (text.length > 4000) {
+    res.status(400).json({ error: "El texto es demasiado largo para traducir." });
     return;
   }
   try {
@@ -305,7 +315,12 @@ app.post("/api/explain-error", async (req, res) => {
     res.status(400).json({ error: "error es obligatorio." });
     return;
   }
-  const explanation = await explainError(error, typeof context === "string" ? context : undefined);
+  // Raw browser/network errors are short strings; cap so this open endpoint
+  // can't be fed arbitrarily large prompts on our Anthropic bill.
+  const explanation = await explainError(
+    error.slice(0, 1000),
+    typeof context === "string" ? context.slice(0, 500) : undefined
+  );
   // Not an error response even when there's no explanation available (no
   // API key, or the call failed) -- callers are expected to fall back to
   // showing the raw error themselves in that case.
@@ -335,19 +350,42 @@ app.post("/api/meetings/:id/recording-upload-url", async (req, res) => {
     res.status(503).json({ error: "El almacenamiento de grabaciones no está configurado." });
     return;
   }
-  const contentType = typeof req.body?.contentType === "string" ? req.body.contentType : "video/webm";
-  const target = await createRecordingUploadUrl(req.params.id, contentType);
-  if (!target) {
-    res.status(503).json({ error: "No se pudo preparar la subida de la grabación." });
+  // Only the two container types the recorder actually produces -- an
+  // arbitrary contentType would let anyone store arbitrary files under a
+  // presigned URL on our bucket.
+  const rawType = typeof req.body?.contentType === "string" ? req.body.contentType : "video/webm";
+  const contentType = rawType.startsWith("video/mp4") ? "video/mp4" : "video/webm";
+  // The meeting id is unauthenticated by design (guests record too), but it
+  // must at least reference a real meeting -- not be a free upload endpoint.
+  if (dbEnabled && !(await meetingExists(req.params.id))) {
+    res.status(404).json({ error: "No encontramos esa reunión." });
     return;
   }
-  res.json(target);
+  try {
+    const target = await createRecordingUploadUrl(req.params.id, contentType);
+    if (!target) {
+      res.status(503).json({ error: "No se pudo preparar la subida de la grabación." });
+      return;
+    }
+    res.json(target);
+  } catch (err) {
+    console.error("[storage] presign error:", err instanceof Error ? err.message : err);
+    res.status(503).json({ error: "No se pudo preparar la subida de la grabación." });
+  }
 });
 
 app.post("/api/meetings/:id/recording-complete", async (req, res) => {
   const { publicUrl } = req.body ?? {};
   if (typeof publicUrl !== "string" || !publicUrl) {
     res.status(400).json({ error: "publicUrl es obligatorio." });
+    return;
+  }
+  // Never store a URL we didn't mint: the history page renders this as a
+  // <video src> and a download link for the owner, so an arbitrary value
+  // here would let any participant plant arbitrary content (or a hostile
+  // link) in someone else's history.
+  if (!isOwnRecordingUrl(publicUrl)) {
+    res.status(400).json({ error: "La URL de la grabación no es válida." });
     return;
   }
   await attachRecording(req.params.id, publicUrl);
@@ -383,6 +421,15 @@ app.post("/api/meetings/ask-all", requireAuth, async (req, res) => {
     return;
   }
   res.json({ answer: result.answer });
+});
+
+// Last-resort error handler so a malformed JSON body (or any synchronous
+// throw in a route) answers with a JSON error instead of Express's default
+// HTML stack page.
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  const status = (err as { status?: number })?.status ?? 500;
+  if (status >= 500) console.error("Error no manejado en la API:", err);
+  res.status(status).json({ error: status === 400 ? "El cuerpo de la solicitud no es válido." : "Error interno del servidor." });
 });
 
 const httpServer = createServer(app);

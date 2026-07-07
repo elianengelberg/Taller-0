@@ -330,6 +330,15 @@ export function updateMessageText(id: number, text: string): Promise<void> {
   }, undefined);
 }
 
+// Cheap existence check used to validate meeting ids coming from
+// unauthenticated endpoints (recording upload) before doing work for them.
+export function meetingExists(id: string): Promise<boolean> {
+  return safe(async () => {
+    const { rows } = await pool!.query(`SELECT 1 FROM meetings WHERE id = $1`, [id]);
+    return rows.length > 0;
+  }, false);
+}
+
 export function finalizeMeeting(id: string): Promise<void> {
   return safe(async () => {
     await pool!.query(`UPDATE meetings SET ended_at = now() WHERE id = $1 AND ended_at IS NULL`, [id]);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { shortLang } from "../lib/languages";
 import { translate } from "../lib/translate";
 
@@ -21,6 +21,11 @@ interface TranslatableLine {
 // from (and populate) the same cache instead of firing duplicate requests.
 export function useLineTranslations(lines: TranslatableLine[], targetLang: string) {
   const [translations, setTranslations] = useState<Record<string, string>>({});
+  // Keys with a request already in flight: the effect below re-runs on every
+  // new transcript line but reads a render-time snapshot of `translations`,
+  // so without this a line whose translation hasn't resolved yet would get
+  // requested again on each re-run.
+  const inFlightRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (targetLang === ORIGINAL_LANG) return;
@@ -28,7 +33,7 @@ export function useLineTranslations(lines: TranslatableLine[], targetLang: strin
 
     lines.forEach((line) => {
       const key = `${line.id}:${targetLang}`;
-      if (translations[key]) return;
+      if (translations[key] || inFlightRef.current.has(key)) return;
       if (shortLang(line.sourceLang) === shortLang(targetLang)) return;
 
       const bundled = line.translations?.[shortLang(targetLang)];
@@ -37,11 +42,13 @@ export function useLineTranslations(lines: TranslatableLine[], targetLang: strin
         return;
       }
 
+      inFlightRef.current.add(key);
       translate(line.text, line.sourceLang, targetLang)
         .then((translated) => {
           if (!cancelled) setTranslations((prev) => ({ ...prev, [key]: translated }));
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => inFlightRef.current.delete(key));
     });
 
     return () => {

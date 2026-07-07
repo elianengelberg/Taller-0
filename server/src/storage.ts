@@ -29,6 +29,14 @@ export interface RecordingUploadTarget {
   publicUrl: string;
 }
 
+// Only URLs under our own bucket's public base may ever be persisted as a
+// meeting's recording_url. Without this check, anyone who learned a
+// meeting's id could store an arbitrary URL there -- which the history page
+// then renders as a <video src> and a download link for the owner.
+export function isOwnRecordingUrl(url: string): boolean {
+  return Boolean(PUBLIC_URL) && url.startsWith(`${PUBLIC_URL}/recordings/`);
+}
+
 export async function createRecordingUploadUrl(
   meetingId: string,
   contentType: string

@@ -12,7 +12,11 @@ export default function GoogleCallback() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const token = params.get("token");
+    // The token arrives in the URL fragment (never sent to any server, so it
+    // can't end up in request logs); the query param is a legacy fallback in
+    // case an old redirect is still cached somewhere.
+    const hashToken = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("token");
+    const token = hashToken || params.get("token");
     if (token) {
       setAuthToken(token);
       window.location.replace("/");

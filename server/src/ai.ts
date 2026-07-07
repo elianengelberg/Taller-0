@@ -1,4 +1,4 @@
-import { anthropicClient, anthropicEnabled } from "./anthropicClient";
+import { anthropicClient } from "./anthropicClient";
 import { getMeetingDetail, MeetingDetail, PersistedMessage } from "./db";
 
 // Override with ANTHROPIC_MODEL if you want a cheaper/faster model (e.g.
@@ -7,8 +7,6 @@ import { getMeetingDetail, MeetingDetail, PersistedMessage } from "./db";
 // spoke how much, not just one-line lookups -- and that needs real
 // reasoning over a long transcript, not just pattern matching.
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-4-8";
-
-export const aiEnabled = anthropicEnabled;
 
 // Opus has a 1M-token context window, so there's no real need to truncate
 // aggressively -- and truncating is exactly wrong for "summarize the whole

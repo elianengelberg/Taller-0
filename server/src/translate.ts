@@ -12,6 +12,18 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 1000 * 60 * 30;
+// Expired entries are only ever *overwritten*, never swept, so on a
+// long-running server the map would grow without bound. Cap it: when full,
+// evict the oldest entries (Map preserves insertion order).
+const CACHE_MAX_ENTRIES = 5000;
+
+function boundedCacheSet(key: string, value: string): void {
+  if (cache.size >= CACHE_MAX_ENTRIES) {
+    const firstKey = cache.keys().next().value;
+    if (firstKey !== undefined) cache.delete(firstKey);
+  }
+  cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+}
 
 // Deliberately NOT the same (larger, slower) model used for the AI Q&A
 // feature: translation is high-volume and latency-sensitive, and a short
@@ -236,6 +248,6 @@ export async function translateText(
     ? await translateWithClaude(trimmed, from, to)
     : await translateWithMyMemory(trimmed, from, to);
 
-  cache.set(key, { value: translated, expiresAt: Date.now() + CACHE_TTL_MS });
+  boundedCacheSet(key, translated);
   return translated;
 }

@@ -19,6 +19,13 @@ export function useWebRTC({ socket, selfId, peerIds, localStream, enabled }: Use
   const peersRef = useRef<Map<string, SimplePeer.Instance>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(localStream);
   localStreamRef.current = localStream;
+  // Peers created before our own camera/mic finished initializing: an
+  // incoming offer can arrive while getUserMedia's permission prompt is
+  // still up, so the peer gets built with no local stream -- and nothing
+  // would ever attach it afterwards, leaving the connection silently
+  // one-way (we see/hear them; they never see/hear us). Tracked here so the
+  // effect below can add the stream retroactively the moment it's ready.
+  const streamlessPeersRef = useRef<Set<string>>(new Set());
 
   function destroyPeer(peerId: string) {
     const peer = peersRef.current.get(peerId);
@@ -26,6 +33,7 @@ export function useWebRTC({ socket, selfId, peerIds, localStream, enabled }: Use
       peer.destroy();
       peersRef.current.delete(peerId);
     }
+    streamlessPeersRef.current.delete(peerId);
     setRemoteStreams((prev) => {
       if (!(peerId in prev)) return prev;
       const next = { ...prev };
@@ -35,10 +43,12 @@ export function useWebRTC({ socket, selfId, peerIds, localStream, enabled }: Use
   }
 
   function createPeer(peerId: string, initiator: boolean): SimplePeer.Instance {
+    const stream = localStreamRef.current;
+    if (!stream) streamlessPeersRef.current.add(peerId);
     const peer = new SimplePeer({
       initiator,
       trickle: true,
-      stream: localStream ?? undefined,
+      stream: stream ?? undefined,
       sdpTransform: boostOpusAudio,
     });
 
@@ -76,6 +86,24 @@ export function useWebRTC({ socket, selfId, peerIds, localStream, enabled }: Use
       socket.off("signal", handleSignal);
     };
   }, [socket, localStream]);
+
+  // Retroactively attach the local stream to any peer that was created
+  // before it existed (see streamlessPeersRef above) -- simple-peer
+  // renegotiates automatically when a stream is added mid-connection.
+  useEffect(() => {
+    if (!localStream) return;
+    for (const peerId of Array.from(streamlessPeersRef.current)) {
+      const peer = peersRef.current.get(peerId);
+      streamlessPeersRef.current.delete(peerId);
+      if (!peer) continue;
+      try {
+        peer.addStream(localStream);
+      } catch {
+        // Peer mid-negotiation/closed; if it matters the mesh effect below
+        // will rebuild the connection.
+      }
+    }
+  }, [localStream]);
 
   useEffect(() => {
     if (!enabled || !selfId) return;

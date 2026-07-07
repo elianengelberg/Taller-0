@@ -201,6 +201,17 @@ function normalizeForCache(text: string): string | null {
 }
 
 const cleanupCache = new Map<string, { result: CleanupResult; expiresAt: number }>();
+// Both caches only ever grow (expired entries are checked, not swept) --
+// cap them so a long-running server doesn't accumulate entries forever.
+const CACHE_MAX_ENTRIES = 3000;
+
+function boundedSet<V>(map: Map<string, V>, key: string, value: V): void {
+  if (map.size >= CACHE_MAX_ENTRIES) {
+    const firstKey = map.keys().next().value;
+    if (firstKey !== undefined) map.delete(firstKey);
+  }
+  map.set(key, value);
+}
 
 // `expectedLang` is the caller's best guess at who's speaking (their
 // configured language) -- used only to scope which languages' expertise
@@ -236,7 +247,7 @@ export async function cleanTranscriptFragment(
       if (block.type === "text") {
         const result = parseCleanupResponse(block.text, best);
         if (cacheKey && result.detectedLang) {
-          cleanupCache.set(cacheKey, { result, expiresAt: Date.now() + CACHE_TTL_MS });
+          boundedSet(cleanupCache, cacheKey, { result, expiresAt: Date.now() + CACHE_TTL_MS });
         }
         return result;
       }
@@ -364,7 +375,7 @@ export async function translateFragmentToAll(
       if (block.type === "text") {
         const translations = parseTranslateAllResponse(block.text, targets);
         if (fullCacheKey && Object.keys(translations).length === targetLangCodes.length) {
-          translateAllCache.set(fullCacheKey, { result: translations, expiresAt: Date.now() + CACHE_TTL_MS });
+          boundedSet(translateAllCache, fullCacheKey, { result: translations, expiresAt: Date.now() + CACHE_TTL_MS });
         }
         return translations;
       }

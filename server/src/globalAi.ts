@@ -5,12 +5,11 @@
 // transcripts for as many of the most recent ones as fit a size budget --
 // with meetings beyond that budget still findable by date/participants
 // through the index, just without their word-for-word content.
-import { anthropicClient, anthropicEnabled } from "./anthropicClient";
+import { anthropicClient } from "./anthropicClient";
 import { AskResult } from "./ai";
 import { getMeetingDetail, listMeetings, MeetingSummary } from "./db";
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-4-8";
-export const globalAiEnabled = anthropicEnabled;
 
 const MAX_MEETINGS_IN_INDEX = 200;
 // Across ALL meetings combined -- keeps a long history from ballooning the

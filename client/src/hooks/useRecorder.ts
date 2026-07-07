@@ -27,6 +27,11 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [resultUrl, setResultUrl] = useState<string | null>(null);
+  // Mirror for the unmount cleanup below -- leaving the page without
+  // dismissing the "Grabación lista" card would otherwise leak the blob URL
+  // (and the recording's memory) for the rest of the session.
+  const resultUrlRef = useRef<string | null>(null);
+  resultUrlRef.current = resultUrl;
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -168,7 +173,10 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
   // onstop's upload-to-history logic run normally; it just also makes sure
   // we're not leaking a live screen-capture stream in the background.
   useEffect(() => {
-    return () => stop();
+    return () => {
+      stop();
+      if (resultUrlRef.current) URL.revokeObjectURL(resultUrlRef.current);
+    };
   }, [stop]);
 
   return { status, uploadStatus, error, resultUrl, start, stop, reset };

@@ -20,6 +20,35 @@ import { Meeting, toSnapshot, TranscriptLine } from "./types";
 
 const MAX_NAME_LENGTH = 60;
 const MAX_ROLE_NAME_LENGTH = 40;
+// Speech recognizers emit at most a handful of short candidate readings per
+// utterance; anything beyond these caps is a hostile client trying to stuff
+// megabytes into the Claude-backed cleanup/translation calls.
+const MAX_ALTERNATIVES = 5;
+const MAX_ALTERNATIVE_CHARS = 600;
+// A meeting realistically needs a dozen roles at most; an unbounded list
+// bloats every snapshot broadcast to everyone.
+const MAX_ROLES_PER_MEETING = 50;
+// Companion keys are "zoom:<num>" / "teams:<threadId>" / a fallback URL --
+// never anywhere near this long legitimately.
+const MAX_EXTERNAL_KEY_CHARS = 512;
+
+// Deliberately generous per-socket rate caps -- far above anything a real
+// client produces (the recognizer finalizes at most ~1 utterance/second and
+// nobody types 2 chat messages a second sustained), so legitimate use never
+// trips them, but a hostile loop can't flood the room or the Claude calls.
+function makeRateLimiter(maxPerWindow: number, windowMs: number): () => boolean {
+  let windowStart = 0;
+  let count = 0;
+  return () => {
+    const now = Date.now();
+    if (now - windowStart > windowMs) {
+      windowStart = now;
+      count = 0;
+    }
+    count += 1;
+    return count <= maxPerWindow;
+  };
+}
 
 function roomName(meetingId: string): string {
   return `meeting:${meetingId}`;
@@ -84,6 +113,8 @@ const HOST_RECLAIM_WINDOW_MS = 3 * 60 * 1000;
 
 export function registerSocketHandlers(io: Server, socket: Socket): void {
   let currentMeetingId: string | null = null;
+  const allowTranscript = makeRateLimiter(30, 10_000);
+  const allowChat = makeRateLimiter(20, 10_000);
   // Tracks the most recently finalized transcript line from THIS socket, so
   // a fast follow-up fragment can be merged into it instead of appearing as
   // its own separate, easy-to-miss caption.
@@ -106,7 +137,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
         }
 
         const meeting = createMeeting();
-        for (const name of roleNames) {
+        for (const name of roleNames.slice(0, MAX_ROLES_PER_MEETING)) {
           if (typeof name === "string" && name.trim()) {
             addRole(meeting, name.slice(0, MAX_ROLE_NAME_LENGTH));
           }
@@ -204,7 +235,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
     "join-companion",
     (payload: { externalKey: string; name: string; language: string; token?: string }, ack) => {
       try {
-        const externalKey = String(payload?.externalKey ?? "").trim();
+        const externalKey = String(payload?.externalKey ?? "").trim().slice(0, MAX_EXTERNAL_KEY_CHARS);
         const name = String(payload?.name ?? "").slice(0, MAX_NAME_LENGTH).trim();
         const language = String(payload?.language ?? "es-AR");
         const ownerId = verifyToken(payload?.token);
@@ -260,6 +291,9 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
     }
     const name = String(payload?.name ?? "").trim().slice(0, MAX_ROLE_NAME_LENGTH);
     if (!name) return ack?.({ ok: false, error: "El rol necesita un nombre." });
+    if (meeting.roles.length >= MAX_ROLES_PER_MEETING) {
+      return ack?.({ ok: false, error: "La reunión ya tiene el máximo de roles posibles." });
+    }
 
     const role = addRole(meeting, name);
     void db.updateMeetingRoles(meeting.dbId, meeting.roles);
@@ -294,6 +328,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
   );
 
   socket.on("chat-message", (payload: { text: string }, ack) => {
+    if (!allowChat()) return ack?.({ ok: false, error: "Estás enviando mensajes demasiado rápido." });
     const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
     if (!meeting) return ack?.({ ok: false, error: "Reunión no encontrada." });
     const sender = meeting.participants.get(socket.id);
@@ -316,6 +351,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
 
   socket.on("transcript-line", async (payload: { alternatives?: string[]; text?: string; lang?: string }) => {
     try {
+      if (!allowTranscript()) return;
       const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
       if (!meeting) return;
       const speaker = meeting.participants.get(socket.id);
@@ -323,10 +359,15 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       // `alternatives` is the speech recognizer's own ranked candidate
       // readings of the same utterance -- a much stronger signal for fixing a
       // mis-heard word than context alone. `text` stays as a fallback for any
-      // older client still sending the single-string shape.
-      const alternatives = Array.isArray(payload?.alternatives)
+      // older client still sending the single-string shape. Capped in count
+      // and length: real recognizer output is short, and these strings feed
+      // straight into Claude calls billed to us.
+      const alternatives = (Array.isArray(payload?.alternatives)
         ? payload.alternatives.map(String)
-        : [String(payload?.text ?? "")];
+        : [String(payload?.text ?? "")]
+      )
+        .slice(0, MAX_ALTERNATIVES)
+        .map((a) => a.slice(0, MAX_ALTERNATIVE_CHARS));
       if (!alternatives.some((a) => a.trim())) return;
 
       // Is this a fast follow-up to the utterance we just finished for this
