@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import AiChatBox from "../components/AiChatBox";
 import Button from "../components/Button";
+import { DownloadIcon } from "../components/icons";
 import Logo from "../components/Logo";
 import RoleBadge from "../components/RoleBadge";
 import { askMeetingAI, fetchMeetingDetail, MeetingHistoryDetail } from "../lib/api";
@@ -97,8 +98,9 @@ export default function MeetingDetail() {
             <a
               href={meeting.recordingUrl}
               download
-              className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-brand-300 hover:text-brand-200"
+              className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-brand-300 transition-colors hover:text-brand-200"
             >
+              <DownloadIcon className="h-4 w-4" />
               Descargar video
             </a>
           </div>

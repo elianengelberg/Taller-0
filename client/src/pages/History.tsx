@@ -70,7 +70,9 @@ export default function History() {
               </Button>
             </div>
           )}
-          {!error && meetings === null && <p className="text-sm text-ink-400">Cargando…</p>}
+          {!error && meetings === null && (
+            <p className={`${cardClass} text-sm text-ink-400`}>Cargando…</p>
+          )}
           {!error && meetings !== null && meetings.length === 0 && (
             <p className={`${cardClass} text-sm text-ink-400`}>
               Todavía no hay reuniones guardadas. Si el servidor no tiene una base de datos

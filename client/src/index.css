@@ -27,6 +27,35 @@ body {
   border-radius: 999px;
 }
 
+/* Native buttons don't get a pointer cursor by default in any browser (only
+   links do) -- every clickable button in the app sets cursor-pointer
+   explicitly, but this is a safety net for anything that slips through. */
+button:not(:disabled) {
+  cursor: pointer;
+}
+
+/* A visible focus indicator on every interactive element, app-wide, for
+   people navigating by keyboard -- instead of relying on each button/link
+   remembering to define its own (mouse clicks don't trigger :focus-visible,
+   so this never shows up as an unwanted ring on a click). */
+:focus-visible {
+  outline: 2px solid theme("colors.brand.400");
+  outline-offset: 2px;
+}
+
+/* Respect the OS-level motion preference across every animation/transition
+   in the app at once, instead of gating each one individually. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 .panel-enter {
   animation: panel-slide-in 180ms ease-out;
 }

@@ -13,6 +13,7 @@ import TranscriptPanel from "../components/TranscriptPanel";
 import ZoomEmbed from "../components/ZoomEmbed";
 import {
   CaptionsIcon,
+  PeopleIcon,
   PhoneOffIcon,
   RecordIcon,
   SparklesIcon,
@@ -178,81 +179,86 @@ export default function ExternalMeeting() {
       {/* Minimal top bar: brand + which meeting we're on + who's here. All the
           actions live in the fixed toolbar at the bottom (like Zoom / our own
           meeting), so nothing floats around. */}
-      <header className="flex items-center justify-between gap-2 border-b border-ink-700 bg-ink-900 px-4 py-2.5 sm:px-6">
+      <header className="flex items-center justify-between gap-2 border-b border-ink-800 bg-ink-900/95 px-4 py-2.5 shadow-soft backdrop-blur-md sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <Logo />
           <span className="hidden truncate text-xs text-ink-400 sm:inline">{draft.roomLabel}</span>
         </div>
-        <span className="whitespace-nowrap text-xs font-medium text-ink-400">
-          {participantCount} en Encuentro
-        </span>
+        <div className="flex items-center gap-1.5 whitespace-nowrap rounded-full bg-ink-800 px-3 py-1.5 ring-1 ring-ink-700">
+          <PeopleIcon className="h-3.5 w-3.5 text-brand-300" />
+          <span className="text-xs font-medium text-ink-200">{participantCount} en Encuentro</span>
+        </div>
       </header>
 
-      <div className="relative flex-1 overflow-hidden">
-        {connectionStatus === "error" ? (
-          <div className="flex h-full items-center justify-center p-6 text-center text-sm text-brand-300">
-            {connectionError ?? "No se pudo conectar la capa de Encuentro."}
-          </div>
-        ) : (
-          <CompanionEmbedPane
-            embed={draft.embed}
-            displayName={draft.name}
-            onLeave={handleLeave}
+      {/* flex (not just relative) so the transcript/AI panel becomes a real
+          column beside the embed on desktop -- SidePanel switches to
+          `sm:static sm:w-96 sm:shrink-0` there, which only lines up correctly
+          inside an actual flex row. */}
+      <div className="relative flex flex-1 overflow-hidden">
+        <div className="relative min-w-0 flex-1 overflow-hidden">
+          {connectionStatus === "error" ? (
+            <div className="flex h-full items-center justify-center p-6 text-center text-sm text-brand-300">
+              {connectionError ?? "No se pudo conectar la capa de Encuentro."}
+            </div>
+          ) : (
+            <CompanionEmbedPane
+              embed={draft.embed}
+              displayName={draft.name}
+              onLeave={handleLeave}
+            />
+          )}
+
+          <LiveCaption
+            lines={captionLines}
+            localInterim={
+              captionsOn && interimCaption ? { speakerName: draft.name || "Vos", text: interimCaption } : null
+            }
+          />
+
+          <RecordingBanner
+            status={recorder.status}
+            uploadStatus={recorder.uploadStatus}
+            error={recorder.error}
+            resultUrl={recorder.resultUrl}
+            onDismiss={recorder.reset}
+          />
+        </div>
+
+        {/* SidePanel positions itself (overlay on mobile, static column on
+            desktop beside the embed div above). */}
+        {activePanel === "transcript" && (
+          <TranscriptPanel
+            onClose={() => setActivePanel(null)}
+            targetLangChoice={targetLangChoice}
+            resolvedTargetLang={targetLang}
+            onTargetLangChange={setTargetLangChoice}
+            getTranslation={getTranslation}
+            spokenLang={spokenLang}
+            onSpokenLangChange={setSelfLanguage}
           />
         )}
 
-        <LiveCaption
-          lines={captionLines}
-          localInterim={
-            captionsOn && interimCaption ? { speakerName: draft.name || "Vos", text: interimCaption } : null
-          }
-        />
-
-        <RecordingBanner
-          status={recorder.status}
-          uploadStatus={recorder.uploadStatus}
-          error={recorder.error}
-          resultUrl={recorder.resultUrl}
-          onDismiss={recorder.reset}
-        />
-
-        {activePanel === "transcript" && (
-          <div className="absolute inset-y-0 right-0 z-20 w-full sm:w-96">
-            <TranscriptPanel
-              onClose={() => setActivePanel(null)}
-              targetLangChoice={targetLangChoice}
-              resolvedTargetLang={targetLang}
-              onTargetLangChange={setTargetLangChoice}
-              getTranslation={getTranslation}
-              spokenLang={spokenLang}
-              onSpokenLangChange={setSelfLanguage}
-            />
-          </div>
-        )}
-
         {activePanel === "ai" && (
-          <div className="absolute inset-y-0 right-0 z-20 w-full sm:w-96">
-            <SidePanel title="Asistente IA" onClose={() => setActivePanel(null)}>
-              {meeting?.dbId ? (
-                <AiChatBox
-                  title="Preguntale a la IA"
-                  description="Tu asistente durante la reunión: responde sobre lo que se está diciendo, resume y saca conclusiones."
-                  placeholder='Ej: "resumime lo que se dijo hasta ahora"'
-                  emptyHint="La IA usa la transcripción en vivo de esta reunión externa."
-                  onAsk={(q) => askMeetingAI(meeting.dbId, q)}
-                />
-              ) : (
-                <p className="text-sm text-ink-400">Conectando la reunión…</p>
-              )}
-            </SidePanel>
-          </div>
+          <SidePanel title="Asistente IA" onClose={() => setActivePanel(null)}>
+            {meeting?.dbId ? (
+              <AiChatBox
+                title="Preguntale a la IA"
+                description="Tu asistente durante la reunión: responde sobre lo que se está diciendo, resume y saca conclusiones."
+                placeholder='Ej: "resumime lo que se dijo hasta ahora"'
+                emptyHint="La IA usa la transcripción en vivo de esta reunión externa."
+                onAsk={(q) => askMeetingAI(meeting.dbId, q)}
+              />
+            ) : (
+              <p className="text-sm text-ink-400">Conectando la reunión…</p>
+            )}
+          </SidePanel>
         )}
       </div>
 
       {/* Fixed bottom toolbar -- the Encuentro layer's controls. Mic / camera /
           screen-share / participants come from the embedded platform's own
           toolbar; these are the tools we add on top. */}
-      <div className="flex items-center justify-center gap-2 border-t border-ink-700 bg-ink-900 px-3 py-3 sm:gap-3 sm:px-6">
+      <div className="flex items-center justify-center gap-2 border-t border-ink-800 bg-ink-900/95 px-3 py-3 shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.35)] backdrop-blur-md sm:gap-3 sm:px-6">
         <IconButton
           label="Mostrar u ocultar los subtítulos en vivo"
           caption="Subtítulos"
