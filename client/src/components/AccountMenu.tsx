@@ -100,9 +100,12 @@ export default function AccountMenu() {
       <Link to="/ingresar" className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-white">
         Ingresar
       </Link>
+      {/* Hidden on phones: together with the logo and Historial link this
+          overflows a 390px-wide header, and the banner right below the
+          header repeats both the login and register actions anyway. */}
       <Link
         to="/registrarse"
-        className="whitespace-nowrap rounded-lg bg-brand-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-600"
+        className="hidden whitespace-nowrap rounded-lg bg-brand-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-600 sm:inline-block"
       >
         Crear cuenta
       </Link>
