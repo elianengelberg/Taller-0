@@ -152,3 +152,29 @@ Why: the overflow check catches a class of mobile bug screenshots alone
 missed for weeks; the element-level culprit finder (getBoundingClientRect
 right > viewport) pinpoints the offender instantly.
 Files: `client/src/components/AccountMenu.tsx`.
+
+## 2026-07-07 -- Full production-readiness audit (fixes + verified clean areas)
+What: whole-codebase audit (10.9k lines). Fixed: (1) useWebRTC one-way-media
+race -- peers created before getUserMedia resolved never got the local
+stream; now tracked in streamlessPeersRef and attached retroactively.
+(2) recording-complete accepted arbitrary URLs stored+rendered in the
+owner's history (video src / download href) -- now validated against the R2
+public base (storage.isOwnRecordingUrl). (3) Open Claude-billed endpoints
+(/api/translate, /api/explain-error) got input caps; socket transcript
+alternatives capped 5x600 chars; roles capped 50/meeting; externalKey capped
+512; generous per-socket rate limits (30 transcript / 20 chat per 10s).
+(4) Google token moved to URL fragment (out of request logs). (5) Bounded
+translate/cleanup caches + pruned OAuth state map (all grew unbounded).
+(6) JSON error middleware; presign try/catch (used to hang the request).
+Verified clean: History/MeetingDetail already .catch() network errors;
+LiveCaption timers, useSpeechRecognition restart backoff, meetingStore
+cleanup grace, host-reclaim, transcript merge race checks all sound.
+Two-participant WebRTC meeting verified end-to-end with Playwright (both
+sides 2 tiles playing, 0 console errors).
+Known accepted risks (documented, not changed): db.ts ssl
+rejectUnauthorized:false (needs proper CA someday); login reveals "esa
+cuenta se creó con Google" (deliberate UX tradeoff); mesh topology caps
+practical meeting size (~6-8 people).
+Files: client/src/hooks/{useWebRTC,useLineTranslations,useRecorder}.ts,
+client/src/pages/GoogleCallback.tsx, server/src/{index,socketHandlers,
+storage,db,googleAuth,translate,transcriptCleanup,ai,globalAi}.ts.
