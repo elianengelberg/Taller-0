@@ -8,14 +8,21 @@ import {
   attachRecording,
   claimMeeting,
   createUser,
+  createUserWithGoogle,
   dbEnabled,
   getMeetingDetail,
+  getUserAuthById,
   getUserByEmail,
+  getUserByGoogleId,
   getUserById,
+  linkGoogleId,
   listMeetings,
+  updateUserName,
+  updateUserPasswordHash,
 } from "./db";
 import { explainError } from "./explainError";
 import { answerAcrossMeetings } from "./globalAi";
+import { consumeState, createState, exchangeGoogleCode, googleAuthEnabled, googleAuthUrl } from "./googleAuth";
 import { registerSocketHandlers } from "./socketHandlers";
 import { createRecordingUploadUrl, storageEnabled } from "./storage";
 import { createTeamsUserToken, teamsEnabled } from "./teams";
@@ -99,9 +106,13 @@ app.post("/api/auth/login", async (req, res) => {
   const email = String(req.body?.email ?? "").trim().toLowerCase();
   const password = String(req.body?.password ?? "");
   const user = await getUserByEmail(email);
+  if (user && user.passwordHash === null) {
+    res.status(401).json({ error: "Esa cuenta se creó con Google. Iniciá sesión con Google." });
+    return;
+  }
   // Same message whether the email is unknown or the password is wrong, so we
   // don't reveal which emails have accounts.
-  if (!user || !verifyPassword(password, user.passwordHash)) {
+  if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
     res.status(401).json({ error: "Email o contraseña incorrectos." });
     return;
   }
@@ -115,6 +126,95 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
     return;
   }
   res.json({ user });
+});
+
+// Basic account settings: rename and change password.
+app.patch("/api/auth/me", requireAuth, async (req, res) => {
+  const name = String(req.body?.name ?? "").trim().slice(0, 80);
+  if (!name) {
+    res.status(400).json({ error: "Ingresá tu nombre." });
+    return;
+  }
+  await updateUserName((req as AuthedRequest).userId!, name);
+  const user = await getUserById((req as AuthedRequest).userId!);
+  res.json({ user });
+});
+
+app.post("/api/auth/change-password", requireAuth, async (req, res) => {
+  const currentPassword = String(req.body?.currentPassword ?? "");
+  const newPassword = String(req.body?.newPassword ?? "");
+  if (newPassword.length < 8) {
+    res.status(400).json({ error: "La nueva contraseña debe tener al menos 8 caracteres." });
+    return;
+  }
+  const user = await getUserAuthById((req as AuthedRequest).userId!);
+  if (!user) {
+    res.status(401).json({ error: "Sesión inválida." });
+    return;
+  }
+  if (!user.passwordHash) {
+    res.status(400).json({ error: "Esta cuenta usa Google para iniciar sesión y no tiene contraseña." });
+    return;
+  }
+  if (!verifyPassword(currentPassword, user.passwordHash)) {
+    res.status(401).json({ error: "La contraseña actual no es correcta." });
+    return;
+  }
+  await updateUserPasswordHash(user.id, hashPassword(newPassword));
+  res.json({ ok: true });
+});
+
+// Lets the client show/hide "Continuar con Google" without guessing --
+// enabled only once the server has real Google OAuth credentials configured.
+app.get("/api/auth/config", (_req, res) => {
+  res.json({ googleEnabled: googleAuthEnabled });
+});
+
+// Google Sign-In (plain OAuth2, see googleAuth.ts). Step 1: send the browser
+// to Google's consent screen. A full page redirect, not a fetch -- the
+// frontend button just navigates here directly.
+app.get("/api/auth/google", (_req, res) => {
+  if (!googleAuthEnabled) {
+    res.status(503).send("El inicio de sesión con Google no está configurado en el servidor.");
+    return;
+  }
+  res.redirect(googleAuthUrl(createState()));
+});
+
+// Step 2: Google redirects back here with a one-time code. Exchange it,
+// find-or-create/link the account, and hand the browser our own session
+// token via a redirect to a tiny frontend page that stores it and continues.
+app.get("/api/auth/google/callback", async (req, res) => {
+  if (!googleAuthEnabled) {
+    res.status(503).send("El inicio de sesión con Google no está configurado en el servidor.");
+    return;
+  }
+  const code = typeof req.query.code === "string" ? req.query.code : null;
+  const state = typeof req.query.state === "string" ? req.query.state : undefined;
+  if (!consumeState(state) || !code) {
+    res.redirect(`${CLIENT_ORIGIN}/ingresar?googleError=1`);
+    return;
+  }
+  try {
+    const profile = await exchangeGoogleCode(code);
+    let user = await getUserByGoogleId(profile.googleId);
+    if (!user) {
+      const byEmail = await getUserByEmail(profile.email);
+      if (byEmail) {
+        // Same email already has a password account -- link Google to it
+        // instead of failing on the duplicate-email constraint.
+        await linkGoogleId(byEmail.id, profile.googleId);
+        user = byEmail;
+      } else {
+        const created = await createUserWithGoogle(profile);
+        user = { ...created, passwordHash: null, googleId: profile.googleId };
+      }
+    }
+    res.redirect(`${CLIENT_ORIGIN}/auth/google?token=${signToken(user.id)}`);
+  } catch (err) {
+    console.error("[google-auth] callback error:", err instanceof Error ? err.message : err);
+    res.redirect(`${CLIENT_ORIGIN}/ingresar?googleError=1`);
+  }
 });
 
 app.post("/api/translate", async (req, res) => {

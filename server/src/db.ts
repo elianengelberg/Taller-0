@@ -66,6 +66,11 @@ function migrate(): Promise<void> {
       .then(() =>
         pool.query(`CREATE INDEX IF NOT EXISTS meetings_owner_id_idx ON meetings(owner_id);`)
       )
+      // Google Sign-In: an account created via Google never has a password
+      // (password_hash NULL means "log in with Google only"), and google_id
+      // is how a returning Google login is matched back to its account.
+      .then(() => pool.query(`ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;`))
+      .then(() => pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT UNIQUE;`))
       .then(() => undefined)
       .catch((err) => {
         console.error("No se pudo preparar la base de datos:", err.message);
@@ -83,6 +88,10 @@ export interface PersistedUser {
   email: string;
   name: string;
 }
+
+// passwordHash is null for accounts created via Google Sign-In that never
+// set a password -- callers must check before handing it to verifyPassword.
+type UserAuthRow = PersistedUser & { passwordHash: string | null; googleId: string | null };
 
 export interface PersistedRole {
   id: string;
@@ -166,17 +175,51 @@ export async function createUser(params: {
   }
 }
 
-export function getUserByEmail(
-  email: string
-): Promise<(PersistedUser & { passwordHash: string }) | null> {
+function toAuthRow(row: {
+  id: string;
+  email: string;
+  name: string;
+  password_hash: string | null;
+  google_id: string | null;
+}): UserAuthRow {
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    passwordHash: row.password_hash,
+    googleId: row.google_id,
+  };
+}
+
+export function getUserByEmail(email: string): Promise<UserAuthRow | null> {
   return safe(async () => {
     const { rows } = await pool!.query(
-      `SELECT id, email, name, password_hash FROM users WHERE email = $1`,
+      `SELECT id, email, name, password_hash, google_id FROM users WHERE email = $1`,
       [email]
     );
-    const row = rows[0];
-    if (!row) return null;
-    return { id: row.id, email: row.email, name: row.name, passwordHash: row.password_hash };
+    return rows[0] ? toAuthRow(rows[0]) : null;
+  }, null);
+}
+
+export function getUserByGoogleId(googleId: string): Promise<UserAuthRow | null> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `SELECT id, email, name, password_hash, google_id FROM users WHERE google_id = $1`,
+      [googleId]
+    );
+    return rows[0] ? toAuthRow(rows[0]) : null;
+  }, null);
+}
+
+// Full row (incl. password hash) by id -- used for the change-password flow,
+// which needs to verify the current password before setting a new one.
+export function getUserAuthById(id: string): Promise<UserAuthRow | null> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `SELECT id, email, name, password_hash, google_id FROM users WHERE id = $1`,
+      [id]
+    );
+    return rows[0] ? toAuthRow(rows[0]) : null;
   }, null);
 }
 
@@ -186,6 +229,43 @@ export function getUserById(id: string): Promise<PersistedUser | null> {
     const row = rows[0];
     return row ? { id: row.id, email: row.email, name: row.name } : null;
   }, null);
+}
+
+// Creates an account from a first-time Google Sign-In -- no password, only
+// usable via Google from then on (unless they later set one -- not built yet).
+export async function createUserWithGoogle(params: {
+  email: string;
+  name: string;
+  googleId: string;
+}): Promise<PersistedUser> {
+  if (!pool) throw new Error("La base de datos no está configurada.");
+  const id = randomUUID();
+  await pool!.query(
+    `INSERT INTO users (id, email, password_hash, name, google_id) VALUES ($1, $2, NULL, $3, $4)`,
+    [id, params.email, params.name, params.googleId]
+  );
+  return { id, email: params.email, name: params.name };
+}
+
+// Attaches a Google account to an existing email/password account the first
+// time that person uses "Continuar con Google" with the same email --
+// merges the two instead of failing on the duplicate-email constraint.
+export function linkGoogleId(userId: string, googleId: string): Promise<void> {
+  return safe(async () => {
+    await pool!.query(`UPDATE users SET google_id = $2 WHERE id = $1`, [userId, googleId]);
+  }, undefined);
+}
+
+export function updateUserName(id: string, name: string): Promise<void> {
+  return safe(async () => {
+    await pool!.query(`UPDATE users SET name = $2 WHERE id = $1`, [id, name]);
+  }, undefined);
+}
+
+export function updateUserPasswordHash(id: string, passwordHash: string): Promise<void> {
+  return safe(async () => {
+    await pool!.query(`UPDATE users SET password_hash = $2 WHERE id = $1`, [id, passwordHash]);
+  }, undefined);
 }
 
 // --- Meetings --------------------------------------------------------------

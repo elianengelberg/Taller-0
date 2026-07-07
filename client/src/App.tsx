@@ -4,6 +4,7 @@ import { AuthProvider } from "./context/AuthContext";
 import { MeetingProvider } from "./context/MeetingContext";
 import ExternalJoin from "./pages/ExternalJoin";
 import ExternalMeeting from "./pages/ExternalMeeting";
+import GoogleCallback from "./pages/GoogleCallback";
 import HostSetup from "./pages/HostSetup";
 import History from "./pages/History";
 import JoinForm from "./pages/JoinForm";
@@ -21,6 +22,8 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/ingresar" element={<Login />} />
           <Route path="/registrarse" element={<Register />} />
+          {/* Landing spot for the Google OAuth redirect (see googleAuth.ts). */}
+          <Route path="/auth/google" element={<GoogleCallback />} />
           <Route path="/crear" element={<HostSetup />} />
           <Route path="/unirse" element={<JoinForm />} />
           {/* Zoom-style direct-join link (see ShareMenu) -- same form, minus

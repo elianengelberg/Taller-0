@@ -121,6 +121,57 @@ export async function authMe(): Promise<AuthUser | null> {
   }
 }
 
+// Whether the server has real Google OAuth credentials configured, so the
+// "Continuar con Google" button can be hidden instead of shown-but-broken.
+export async function fetchAuthConfig(): Promise<{ googleEnabled: boolean }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/config`);
+    if (!res.ok) return { googleEnabled: false };
+    return await res.json();
+  } catch {
+    return { googleEnabled: false };
+  }
+}
+
+// Full-page navigation (not fetch) -- OAuth needs an actual browser redirect
+// to Google's own consent screen.
+export function startGoogleLogin(): void {
+  window.location.href = `${SERVER_URL}/api/auth/google`;
+}
+
+export async function updateProfile(name: string): Promise<{ user?: AuthUser; error?: string }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/me`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo actualizar el perfil." };
+    return { user: data.user };
+  } catch {
+    return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };
+  }
+}
+
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<{ ok?: boolean; error?: string }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/change-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo cambiar la contraseña." };
+    return { ok: true };
+  } catch {
+    return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };
+  }
+}
+
 // --- Meeting history (private per account) ---------------------------------
 
 export async function fetchMeetingsHistory(): Promise<MeetingHistorySummary[]> {

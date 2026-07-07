@@ -11,6 +11,9 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<string | null>;
   register: (email: string, password: string, name: string) => Promise<string | null>;
   logout: () => void;
+  // Applies a freshly-saved profile (e.g. after renaming in Settings) so the
+  // header greeting etc. update immediately without a full reload.
+  setUser: (user: AuthUser) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -60,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, setUser }}>
       {children}
     </AuthContext.Provider>
   );

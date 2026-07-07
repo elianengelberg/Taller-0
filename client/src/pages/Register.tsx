@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import Button from "../components/Button";
+import GoogleButton from "../components/GoogleButton";
 import Logo from "../components/Logo";
 import { useAuth } from "../context/AuthContext";
 import { claimMeeting } from "../lib/api";
@@ -115,6 +116,8 @@ export default function Register() {
               {submitting ? "Creando…" : "Crear cuenta"}
             </Button>
           </form>
+
+          <GoogleButton />
 
           <p className="mt-6 text-center text-sm text-ink-300">
             ¿Ya tenés cuenta?{" "}

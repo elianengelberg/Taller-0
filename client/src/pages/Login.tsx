@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import Button from "../components/Button";
+import GoogleButton from "../components/GoogleButton";
 import Logo from "../components/Logo";
 import { useAuth } from "../context/AuthContext";
 import { claimMeeting } from "../lib/api";
@@ -10,6 +11,7 @@ import { cardClass, inputClass, labelClass } from "../lib/ui";
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { login } = useAuth();
   // Where to go back to after logging in (set by the protected-route redirect),
   // falling back to the history page.
@@ -20,7 +22,9 @@ export default function Login() {
   const from = state?.from ?? "/";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    searchParams.get("googleError") ? "No se pudo iniciar sesión con Google. Probá de nuevo." : null
+  );
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(event: FormEvent) {
@@ -94,6 +98,8 @@ export default function Login() {
               {submitting ? "Entrando…" : "Iniciar sesión"}
             </Button>
           </form>
+
+          <GoogleButton />
 
           <p className="mt-6 text-center text-sm text-ink-300">
             ¿No tenés cuenta?{" "}
