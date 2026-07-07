@@ -65,11 +65,12 @@ export default function Home() {
             Subtítulos, traducción y un asistente de IA en cada reunión
           </span>
           <h1 className="mt-6 text-4xl font-extrabold leading-tight tracking-tight text-white sm:text-5xl">
-            Reuniones claras, con cada voz identificada
+            Reuniones donde no se pierde nada
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-ink-300">
-            Creá reuniones con roles y transcripción en vivo — o sumale los subtítulos, la traducción
-            y la IA de Encuentro a tus llamadas de Zoom, Teams o Meet.
+            Roles para cada participante, subtítulos en vivo, traducción automática y una IA que
+            resume lo importante — arrancá una reunión en Encuentro o sumale estas herramientas a
+            tus llamadas de Zoom, Teams o Meet.
           </p>
 
           <div className="mx-auto mt-10 grid max-w-4xl gap-4 sm:grid-cols-3">
