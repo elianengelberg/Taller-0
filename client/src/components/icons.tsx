@@ -121,6 +121,15 @@ export function GlobeIcon({ className }: IconProps) {
   );
 }
 
+export function ClockIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...common}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3.5 2" />
+    </svg>
+  );
+}
+
 export function RecordIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" className={className} fill="currentColor">

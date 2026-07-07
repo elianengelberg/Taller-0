@@ -7,7 +7,7 @@ import ControlBar from "../components/ControlBar";
 import LiveCaption from "../components/LiveCaption";
 import LoadingDots from "../components/LoadingDots";
 import Logo from "../components/Logo";
-import { PeopleIcon } from "../components/icons";
+import { ClockIcon, PeopleIcon } from "../components/icons";
 import ParticipantsPanel from "../components/ParticipantsPanel";
 import RecordingBanner from "../components/RecordingBanner";
 import SaveMeetingPrompt from "../components/SaveMeetingPrompt";
@@ -46,6 +46,27 @@ function useIsDesktop(): boolean {
   return isDesktop;
 }
 
+// The "00:00 elapsed" pill both Zoom and Teams show while a call is live.
+// Starts counting the moment we're actually connected (not from when the
+// component mounted, which would also count time spent reconnecting).
+function useElapsedTime(active: boolean): string {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const startRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    if (startRef.current === null) startRef.current = Date.now();
+    const id = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startRef.current!) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [active]);
+
+  const hours = Math.floor(elapsedSeconds / 3600);
+  const minutes = String(Math.floor((elapsedSeconds % 3600) / 60)).padStart(2, "0");
+  const seconds = String(elapsedSeconds % 60).padStart(2, "0");
+  return hours > 0 ? `${hours}:${minutes}:${seconds}` : `${minutes}:${seconds}`;
+}
+
 export default function Meeting() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -67,6 +88,7 @@ export default function Meeting() {
 
   const media = useLocalMedia();
   const isDesktop = useIsDesktop();
+  const elapsedTime = useElapsedTime(connectionStatus === "connected");
   // Open panels, oldest first. On desktop up to two can be open at once (one
   // docked left, one right -- e.g. IA on one side, chat on the other); on a
   // phone only the most recent stays open. Opening a third on desktop evicts
@@ -343,11 +365,17 @@ export default function Meeting() {
     <div className="flex h-dvh flex-col bg-ink-950">
       <header className="flex items-center justify-between border-b border-ink-800 bg-ink-900/95 px-4 py-3 shadow-soft backdrop-blur-md sm:px-6">
         <Logo />
-        <div className="flex items-center gap-1.5 rounded-full bg-ink-800 px-3 py-1.5 ring-1 ring-ink-700">
-          <PeopleIcon className="h-3.5 w-3.5 text-brand-300" />
-          <span className="text-sm font-medium text-ink-200">
-            {meeting.participants.length} participante{meeting.participants.length === 1 ? "" : "s"}
-          </span>
+        <div className="flex items-center gap-2">
+          <div className="hidden items-center gap-1.5 rounded-full bg-ink-800 px-3 py-1.5 font-mono text-sm font-medium text-ink-200 ring-1 ring-ink-700 sm:flex">
+            <ClockIcon className="h-3.5 w-3.5 text-brand-300" />
+            {elapsedTime}
+          </div>
+          <div className="flex items-center gap-1.5 rounded-full bg-ink-800 px-3 py-1.5 ring-1 ring-ink-700">
+            <PeopleIcon className="h-3.5 w-3.5 text-brand-300" />
+            <span className="text-sm font-medium text-ink-200">
+              {meeting.participants.length} participante{meeting.participants.length === 1 ? "" : "s"}
+            </span>
+          </div>
         </div>
       </header>
 

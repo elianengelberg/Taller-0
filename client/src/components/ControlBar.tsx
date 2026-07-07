@@ -18,6 +18,14 @@ import {
   TranscriptIcon,
 } from "./icons";
 
+// A thin vertical rule between control clusters (personal AV / meeting
+// features / host tools) -- Teams groups its toolbar the same way, instead of
+// Zoom's single undifferentiated row. Hidden on mobile, where the grid wraps
+// controls into rows and a rule would just float mid-row.
+function Divider() {
+  return <div aria-hidden className="hidden h-8 w-px shrink-0 bg-ink-700 sm:block" />;
+}
+
 interface ControlBarProps {
   meetingCode: string;
   muted: boolean;
@@ -75,10 +83,23 @@ export default function ControlBar({
   onToggleSettings,
   onLeave,
 }: ControlBarProps) {
+  // Deliberately not just another IconButton: Teams' "Salir" is a wide,
+  // labeled red pill that stands apart from the rest of the toolbar, so
+  // leaving reads as a distinct, weightier action rather than one icon among
+  // equals -- and it's never confusable with the account menu's own
+  // "Cerrar sesión" (that one signs you out of Encuentro; this one just
+  // leaves the call).
   const leaveButton = (
-    <IconButton label="Salir de la reunión" caption="Salir" danger onClick={onLeave}>
+    <button
+      type="button"
+      onClick={onLeave}
+      aria-label="Salir de la reunión"
+      title="Salir de la reunión"
+      className="flex items-center gap-2 rounded-full bg-gradient-to-b from-red-500 to-red-600 px-4 py-3 text-sm font-semibold text-white shadow-[0_4px_16px_-4px_rgba(220,38,38,0.5)] transition-all duration-150 hover:scale-105 hover:from-red-500 hover:to-red-700 active:scale-95"
+    >
       <PhoneOffIcon className="h-5 w-5" />
-    </IconButton>
+      Salir
+    </button>
   );
 
   return (
@@ -93,9 +114,11 @@ export default function ControlBar({
 
       {/* A 5-column grid keeps every control visible in tidy rows on a
           phone-width screen instead of overflowing off the right edge of a
-          single row -- 10 controls become 2 even rows of 5, and it collapses
-          back to a single centered row once there's enough width for it. */}
-      <div className="grid grid-cols-5 gap-x-1 gap-y-3 justify-items-center sm:flex sm:flex-1 sm:items-center sm:justify-center sm:gap-3">
+          single row -- 11 controls become clean rows of 5, and it collapses
+          back to a single centered row (grouped by Divider, Teams-style)
+          once there's enough width for it. */}
+      <div className="grid grid-cols-5 gap-x-1 gap-y-3 justify-items-center sm:flex sm:flex-1 sm:items-center sm:justify-center sm:gap-2">
+        {/* Personal AV -- the controls over your own mic/camera/hand. */}
         <IconButton
           label={muted ? "Activar micrófono" : "Silenciar micrófono"}
           caption={muted ? "Silenciado" : "Micrófono"}
@@ -120,6 +143,18 @@ export default function ControlBar({
         >
           <HandIcon className="h-5 w-5" />
         </IconButton>
+
+        <Divider />
+
+        {/* Meeting features -- shared with everyone in the call. */}
+        <IconButton
+          label={sharingScreen ? "Dejar de compartir pantalla" : "Compartir pantalla"}
+          caption={sharingScreen ? "Compartiendo" : "Compartir"}
+          active={sharingScreen}
+          onClick={onToggleScreenShare}
+        >
+          <ScreenShareIcon className="h-5 w-5" />
+        </IconButton>
         <IconButton
           label={captionsSupported ? "Subtítulos en vivo" : "Subtítulos no disponibles en este navegador"}
           caption="Subtítulos"
@@ -135,14 +170,6 @@ export default function ControlBar({
           onClick={onToggleTranscript}
         >
           <TranscriptIcon className="h-5 w-5" />
-        </IconButton>
-        <IconButton
-          label={sharingScreen ? "Dejar de compartir pantalla" : "Compartir pantalla"}
-          caption={sharingScreen ? "Compartiendo" : "Compartir"}
-          active={sharingScreen}
-          onClick={onToggleScreenShare}
-        >
-          <ScreenShareIcon className="h-5 w-5" />
         </IconButton>
         <IconButton
           label="Ver participantes y asignar roles"
@@ -163,6 +190,10 @@ export default function ControlBar({
         >
           <SparklesIcon className="h-5 w-5" />
         </IconButton>
+
+        <Divider />
+
+        {/* Host / recording tools. */}
         <IconButton
           label={
             recording
