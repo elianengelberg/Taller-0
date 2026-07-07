@@ -23,7 +23,7 @@ export default function AccountMenu() {
             logout();
             navigate("/");
           }}
-          className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-white"
+          className="whitespace-nowrap rounded-lg border border-ink-600 px-3 py-1.5 text-sm font-medium text-ink-200 hover:border-red-400 hover:text-red-300"
         >
           Salir
         </button>

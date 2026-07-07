@@ -12,7 +12,10 @@ export default function Register() {
   const location = useLocation();
   const { register } = useAuth();
   const state = location.state as { from?: string; claimMeetingId?: string } | null;
-  const from = state?.from ?? "/historial";
+  // Default landing spot after registering is the home page -- "from" only
+  // overrides it when we were actually bounced here from a protected route
+  // (e.g. RequireAuth sending someone back to /historial).
+  const from = state?.from ?? "/";
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

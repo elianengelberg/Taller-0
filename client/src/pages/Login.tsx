@@ -14,7 +14,10 @@ export default function Login() {
   // Where to go back to after logging in (set by the protected-route redirect),
   // falling back to the history page.
   const state = location.state as { from?: string; claimMeetingId?: string } | null;
-  const from = state?.from ?? "/historial";
+  // Default landing spot after logging in is the home page -- "from" only
+  // overrides it when we were actually bounced here from a protected route
+  // (e.g. RequireAuth sending someone back to /historial).
+  const from = state?.from ?? "/";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
