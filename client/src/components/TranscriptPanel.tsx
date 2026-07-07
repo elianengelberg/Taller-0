@@ -32,8 +32,22 @@ export default function TranscriptPanel({
 
   const transcript = meeting?.transcript ?? [];
 
+  // Follow new entries only when the reader is already at (or near) the
+  // bottom -- yanking someone to the bottom while they're scrolled up
+  // reading older content loses their place. Opening the panel still lands
+  // at the latest entry.
+  const firstScrollRef = useRef(true);
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = bottomRef.current;
+    if (!el) return;
+    const container = el.closest(".overflow-y-auto");
+    const nearBottom = container
+      ? container.scrollHeight - container.scrollTop - container.clientHeight < 160
+      : true;
+    if (firstScrollRef.current || nearBottom) {
+      el.scrollIntoView({ behavior: firstScrollRef.current ? "auto" : "smooth" });
+    }
+    firstScrollRef.current = false;
   }, [transcript.length]);
 
   return (

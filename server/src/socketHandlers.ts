@@ -31,6 +31,13 @@ const MAX_ROLES_PER_MEETING = 50;
 // Companion keys are "zoom:<num>" / "teams:<threadId>" / a fallback URL --
 // never anywhere near this long legitimately.
 const MAX_EXTERNAL_KEY_CHARS = 512;
+// Native meetings run a WebRTC mesh (everyone connects to everyone), which
+// degrades sharply past ~a dozen people -- each participant uploads their
+// video N-1 times. Cap it with a clear message instead of letting meeting
+// quality quietly collapse. Companion rooms carry no media (the external
+// platform does), so their cap is only an anti-abuse sanity bound.
+const MAX_PARTICIPANTS_NATIVE = 12;
+const MAX_PARTICIPANTS_COMPANION = 100;
 
 // Deliberately generous per-socket rate caps -- far above anything a real
 // client produces (the recognizer finalizes at most ~1 utterance/second and
@@ -185,6 +192,13 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
           ack?.({ ok: false, error: "Ingresá tu nombre para unirte." });
           return;
         }
+        if (meeting.participants.size >= MAX_PARTICIPANTS_NATIVE) {
+          ack?.({
+            ok: false,
+            error: `La reunión está llena (máximo ${MAX_PARTICIPANTS_NATIVE} participantes).`,
+          });
+          return;
+        }
 
         cancelMeetingCleanup(meeting.id);
         // If everyone had left (meeting was just sitting in its grace
@@ -250,6 +264,10 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
         }
 
         const { meeting, created } = getOrCreateCompanionMeeting(externalKey);
+        if (meeting.participants.size >= MAX_PARTICIPANTS_COMPANION) {
+          ack?.({ ok: false, error: "La sala de Encuentro para esta reunión está llena." });
+          return;
+        }
         cancelMeetingCleanup(meeting.id);
         // No host semantics here -- an external meeting has its own host on the
         // other platform; the companion layer is a flat group of note-takers.

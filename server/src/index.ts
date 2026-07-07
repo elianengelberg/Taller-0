@@ -30,6 +30,20 @@ import { createTeamsUserToken, teamsEnabled } from "./teams";
 import { translateText } from "./translate";
 import { generateMeetingSdkSignature, zoomEnabled } from "./zoom";
 
+// Since Node 15 an unhandled promise rejection CRASHES the process by
+// default -- on this server that would drop every live meeting because one
+// stray rejection slipped past a handler. Log it loudly and keep running
+// instead. A synchronous uncaught exception still exits (state can't be
+// trusted after one), but with a clear log line first; Render restarts the
+// process automatically.
+process.on("unhandledRejection", (reason) => {
+  console.error("[proceso] Promesa rechazada sin manejar:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[proceso] Excepción no capturada:", err);
+  process.exit(1);
+});
+
 const PORT = Number(process.env.PORT) || 4000;
 // The browser's Origin header is always lowercase, has no trailing slash and
 // no quotes -- but a hand-typed env var can differ in any of those ways, and

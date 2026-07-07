@@ -6,10 +6,23 @@ const isLocal = !!DATABASE_URL && /localhost|127\.0\.0\.1/.test(DATABASE_URL);
 
 export const dbEnabled = Boolean(DATABASE_URL);
 
+// TLS to the database: by default the connection is encrypted but the
+// server's certificate is NOT verified (rejectUnauthorized: false) -- that's
+// what most Render/Neon quickstarts assume and what this app has always run
+// with. Setting DATABASE_SSL_STRICT=1 turns on full certificate
+// verification (works out of the box with Neon, whose certs chain to a
+// public CA). If queries start failing with a certificate error after
+// enabling it, remove the flag and the previous behavior returns.
+const sslConfig = isLocal
+  ? undefined
+  : process.env.DATABASE_SSL_STRICT === "1"
+    ? { rejectUnauthorized: true }
+    : { rejectUnauthorized: false };
+
 const pool = DATABASE_URL
   ? new Pool({
       connectionString: DATABASE_URL,
-      ssl: isLocal ? undefined : { rejectUnauthorized: false },
+      ssl: sslConfig,
     })
   : null;
 
