@@ -34,7 +34,7 @@ export default function JoinForm() {
       <div className="w-full max-w-md">
         <Logo className="mb-8" />
         <div className={cardClass}>
-          <h1 className="text-2xl font-bold text-white">
+          <h1 className="text-2xl font-bold text-strong">
             {fixedCode ? `Unirme a la reunión ${fixedCode}` : "Unirme a una reunión"}
           </h1>
           <p className="mt-1 text-sm text-ink-300">

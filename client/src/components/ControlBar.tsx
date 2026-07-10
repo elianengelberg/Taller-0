@@ -95,7 +95,7 @@ export default function ControlBar({
       onClick={onLeave}
       aria-label="Salir de la reunión"
       title="Salir de la reunión"
-      className="flex items-center gap-2 rounded-full bg-gradient-to-b from-red-500 to-red-600 px-4 py-3 text-sm font-semibold text-white shadow-[0_4px_16px_-4px_rgba(220,38,38,0.5)] transition-all duration-150 hover:scale-105 hover:from-red-500 hover:to-red-700 active:scale-95"
+      className="flex items-center gap-2 rounded-full bg-gradient-to-b from-red-500 to-red-600 px-4 py-3 text-sm font-semibold text-on-accent shadow-[0_4px_16px_-4px_rgba(220,38,38,0.5)] transition-all duration-150 hover:scale-105 hover:from-red-500 hover:to-red-700 active:scale-95"
     >
       <PhoneOffIcon className="h-5 w-5" />
       Salir
@@ -103,7 +103,7 @@ export default function ControlBar({
   );
 
   return (
-    <div className="flex flex-col gap-3 border-t border-ink-800 bg-ink-900/95 px-3 py-3 shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.35)] backdrop-blur-md sm:flex-row sm:items-center sm:justify-between sm:px-6">
+    <div className="flex flex-col gap-3 border-t border-ink-800 bg-ink-900/95 px-3 py-3 shadow-top backdrop-blur-md sm:flex-row sm:items-center sm:justify-between sm:px-6">
       {/* On phones the "salir" button rides along the same row as the meeting
           code (its own row on desktop, at the far right) so it's never
           competing for space with the icon grid below. */}

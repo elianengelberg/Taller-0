@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import Button from "../components/Button";
 import GoogleButton from "../components/GoogleButton";
+import GradientBackdrop from "../components/GradientBackdrop";
 import Logo from "../components/Logo";
 import { useAuth } from "../context/AuthContext";
 import { claimMeeting } from "../lib/api";
@@ -47,13 +48,16 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center bg-ink-950 px-6 py-10">
-      <div className="w-full max-w-md">
-        <Link to="/" className="inline-block">
-          <Logo className="mb-8" />
-        </Link>
-        <div className={cardClass}>
-          <h1 className="text-2xl font-bold text-white">Iniciar sesión</h1>
+    <div className="relative flex min-h-screen flex-col items-center justify-center bg-ink-950 px-6 py-10">
+      <GradientBackdrop />
+      <div className="relative w-full max-w-md">
+        <div className="mb-8 flex justify-center">
+          <Link to="/" aria-label="Ir al inicio">
+            <Logo tagline />
+          </Link>
+        </div>
+        <div className={`${cardClass} pop-enter`}>
+          <h1 className="text-2xl font-bold text-strong">Iniciar sesión</h1>
           <p className="mt-1 text-sm text-ink-300">
             Entrá a tu cuenta para ver tu historial de reuniones.
           </p>

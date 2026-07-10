@@ -482,7 +482,7 @@ function StatusScreen({
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-ink-950 px-6 text-center">
       <Logo />
-      <h1 className="mt-4 flex items-center gap-2 text-xl font-bold text-white">
+      <h1 className="mt-4 flex items-center gap-2 text-xl font-bold text-strong">
         {title}
         {loading && <LoadingDots className="translate-y-0.5" />}
       </h1>

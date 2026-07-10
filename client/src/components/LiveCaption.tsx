@@ -122,14 +122,14 @@ function CaptionBubble({
   const showingTranslation = Boolean(translatedText);
   return (
     <div className="caption-fade max-w-2xl rounded-2xl bg-black/75 px-4 py-2.5 text-center shadow-soft backdrop-blur-md ring-1 ring-white/10">
-      <p className="text-sm leading-snug text-white sm:text-base">
+      <p className="text-sm leading-snug text-on-accent sm:text-base">
         <span className="font-semibold text-brand-300">{speakerName}: </span>
         {showingTranslation ? translatedText : text}
       </p>
       {/* When translated, keep the original visible underneath (muted) so
           people can follow both what was said and its translation. */}
       {showingTranslation && (
-        <p className="mt-1 flex items-center justify-center gap-1.5 text-xs leading-snug text-white/55">
+        <p className="mt-1 flex items-center justify-center gap-1.5 text-xs leading-snug text-on-accent/60">
           <GlobeIcon className="h-3 w-3 shrink-0 text-brand-300/80" />
           <span className="italic">{text}</span>
         </p>

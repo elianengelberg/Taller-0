@@ -277,16 +277,16 @@ export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props)
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
         <p className="max-w-md text-sm text-ink-200">
-          Esta reunión de Teams es <span className="text-white">personal/gratuita</span> y Microsoft no
+          Esta reunión de Teams es <span className="text-strong">personal/gratuita</span> y Microsoft no
           permite embeberla. Abrila en Teams en otra pestaña — los{" "}
-          <span className="text-white">subtítulos, la transcripción y la IA de Unify</span> siguen
+          <span className="text-strong">subtítulos, la transcripción y la IA de Unify</span> siguen
           funcionando acá con tu micrófono.
         </p>
         <a
           href={meetingLink}
           target="_blank"
           rel="noopener noreferrer"
-          className="rounded-xl bg-brand-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-600"
+          className="rounded-xl bg-brand-500 px-5 py-2.5 text-sm font-semibold text-on-accent hover:bg-brand-600"
         >
           Abrir la reunión en Teams
         </a>
@@ -330,7 +330,7 @@ export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props)
           onClick={toggleMic}
           aria-label={micOn ? "Silenciar micrófono" : "Activar micrófono"}
           className={`flex h-11 w-11 items-center justify-center rounded-full ${
-            micOn ? "bg-ink-800 text-white hover:bg-ink-700" : "bg-brand-500 text-white hover:bg-brand-600"
+            micOn ? "bg-ink-800 text-strong hover:bg-ink-700" : "bg-brand-500 text-on-accent hover:bg-brand-600"
           }`}
         >
           {micOn ? <MicIcon className="h-5 w-5" /> : <MicOffIcon className="h-5 w-5" />}
@@ -340,7 +340,7 @@ export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props)
           onClick={toggleCam}
           aria-label={camOn ? "Apagar cámara" : "Encender cámara"}
           className={`flex h-11 w-11 items-center justify-center rounded-full ${
-            camOn ? "bg-ink-800 text-white hover:bg-ink-700" : "bg-brand-500 text-white hover:bg-brand-600"
+            camOn ? "bg-ink-800 text-strong hover:bg-ink-700" : "bg-brand-500 text-on-accent hover:bg-brand-600"
           }`}
         >
           {camOn ? <CameraIcon className="h-5 w-5" /> : <CameraOffIcon className="h-5 w-5" />}

@@ -57,7 +57,7 @@ export default function TranscriptPanel({
       side={side}
       headerExtra={
         <select
-          className="w-full rounded-lg border border-ink-600 bg-ink-800 px-2 py-1 text-xs text-white focus:border-brand-400 focus:outline-none"
+          className="w-full rounded-lg border border-ink-600 bg-ink-800 px-2 py-1 text-xs text-strong focus:border-brand-400 focus:outline-none"
           value={targetLangChoice}
           onChange={(e) => onTargetLangChange(e.target.value)}
         >
@@ -76,7 +76,7 @@ export default function TranscriptPanel({
           ¿En qué idioma estás hablando vos?
         </label>
         <select
-          className="w-full rounded-lg border border-ink-600 bg-ink-800 px-2.5 py-2 text-sm text-white focus:border-brand-400 focus:outline-none"
+          className="w-full rounded-lg border border-ink-600 bg-ink-800 px-2.5 py-2 text-sm text-strong focus:border-brand-400 focus:outline-none"
           value={spokenLang}
           onChange={(e) => onSpokenLangChange(e.target.value)}
         >
@@ -109,7 +109,7 @@ export default function TranscriptPanel({
             return (
               <li key={line.id} className="rounded-xl border border-ink-700 bg-ink-800/60 p-3">
                 <div className="flex flex-wrap items-center gap-1.5 text-xs text-ink-400">
-                  <span className="font-semibold text-white">{line.speakerName}</span>
+                  <span className="font-semibold text-strong">{line.speakerName}</span>
                   {role && <RoleBadge role={role} size="sm" />}
                   <span className="ml-auto shrink-0 text-[11px] text-ink-500">
                     {new Date(line.timestamp).toLocaleTimeString([], {

@@ -258,7 +258,7 @@ export default function ExternalMeeting() {
       {/* Fixed bottom toolbar -- the Unify layer's controls. Mic / camera /
           screen-share / participants come from the embedded platform's own
           toolbar; these are the tools we add on top. */}
-      <div className="flex items-center justify-center gap-2 border-t border-ink-800 bg-ink-900/95 px-3 py-3 shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.35)] backdrop-blur-md sm:gap-3 sm:px-6">
+      <div className="flex items-center justify-center gap-2 border-t border-ink-800 bg-ink-900/95 px-3 py-3 shadow-top backdrop-blur-md sm:gap-3 sm:px-6">
         <IconButton
           label="Mostrar u ocultar los subtítulos en vivo"
           caption="Subtítulos"

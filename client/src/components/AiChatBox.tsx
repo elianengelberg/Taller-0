@@ -44,7 +44,7 @@ export default function AiChatBox({ title, description, placeholder, emptyHint, 
     <div className={`${cardClass} ${className ?? ""}`}>
       <div className="mb-3 flex items-center gap-2">
         <SparklesIcon className="h-5 w-5 text-brand-400" />
-        <h2 className="text-lg font-semibold text-white">{title}</h2>
+        <h2 className="text-lg font-semibold text-strong">{title}</h2>
       </div>
       <p className="mb-3 text-xs text-ink-400">{description}</p>
 
@@ -54,7 +54,7 @@ export default function AiChatBox({ title, description, placeholder, emptyHint, 
         <ul className="mb-3 space-y-3">
           {items.map((item, index) => (
             <li key={index} className="rounded-xl border border-ink-700 bg-ink-800/60 p-3">
-              <p className="text-sm font-semibold text-white">{item.question}</p>
+              <p className="text-sm font-semibold text-strong">{item.question}</p>
               {item.loading ? (
                 <p className="mt-1 text-sm text-ink-400">Pensando…</p>
               ) : item.error ? (

@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import RequireAuth from "./components/RequireAuth";
 import { AuthProvider } from "./context/AuthContext";
+import { ThemeProvider } from "./context/ThemeContext";
 import { MeetingProvider } from "./context/MeetingContext";
 import ExternalJoin from "./pages/ExternalJoin";
 import ExternalMeeting from "./pages/ExternalMeeting";
@@ -16,6 +17,7 @@ import Register from "./pages/Register";
 
 export default function App() {
   return (
+    <ThemeProvider>
     <AuthProvider>
       <MeetingProvider>
         <Routes>
@@ -55,5 +57,6 @@ export default function App() {
         </Routes>
       </MeetingProvider>
     </AuthProvider>
+    </ThemeProvider>
   );
 }

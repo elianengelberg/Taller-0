@@ -58,7 +58,7 @@ export default function HostSetup() {
       <div className="w-full max-w-lg">
         <Logo className="mb-8" />
         <div className={cardClass}>
-          <h1 className="text-2xl font-bold text-white">Crear una reunión</h1>
+          <h1 className="text-2xl font-bold text-strong">Crear una reunión</h1>
           <p className="mt-1 text-sm text-ink-300">
             Definí los roles disponibles antes de arrancar. Vas a poder asignarlos a cada
             participante durante la reunión (y también agregar más roles en el momento).

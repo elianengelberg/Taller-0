@@ -2,6 +2,7 @@ import { ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import AccountMenu from "../components/AccountMenu";
 import Button from "../components/Button";
+import GradientBackdrop from "../components/GradientBackdrop";
 import Logo from "../components/Logo";
 import { CaptionsIcon, GlobeIcon, PeopleIcon, SparklesIcon } from "../components/icons";
 import { useAuth } from "../context/AuthContext";
@@ -16,13 +17,14 @@ export default function Home() {
   const unsaved = !user ? getUnsavedMeeting() : null;
 
   return (
-    <div className="flex min-h-screen flex-col bg-ink-950">
-      <header className="flex items-center justify-between gap-3 px-5 py-5 sm:px-10 sm:py-6">
+    <div className="relative flex min-h-screen flex-col bg-ink-950">
+      <GradientBackdrop />
+      <header className="relative flex items-center justify-between gap-3 px-5 py-5 sm:px-10 sm:py-6">
         <Logo />
         <div className="flex items-center gap-4 sm:gap-6">
           <Link
             to="/historial"
-            className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-white"
+            className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-strong"
           >
             Historial
           </Link>
@@ -31,7 +33,7 @@ export default function Home() {
       </header>
 
       {!user && (
-        <div className="mx-5 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-3 text-center text-sm text-brand-200 sm:mx-10">
+        <div className="relative mx-5 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-3 text-center text-sm text-brand-200 sm:mx-10">
           {unsaved ? (
             <>
               Tenés una reunión reciente sin guardar.{" "}
@@ -59,13 +61,16 @@ export default function Home() {
         </div>
       )}
 
-      <main className="flex flex-1 flex-col items-center px-6 pb-20 pt-6">
+      <main className="relative flex flex-1 flex-col items-center px-6 pb-20 pt-6">
         <div className="w-full max-w-4xl text-center">
           <span className="inline-block rounded-full bg-brand-500/15 px-4 py-1.5 text-sm font-medium text-brand-300">
             Subtítulos, traducción y un asistente de IA en cada reunión
           </span>
-          <h1 className="mt-6 text-4xl font-extrabold leading-tight tracking-tight text-white sm:text-5xl">
-            Reuniones donde nada se pierde
+          <h1 className="mt-6 text-4xl font-extrabold leading-tight tracking-tight text-strong sm:text-6xl">
+            Reuniones{" "}
+            <span className="bg-gradient-to-r from-brand-400 to-brand-600 bg-clip-text text-transparent">
+              sin barreras
+            </span>
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-ink-300">
             Asigná roles, seguí cada palabra con subtítulos en vivo, entendé cualquier idioma al
@@ -151,7 +156,7 @@ function ActionCard({
         highlight ? "border-brand-500/60 ring-1 ring-brand-500/30" : ""
       }`}
     >
-      <h2 className="text-lg font-semibold text-white">{title}</h2>
+      <h2 className="text-lg font-semibold text-strong">{title}</h2>
       <p className="mt-1.5 flex-1 text-sm text-ink-300">{description}</p>
       {cta}
     </div>
@@ -173,7 +178,7 @@ function FeatureItem({
         {icon}
       </span>
       <div>
-        <p className="font-semibold text-white">{title}</p>
+        <p className="font-semibold text-strong">{title}</p>
         <p className="mt-1 text-sm text-ink-300">{description}</p>
       </div>
     </li>

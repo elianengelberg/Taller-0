@@ -67,7 +67,7 @@ export default function ParticipantTile({ participant, role, stream, isSelf, spe
       )}
       {!showVideo && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-ink-800 to-ink-900">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-brand-600 text-xl font-bold text-white shadow-lg ring-4 ring-white/10">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-brand-600 text-xl font-bold text-on-accent shadow-lg ring-4 ring-white/10">
             {initials(participant.name)}
           </div>
         </div>
@@ -79,7 +79,7 @@ export default function ParticipantTile({ participant, role, stream, isSelf, spe
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent" />
       <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 shadow-soft backdrop-blur-sm">
-          <span className="max-w-[10rem] truncate text-xs font-medium text-white">
+          <span className="max-w-[10rem] truncate text-xs font-medium text-on-accent">
             {participant.name}
             {isSelf ? " (vos)" : ""}
           </span>
@@ -89,13 +89,13 @@ export default function ParticipantTile({ participant, role, stream, isSelf, spe
       </div>
 
       {participant.handRaised && (
-        <span className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-ink-950 shadow-soft">
+        <span className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-900 shadow-soft">
           <HandIcon className="h-3.5 w-3.5 animate-bounce" />
           Mano
         </span>
       )}
       {participant.isHost && (
-        <span className="absolute left-2 top-2 rounded-full bg-brand-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-soft">
+        <span className="absolute left-2 top-2 rounded-full bg-brand-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-on-accent shadow-soft">
           Anfitrión
         </span>
       )}
@@ -103,7 +103,7 @@ export default function ParticipantTile({ participant, role, stream, isSelf, spe
         <span
           className={`absolute ${
             participant.isHost ? "left-24" : "left-2"
-          } top-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-soft backdrop-blur-sm`}
+          } top-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-on-accent shadow-soft backdrop-blur-sm`}
         >
           <ScreenShareIcon className="h-3 w-3" />
           Compartiendo pantalla

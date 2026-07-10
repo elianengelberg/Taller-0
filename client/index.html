@@ -1,16 +1,40 @@
 <!doctype html>
-<html lang="es">
+<html lang="es" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23D97757'/%3E%3Cpath d='M22 36a12 12 0 0 1 12-12h32a12 12 0 0 1 12 12v18a12 12 0 0 1-12 12H46l-13 10.5A3 3 0 0 1 28 74V64.5A12 12 0 0 1 22 54V36Z' fill='white'/%3E%3Crect x='34' y='36' width='32' height='7' rx='3.5' fill='%23D97757'/%3E%3Crect x='34' y='48' width='20' height='7' rx='3.5' fill='%23D97757'/%3E%3C/svg%3E" />
+    <script>
+      // Apply the saved theme before first paint so there's never a flash of
+      // the wrong theme. Kept in sync afterwards by ThemeContext.
+      (function () {
+        try {
+          var t = localStorage.getItem("unify_theme") || "auto";
+          var d =
+            t === "auto"
+              ? matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light"
+              : t;
+          document.documentElement.dataset.theme = d;
+        } catch (e) {
+          document.documentElement.dataset.theme = "dark";
+        }
+      })();
+    </script>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M40 18h34a12 12 0 0 1 12 12v22a12 12 0 0 1-12 12h-2v10.5a3 3 0 0 1-5 2.2L55 66.5A12 12 0 0 1 40 54V30a12 12 0 0 1 0-12Z' fill='%2338BDF8'/%3E%3Cpath d='M14 30a12 12 0 0 1 12-12h30a12 12 0 0 1 12 12v22a12 12 0 0 1-12 12H36L23 74.5a3 3 0 0 1-5-2.3V62.4A12 12 0 0 1 14 52V30Z' fill='%232563EB'/%3E%3Cpath d='M32 30v11a9 9 0 0 0 18 0V30' fill='none' stroke='white' stroke-width='7' stroke-linecap='round'/%3E%3C/svg%3E" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#131211" />
-    <title>Unify — Reuniones donde nada se pierde</title>
+    <meta name="theme-color" content="#0F172A" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <title>Unify — Reuniones sin barreras</title>
     <meta
       name="description"
-      content="Videollamadas con subtítulos en vivo, traducción instantánea entre idiomas y resúmenes con IA. Usalo en reuniones de Unify o sobre tus llamadas de Zoom, Teams y Meet."
+      content="Unify: videollamadas con subtítulos en vivo, traducción instantánea entre idiomas y resúmenes con IA. Reuniones sin barreras — también sobre Zoom, Teams y Meet."
     />
-    <meta property="og:title" content="Unify — Reuniones donde nada se pierde" />
+    <meta property="og:title" content="Unify — Reuniones sin barreras" />
     <meta
       property="og:description"
       content="Subtítulos en vivo, traducción instantánea y resúmenes con IA en cada reunión — también sobre Zoom, Teams y Meet."

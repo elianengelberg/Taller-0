@@ -255,7 +255,7 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
             </label>
             <input
               id="zoom-inline-passcode"
-              className="w-full rounded-lg border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-white outline-none focus:border-brand-500"
+              className="w-full rounded-lg border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-strong outline-none focus:border-brand-500"
               placeholder="Ej: 123456"
               value={localPasscode}
               onChange={(e) => setLocalPasscode(e.target.value)}

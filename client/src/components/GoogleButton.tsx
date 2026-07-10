@@ -30,7 +30,7 @@ export default function GoogleButton() {
       <button
         type="button"
         onClick={startGoogleLogin}
-        className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-ink-600 bg-white py-3 text-sm font-semibold text-ink-900 transition hover:bg-ink-100"
+        className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-slate-300 bg-white py-3 text-sm font-semibold text-slate-800 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-md"
       >
         <GoogleIcon className="h-4 w-4 shrink-0" />
         Continuar con Google

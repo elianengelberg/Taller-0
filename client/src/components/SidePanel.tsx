@@ -29,7 +29,7 @@ export default function SidePanel({ title, onClose, children, footer, headerExtr
           of fighting the title for space. */}
       <div className="border-b border-ink-700 px-4 py-3">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="min-w-0 flex-1 truncate text-base font-semibold text-white">{title}</h2>
+          <h2 className="min-w-0 flex-1 truncate text-base font-semibold text-strong">{title}</h2>
           <button
             type="button"
             onClick={onClose}

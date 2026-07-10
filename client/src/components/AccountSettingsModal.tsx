@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { useAuth } from "../context/AuthContext";
+import { ThemeMode, useTheme } from "../context/ThemeContext";
 import { changePassword, updateProfile } from "../lib/api";
 import { cardClass, inputClass, labelClass } from "../lib/ui";
 import Button from "./Button";
@@ -8,8 +9,15 @@ import { CloseIcon } from "./icons";
 // Basic account settings: rename and change password. A centered modal (not
 // a SidePanel) since this isn't scoped to a meeting -- it's reachable from
 // the header on any page.
+const THEME_OPTIONS: { value: ThemeMode; label: string; hint: string }[] = [
+  { value: "light", label: "Claro", hint: "Fondo blanco y celestes suaves" },
+  { value: "dark", label: "Oscuro", hint: "Azul oscuro, ideal de noche" },
+  { value: "auto", label: "Automático", hint: "Sigue el tema de tu sistema" },
+];
+
 export default function AccountSettingsModal({ onClose }: { onClose: () => void }) {
   const { user, setUser } = useAuth();
+  const { mode, setMode } = useTheme();
 
   const [name, setName] = useState(user?.name ?? "");
   const [nameStatus, setNameStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
@@ -62,9 +70,9 @@ export default function AccountSettingsModal({ onClose }: { onClose: () => void 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-      <div className={`${cardClass} w-full max-w-md`}>
+      <div className={`${cardClass} pop-enter max-h-[90dvh] w-full max-w-md overflow-y-auto`}>
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-white">Configuración de la cuenta</h2>
+          <h2 className="text-lg font-bold text-strong">Configuración de la cuenta</h2>
           <button
             type="button"
             onClick={onClose}
@@ -100,7 +108,37 @@ export default function AccountSettingsModal({ onClose }: { onClose: () => void 
         </form>
 
         <div className="mt-6 border-t border-ink-700 pt-5">
-          <h3 className="text-sm font-semibold text-white">Cambiar contraseña</h3>
+          <h3 className="text-sm font-semibold text-strong">Apariencia</h3>
+          <p className="mt-1 text-xs text-ink-400">Elegí el tema de Unify. Se guarda para tus próximas visitas.</p>
+          <fieldset className="mt-3 grid gap-2" aria-label="Tema">
+            {THEME_OPTIONS.map((option) => (
+              <label
+                key={option.value}
+                className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors duration-200 ${
+                  mode === option.value
+                    ? "border-brand-500 bg-brand-500/10"
+                    : "border-ink-700 hover:border-ink-600"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="theme"
+                  value={option.value}
+                  checked={mode === option.value}
+                  onChange={() => setMode(option.value)}
+                  className="h-4 w-4 accent-brand-500"
+                />
+                <span className="flex-1">
+                  <span className="block text-sm font-medium text-strong">{option.label}</span>
+                  <span className="block text-xs text-ink-400">{option.hint}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+        </div>
+
+        <div className="mt-6 border-t border-ink-700 pt-5">
+          <h3 className="text-sm font-semibold text-strong">Cambiar contraseña</h3>
           <form className="mt-3 space-y-3" onSubmit={handleChangePassword}>
             <div>
               <label className={labelClass} htmlFor="current-password">

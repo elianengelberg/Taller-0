@@ -31,7 +31,7 @@ export default class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-ink-950 px-6 text-center">
           <Logo />
-          <p className="mt-2 text-lg font-semibold text-white">Uy, algo se rompió.</p>
+          <p className="mt-2 text-lg font-semibold text-strong">Uy, algo se rompió.</p>
           <p className="max-w-sm text-sm text-ink-300">
             Pasó un error inesperado y no pudimos seguir. Probá recargar la página -- si te
             vuelve a pasar, contá exactamente qué estabas haciendo (y en qué dispositivo/
@@ -45,7 +45,7 @@ export default class ErrorBoundary extends Component<Props, State> {
           <button
             type="button"
             onClick={() => window.location.assign("/")}
-            className="rounded-xl bg-brand-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-600"
+            className="rounded-xl bg-brand-500 px-4 py-2.5 text-sm font-semibold text-on-accent hover:bg-brand-600"
           >
             Volver al inicio
           </button>

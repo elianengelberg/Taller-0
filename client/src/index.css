@@ -2,6 +2,59 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ==========================================================================
+   Unify design tokens. One variable set per theme; every Tailwind token
+   class (ink-*, brand-100..300, strong, shadows) resolves against these.
+   The active theme lives on <html data-theme="...">, set before first paint
+   by the inline script in index.html and kept in sync by ThemeContext.
+   ========================================================================== */
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  /* Blue-gray dark surfaces (navy, not black) */
+  --ink-950: 15 23 42;    /* page background  #0F172A */
+  --ink-900: 20 30 54;    /* headers/toolbars #141E36 */
+  --ink-800: 30 41 59;    /* cards/panels     #1E293B */
+  --ink-700: 51 65 85;    /* borders, soft bg #334155 */
+  --ink-600: 71 85 105;   /* strong borders   #475569 */
+  --ink-500: 100 116 139; /* faint text       #64748B */
+  --ink-400: 148 163 184; /* muted text       #94A3B8 */
+  --ink-300: 176 189 209; /* secondary text   #B0BDD1 */
+  --ink-200: 213 221 233; /* bright secondary #D5DDE9 */
+  --ink-100: 229 234 242;
+  --ink-50: 241 245 251;  /* body text        #F1F5FB */
+  --fg-strong: 255 255 255;
+  --brand-50: 30 58 138;
+  --brand-100: 147 197 253;
+  --brand-200: 165 214 255;
+  --brand-300: 125 200 255; /* accent text on dark #7DC8FF */
+  --shadow-soft: 0 1px 2px rgb(2 6 23 / 0.4), 0 10px 30px -12px rgb(2 6 23 / 0.55);
+  --shadow-top: 0 -10px 30px -14px rgb(2 6 23 / 0.6);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  /* Luminous light surfaces: white cards over a barely-blue page */
+  --ink-950: 248 250 252; /* page background  #F8FAFC */
+  --ink-900: 255 255 255; /* headers/toolbars #FFFFFF */
+  --ink-800: 255 255 255; /* cards/panels     #FFFFFF */
+  --ink-700: 226 232 240; /* borders, soft bg #E2E8F0 */
+  --ink-600: 203 213 225; /* strong borders   #CBD5E1 */
+  --ink-500: 100 116 139; /* faint text       #64748B */
+  --ink-400: 71 85 105;   /* muted text       #475569 */
+  --ink-300: 71 85 105;   /* secondary text   #475569 */
+  --ink-200: 51 65 85;    /* bright secondary #334155 */
+  --ink-100: 30 41 59;
+  --ink-50: 15 23 42;     /* body text        #0F172A */
+  --fg-strong: 15 23 42;
+  --brand-50: 239 246 255;
+  --brand-100: 219 234 254;
+  --brand-200: 29 78 216;
+  --brand-300: 29 78 216;  /* accent text on light: Primary Blue #1D4ED8 */
+  --shadow-soft: 0 1px 2px rgb(15 23 42 / 0.05), 0 10px 30px -14px rgb(15 23 42 / 0.12);
+  --shadow-top: 0 -10px 30px -18px rgb(15 23 42 / 0.14);
+}
+
 html,
 body,
 #root {
@@ -10,11 +63,17 @@ body,
 
 body {
   @apply bg-ink-950 text-ink-50 antialiased;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
+::selection {
+  background: rgb(59 130 246 / 0.3);
+}
+
+/* Slim, quiet scrollbars that match each theme's neutrals. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: theme("colors.brand.300") transparent;
+  scrollbar-color: rgb(var(--ink-600)) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -23,8 +82,14 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  background-color: theme("colors.brand.300");
+  background-color: rgb(var(--ink-600));
   border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--ink-500));
 }
 
 /* Native buttons don't get a pointer cursor by default in any browser (only
@@ -35,11 +100,10 @@ button:not(:disabled) {
 }
 
 /* A visible focus indicator on every interactive element, app-wide, for
-   people navigating by keyboard -- instead of relying on each button/link
-   remembering to define its own (mouse clicks don't trigger :focus-visible,
+   people navigating by keyboard (mouse clicks don't trigger :focus-visible,
    so this never shows up as an unwanted ring on a click). */
 :focus-visible {
-  outline: 2px solid theme("colors.brand.400");
+  outline: 2px solid #3b82f6;
   outline-offset: 2px;
 }
 
@@ -57,7 +121,7 @@ button:not(:disabled) {
 }
 
 .panel-enter {
-  animation: panel-slide-in 180ms ease-out;
+  animation: panel-slide-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes panel-slide-in {
@@ -67,6 +131,22 @@ button:not(:disabled) {
   }
   to {
     transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Gentle rise for modals/cards appearing. */
+.pop-enter {
+  animation: pop-rise 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes pop-rise {
+  from {
+    transform: translateY(10px) scale(0.98);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
     opacity: 1;
   }
 }

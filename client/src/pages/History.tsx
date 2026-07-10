@@ -35,14 +35,14 @@ export default function History() {
         <div className="mb-8 flex items-center justify-between gap-3">
           <Logo />
           <div className="flex items-center gap-4 sm:gap-6">
-            <Link to="/" className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-white">
+            <Link to="/" className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-strong">
               Volver al inicio
             </Link>
             <AccountMenu />
           </div>
         </div>
 
-        <h1 className="text-2xl font-bold text-white">Historial de reuniones</h1>
+        <h1 className="text-2xl font-bold text-strong">Historial de reuniones</h1>
         <p className="mt-1 text-sm text-ink-400">
           Reuniones guardadas con su chat, transcripción y grabación (si se guardó una).
         </p>
@@ -89,7 +89,7 @@ export default function History() {
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="truncate font-semibold text-white">Reunión de {m.hostName}</p>
+                      <p className="truncate font-semibold text-strong">Reunión de {m.hostName}</p>
                       <SourceChip joinCode={m.joinCode} />
                     </div>
                     <p className="mt-1 text-sm text-ink-400">

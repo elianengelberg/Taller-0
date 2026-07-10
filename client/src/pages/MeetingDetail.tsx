@@ -53,13 +53,13 @@ export default function MeetingDetail() {
       <div className="mx-auto max-w-3xl">
         <div className="mb-6 flex items-center justify-between">
           <Logo />
-          <Link to="/historial" className="text-sm font-medium text-ink-300 hover:text-white">
+          <Link to="/historial" className="text-sm font-medium text-ink-300 hover:text-strong">
             Volver al historial
           </Link>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-bold text-white">Reunión de {meeting.hostName}</h1>
+          <h1 className="text-2xl font-bold text-strong">Reunión de {meeting.hostName}</h1>
           <span
             className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
               isExternalMeeting(meeting.joinCode)
@@ -83,7 +83,7 @@ export default function MeetingDetail() {
             return (
               <span
                 key={p.id}
-                className="flex items-center gap-1.5 rounded-full bg-ink-800 px-2.5 py-1 text-xs text-white"
+                className="flex items-center gap-1.5 rounded-full bg-ink-800 px-2.5 py-1 text-xs text-strong"
               >
                 {p.name}
                 <RoleBadge role={role} size="sm" />
@@ -115,7 +115,7 @@ export default function MeetingDetail() {
         />
 
         <div className={`${cardClass} mt-6`}>
-          <h2 className="mb-3 text-lg font-semibold text-white">Transcripción y chat</h2>
+          <h2 className="mb-3 text-lg font-semibold text-strong">Transcripción y chat</h2>
           {meeting.messages.length === 0 ? (
             <p className="text-sm text-ink-400">No se guardó nada en esta reunión.</p>
           ) : (
@@ -126,7 +126,7 @@ export default function MeetingDetail() {
                   className="rounded-xl border border-ink-700 bg-ink-800/60 p-3"
                 >
                   <div className="flex flex-wrap items-center gap-1.5 text-xs text-ink-400">
-                    <span className="font-semibold text-white">{m.senderName}</span>
+                    <span className="font-semibold text-strong">{m.senderName}</span>
                     {m.roleName && (
                       <span className="rounded-full bg-ink-700 px-2 py-0.5 text-[11px] text-ink-200">
                         {m.roleName}

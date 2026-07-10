@@ -95,7 +95,7 @@ export default function VideoGrid({
               type="button"
               onClick={toggleFullscreen}
               title={fullscreen ? "Achicar pantalla compartida" : "Agrandar pantalla compartida"}
-              className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+              className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-on-accent hover:bg-black/80"
             >
               {fullscreen ? <CollapseIcon className="h-4 w-4" /> : <ExpandIcon className="h-4 w-4" />}
             </button>

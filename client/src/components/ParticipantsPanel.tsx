@@ -74,11 +74,11 @@ export default function ParticipantsPanel({
               className="flex flex-col gap-2 rounded-xl border border-ink-700 bg-ink-800/60 p-2.5 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="flex min-w-0 items-center gap-2.5">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ink-700 text-xs font-bold text-white">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ink-700 text-xs font-bold text-strong">
                   {participant.name.slice(0, 2).toUpperCase()}
                 </span>
                 <div className="min-w-0">
-                  <p className="flex items-center gap-1.5 truncate text-sm font-medium text-white">
+                  <p className="flex items-center gap-1.5 truncate text-sm font-medium text-strong">
                     <span className="truncate">
                       {participant.name}
                       {isSelf ? " (vos)" : ""}
@@ -94,7 +94,7 @@ export default function ParticipantsPanel({
 
               {isHost && (
                 <select
-                  className="w-full max-w-[140px] shrink-0 truncate rounded-lg border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs text-white focus:border-brand-400 focus:outline-none sm:w-auto"
+                  className="w-full max-w-[140px] shrink-0 truncate rounded-lg border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs text-strong focus:border-brand-400 focus:outline-none sm:w-auto"
                   value={participant.roleId ?? ""}
                   onChange={(e) => assignRole(participant.id, e.target.value || null)}
                 >

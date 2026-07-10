@@ -50,9 +50,9 @@ export default function AccountMenu() {
             onClick={() => setOpen((v) => !v)}
             aria-expanded={open}
             aria-haspopup="menu"
-            className="flex items-center gap-2 rounded-full border border-ink-600 py-1 pl-1 pr-3 text-sm font-medium text-white transition-colors hover:border-brand-400"
+            className="flex items-center gap-2 rounded-full border border-ink-600 py-1 pl-1 pr-3 text-sm font-medium text-strong transition-colors hover:border-brand-400"
           >
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-brand-600 text-xs font-bold text-white">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-brand-600 text-xs font-bold text-on-accent">
               {initial(user.name)}
             </span>
             <span className="hidden sm:inline">
@@ -97,7 +97,7 @@ export default function AccountMenu() {
 
   return (
     <div className="flex items-center gap-3 sm:gap-4">
-      <Link to="/ingresar" className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-white">
+      <Link to="/ingresar" className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-strong">
         Ingresar
       </Link>
       {/* Hidden on phones: together with the logo and Historial link this
@@ -105,7 +105,7 @@ export default function AccountMenu() {
           header repeats both the login and register actions anyway. */}
       <Link
         to="/registrarse"
-        className="hidden whitespace-nowrap rounded-lg bg-brand-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-600 sm:inline-block"
+        className="hidden whitespace-nowrap rounded-lg bg-brand-500 px-3 py-1.5 text-sm font-semibold text-on-accent hover:bg-brand-600 sm:inline-block"
       >
         Crear cuenta
       </Link>

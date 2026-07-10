@@ -95,7 +95,7 @@ export default function ChatPanel({ onClose, side }: { onClose: () => void; side
           <button
             type="submit"
             aria-label="Enviar mensaje"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-500 text-white transition hover:bg-brand-600 disabled:opacity-50"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-500 text-on-accent transition hover:bg-brand-600 disabled:opacity-50"
             disabled={!text.trim()}
           >
             <SendIcon className="h-4 w-4" />
@@ -123,14 +123,14 @@ export default function ChatPanel({ onClose, side }: { onClose: () => void; side
                 </div>
                 <div
                   className={`mt-1 max-w-[85%] rounded-2xl px-3.5 py-2 text-sm ${
-                    isSelf ? "bg-brand-500 text-white" : "bg-ink-700 text-white"
+                    isSelf ? "bg-brand-500 text-on-accent" : "bg-ink-700 text-strong"
                   }`}
                 >
                   <p className="whitespace-pre-wrap break-words">{message.text}</p>
                   {translated && (
                     <p
                       className={`mt-1 flex items-start gap-1 whitespace-pre-wrap break-words border-t pt-1 text-xs italic ${
-                        isSelf ? "border-white/30 text-white/80" : "border-ink-500/40 text-ink-300"
+                        isSelf ? "border-white/30 text-strong/80" : "border-ink-500/40 text-ink-300"
                       }`}
                     >
                       <GlobeIcon className="mt-0.5 h-3 w-3 shrink-0" />

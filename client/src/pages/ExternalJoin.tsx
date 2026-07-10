@@ -90,7 +90,7 @@ export default function ExternalJoin() {
       <div className="w-full max-w-md">
         <Logo className="mb-8" />
         <div className={cardClass}>
-          <h1 className="text-2xl font-bold text-white">Unirme a una reunión externa</h1>
+          <h1 className="text-2xl font-bold text-strong">Unirme a una reunión externa</h1>
           <p className="mt-1 text-sm text-ink-300">
             Pegá el enlace de una reunión de Zoom, Google Meet, Jitsi u otra plataforma y la
             reconocemos automáticamente.
@@ -209,7 +209,7 @@ function DetectionResult({
     <div className="mt-5 rounded-xl border border-ink-700 bg-ink-900/60 p-4">
       <p className="text-sm text-ink-300">
         Reconocimos una reunión de{" "}
-        <span className="font-semibold text-white">{info.label}</span>
+        <span className="font-semibold text-strong">{info.label}</span>
         {meetingId ? <span className="text-ink-400"> · {meetingId}</span> : null}.
       </p>
 
@@ -252,7 +252,7 @@ function DetectionResult({
               href={url}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-4 flex w-full items-center justify-center rounded-xl bg-brand-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-600"
+              className="mt-4 flex w-full items-center justify-center rounded-xl bg-brand-500 px-4 py-2.5 text-sm font-semibold text-on-accent hover:bg-brand-600"
             >
               Abrir en {info.label}
             </a>
