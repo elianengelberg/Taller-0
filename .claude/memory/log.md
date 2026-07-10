@@ -178,3 +178,24 @@ practical meeting size (~6-8 people).
 Files: client/src/hooks/{useWebRTC,useLineTranslations,useRecorder}.ts,
 client/src/pages/GoogleCallback.tsx, server/src/{index,socketHandlers,
 storage,db,googleAuth,translate,transcriptCleanup,ai,globalAi}.ts.
+
+## 2026-07-07 -- Unify rebrand + full redesign (blue, light/dark/auto themes)
+What: complete visual system rebuild. tailwind.config colors all resolve to
+CSS variables (index.css) with per-theme values; the ink scale is SEMANTIC
+(950=page bg, 50=strongest text) and inverts between dark (navy #0F172A/
+#1E293B/#334155) and light (#F8FAFC/white/#E2E8F0). brand = blue
+(#38BDF8/#3B82F6/#1D4ED8); brand-100..300 flip per theme (accent text).
+Two text intents: `text-strong` (flips) vs `text-on-accent` (always white,
+for colored buttons/badges/caption bubbles) -- NEVER reintroduce raw
+text-white for page text. ThemeProvider (unify_theme localStorage:
+light|dark|auto) + inline pre-paint script in index.html; Apariencia radios
+in AccountSettingsModal. Logo = two speech bubbles + U (sky + blue
+gradient); slogan "Reuniones sin barreras" is the H1 and the <title>.
+Inter via Google Fonts link. GoogleButton stays literal white (brand rule).
+Verified both themes x both viewports on home/login/crear/externa/meeting +
+live switch + persistence.
+Files: client/tailwind.config.js, client/src/index.css,
+client/src/context/ThemeContext.tsx (new),
+client/src/components/{Logo,Button,IconButton,GradientBackdrop,
+AccountSettingsModal,GoogleButton}.tsx, client/index.html, sweep across
+all pages/components.
