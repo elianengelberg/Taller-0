@@ -43,7 +43,7 @@ export interface PlatformInfo {
 export const PLATFORM_REGISTRY: Record<MeetingPlatform, PlatformInfo> = {
   encuentro: {
     platform: "encuentro",
-    label: "Encuentro",
+    label: "Unify",
     joinMode: "native",
     official: true,
     requires: [],
@@ -119,7 +119,7 @@ export function meetingSourceLabel(joinCode: string): string {
     case "google-meet":
       return "Google Meet";
     default:
-      return "Encuentro";
+      return "Unify";
   }
 }
 
@@ -132,7 +132,7 @@ export interface DetectedMeeting {
   info: PlatformInfo;
   /** Normalized absolute URL (scheme guaranteed). Null if the input wasn't a URL at all. */
   url: string | null;
-  /** Platform-native id when the link exposes one: Zoom meeting number, Meet code, Encuentro join code, Jitsi room. */
+  /** Platform-native id when the link exposes one: Zoom meeting number, Meet code, Unify join code, Jitsi room. */
   meetingId?: string;
   /** Passcode/password when the link carries one (e.g. Zoom `pwd`). Treat as sensitive -- never log it. */
   passcode?: string;

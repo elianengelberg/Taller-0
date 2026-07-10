@@ -9,7 +9,7 @@ import { cardClass, inputClass, labelClass } from "../lib/ui";
 
 // Entry point for joining a meeting hosted on ANOTHER platform (Zoom, Meet,
 // Jitsi...). Paste a link -> we detect the platform and route it: Zoom and
-// Jitsi run embedded (with Encuentro's transcript/AI layer on top), our own
+// Jitsi run embedded (with Unify's transcript/AI layer on top), our own
 // links jump to the native join flow, and everything else shows an honest
 // "recognized, here's how to open it" card (with the real join integration
 // filled in per-platform over the coming phases).
@@ -146,7 +146,7 @@ export default function ExternalJoin() {
                 ))}
               </select>
               <p className="mt-1.5 text-xs text-ink-400">
-                Se usa para tus subtítulos y traducción en vivo con la IA de Encuentro, encima de la
+                Se usa para tus subtítulos y traducción en vivo con la IA de Unify, encima de la
                 reunión externa.
               </p>
             </div>

@@ -69,7 +69,7 @@ export default function Home() {
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-ink-300">
             Asigná roles, seguí cada palabra con subtítulos en vivo, entendé cualquier idioma al
-            instante y dejá que la IA resuma lo importante. Nativo en Encuentro, o sumado a tus
+            instante y dejá que la IA resuma lo importante. Nativo en Unify, o sumado a tus
             llamadas de Zoom, Teams y Meet.
           </p>
 
@@ -77,7 +77,7 @@ export default function Home() {
             <ActionCard
               highlight
               title="Crear una reunión"
-              description="Definí roles para tu equipo y arrancá una reunión de Encuentro."
+              description="Definí roles para tu equipo y arrancá una reunión de Unify."
               cta={
                 <Button className="mt-5 w-full" onClick={() => navigate("/crear")}>
                   Crear reunión
@@ -87,7 +87,7 @@ export default function Home() {
             <ActionCard
               highlight
               title="Tengo un código"
-              description="Sumate a una reunión de Encuentro que ya está en marcha."
+              description="Sumate a una reunión de Unify que ya está en marcha."
               cta={
                 <Button variant="secondary" className="mt-5 w-full" onClick={() => navigate("/unirse")}>
                   Unirme con código
@@ -97,7 +97,7 @@ export default function Home() {
             <ActionCard
               highlight
               title="Zoom · Teams · Meet"
-              description="Pegá el enlace de una reunión externa y usá las funciones de Encuentro encima."
+              description="Pegá el enlace de una reunión externa y usá las funciones de Unify encima."
               cta={
                 <Button className="mt-5 w-full" onClick={() => navigate("/externa")}>
                   Unirme a una externa

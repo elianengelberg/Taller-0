@@ -117,7 +117,7 @@ export default function History() {
   );
 }
 
-// Shows WHERE the meeting happened (Encuentro / Zoom / Teams / Jitsi) instead
+// Shows WHERE the meeting happened (Unify / Zoom / Teams / Jitsi) instead
 // of the raw join code or external link, which was long and confusing.
 function SourceChip({ joinCode }: { joinCode: string }) {
   const external = isExternalMeeting(joinCode);

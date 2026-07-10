@@ -16,7 +16,7 @@ export default function Logo({ className = "" }: { className?: string }) {
           <rect x="8" y="11.6" width="5.5" height="1.9" rx="0.95" fill="currentColor" />
         </svg>
       </span>
-      <span className="text-lg font-bold tracking-tight text-white">Encuentro</span>
+      <span className="text-lg font-bold tracking-tight text-white">Unify</span>
     </div>
   );
 }

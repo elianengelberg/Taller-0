@@ -31,7 +31,7 @@ export default function App() {
           <Route path="/unirse/:code" element={<JoinForm />} />
           {/* Join a meeting hosted on another platform (paste a Zoom/Meet/Jitsi link). */}
           <Route path="/externa" element={<ExternalJoin />} />
-          {/* The embedded external meeting + Encuentro's transcript/AI overlay. */}
+          {/* The embedded external meeting + Unify's transcript/AI overlay. */}
           <Route path="/externa/reunion" element={<ExternalMeeting />} />
           <Route path="/reunion" element={<Meeting />} />
           {/* History is private per account -- gated behind login. */}

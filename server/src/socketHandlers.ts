@@ -239,7 +239,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
     }
   );
 
-  // Join the Encuentro "companion" layer that rides on top of an external
+  // Join the Unify "companion" layer that rides on top of an external
   // meeting (Jitsi/Zoom/Meet). The external platform handles audio/video; this
   // just puts the caller into a shared room -- keyed by the external meeting --
   // where our transcript/translation/AI layer lives. From here on it's an
@@ -265,7 +265,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
 
         const { meeting, created } = getOrCreateCompanionMeeting(externalKey);
         if (meeting.participants.size >= MAX_PARTICIPANTS_COMPANION) {
-          ack?.({ ok: false, error: "La sala de Encuentro para esta reunión está llena." });
+          ack?.({ ok: false, error: "La sala de Unify para esta reunión está llena." });
           return;
         }
         cancelMeetingCleanup(meeting.id);
@@ -277,7 +277,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
 
         if (created) {
           // The first (logged-in) person to open this external meeting through
-          // Encuentro owns its companion record, so it lands in their history.
+          // Unify owns its companion record, so it lands in their history.
           void db.createMeetingRecord({
             id: meeting.dbId,
             joinCode: meeting.id,

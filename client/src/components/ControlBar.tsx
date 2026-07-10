@@ -87,7 +87,7 @@ export default function ControlBar({
   // labeled red pill that stands apart from the rest of the toolbar, so
   // leaving reads as a distinct, weightier action rather than one icon among
   // equals -- and it's never confusable with the account menu's own
-  // "Cerrar sesión" (that one signs you out of Encuentro; this one just
+  // "Cerrar sesión" (that one signs you out of Unify; this one just
   // leaves the call).
   const leaveButton = (
     <button

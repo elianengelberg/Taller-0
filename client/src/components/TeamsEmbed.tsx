@@ -44,7 +44,7 @@ export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props)
   const gridRef = useRef<HTMLDivElement>(null);
   const localTileRef = useRef<HTMLDivElement>(null);
   // "companion" = personal/free Teams that can't be embedded: the real call
-  // opens in its own tab and Encuentro's subtitle/transcript/AI layer (which
+  // opens in its own tab and Unify's subtitle/transcript/AI layer (which
   // runs off the user's mic in ExternalMeeting) keeps working alongside it.
   const [status, setStatus] = useState<"connecting" | "joined" | "error" | "companion">("connecting");
   const [error, setError] = useState<string | null>(null);
@@ -202,7 +202,7 @@ export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props)
           : "";
       // Personal/free Teams can't be embedded (Microsoft blocks it), but our
       // subtitle/transcript/AI layer still works off the mic -- fall back to
-      // "companion mode": open the real call in its own tab, keep Encuentro here.
+      // "companion mode": open the real call in its own tab, keep Unify here.
       if (raw.toLowerCase().includes("teams for life") || raw.toLowerCase().includes("teams for consumer")) {
         setStatus("companion");
         return;
@@ -279,7 +279,7 @@ export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props)
         <p className="max-w-md text-sm text-ink-200">
           Esta reunión de Teams es <span className="text-white">personal/gratuita</span> y Microsoft no
           permite embeberla. Abrila en Teams en otra pestaña — los{" "}
-          <span className="text-white">subtítulos, la transcripción y la IA de Encuentro</span> siguen
+          <span className="text-white">subtítulos, la transcripción y la IA de Unify</span> siguen
           funcionando acá con tu micrófono.
         </p>
         <a

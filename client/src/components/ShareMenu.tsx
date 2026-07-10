@@ -15,7 +15,7 @@ export default function ShareMenu({ meetingCode }: ShareMenuProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const joinUrl = meetingJoinUrl(meetingCode);
-  const inviteText = `Te invito a una videollamada en Encuentro. Unite acá: ${joinUrl}\n\n(o entrá a ${window.location.origin} con el código ${meetingCode})`;
+  const inviteText = `Te invito a una videollamada en Unify. Unite acá: ${joinUrl}\n\n(o entrá a ${window.location.origin} con el código ${meetingCode})`;
 
   // Closes on an outside click/tap or Escape -- the app's first popover-style
   // menu, so there's no existing pattern for this to reuse yet.
@@ -92,7 +92,7 @@ export default function ShareMenu({ meetingCode }: ShareMenuProps) {
             Enviar por WhatsApp
           </a>
           <a
-            href={`mailto:?subject=${encodeURIComponent("Invitación a una reunión en Encuentro")}&body=${encodeURIComponent(inviteText)}`}
+            href={`mailto:?subject=${encodeURIComponent("Invitación a una reunión en Unify")}&body=${encodeURIComponent(inviteText)}`}
             className={menuItemClass}
             onClick={() => setOpen(false)}
           >

@@ -1,4 +1,4 @@
-# Encuentro
+# Unify
 
 Una app de videollamadas al estilo Zoom pensada para reuniones con **roles asignables en
 vivo**, **transcripción con nombre de quien habla** y **traducción automática** del chat y

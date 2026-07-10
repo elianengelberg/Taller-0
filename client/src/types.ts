@@ -59,7 +59,7 @@ export type CompanionEmbed =
 export type MeetingDraft =
   | { mode: "host"; name: string; language: string; roleNames: string[] }
   | { mode: "join"; name: string; language: string; meetingCode: string }
-  // The Encuentro transcript/AI layer riding on top of an external meeting
+  // The Unify transcript/AI layer riding on top of an external meeting
   // (Jitsi/Zoom/...). `externalKey` is the shared room key on our backend that
   // everyone opening the same link lands in; `embed` describes which platform
   // pane to render and how; `roomLabel` is what we show the user.

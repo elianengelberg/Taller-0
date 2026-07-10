@@ -60,9 +60,9 @@ function CompanionEmbedPane({
   }
 }
 
-// The Encuentro layer that runs ON TOP of an external meeting (Jitsi, Zoom,
+// The Unify layer that runs ON TOP of an external meeting (Jitsi, Zoom,
 // Teams...). The external platform handles audio/video (the embedded pane, with
-// its own mic/camera/share controls); we add a fixed Encuentro toolbar with our
+// its own mic/camera/share controls); we add a fixed Unify toolbar with our
 // live subtitles, transcript, translation, AI assistant and recording. The
 // trick that makes this possible without reaching inside the cross-origin
 // embed: our transcription listens to the user's OWN microphone (Web Speech
@@ -186,7 +186,7 @@ export default function ExternalMeeting() {
         </div>
         <div className="flex items-center gap-1.5 whitespace-nowrap rounded-full bg-ink-800 px-3 py-1.5 ring-1 ring-ink-700">
           <PeopleIcon className="h-3.5 w-3.5 text-brand-300" />
-          <span className="text-xs font-medium text-ink-200">{participantCount} en Encuentro</span>
+          <span className="text-xs font-medium text-ink-200">{participantCount} en Unify</span>
         </div>
       </header>
 
@@ -198,7 +198,7 @@ export default function ExternalMeeting() {
         <div className="relative min-w-0 flex-1 overflow-hidden">
           {connectionStatus === "error" ? (
             <div className="flex h-full items-center justify-center p-6 text-center text-sm text-brand-300">
-              {connectionError ?? "No se pudo conectar la capa de Encuentro."}
+              {connectionError ?? "No se pudo conectar la capa de Unify."}
             </div>
           ) : (
             <CompanionEmbedPane
@@ -255,7 +255,7 @@ export default function ExternalMeeting() {
         )}
       </div>
 
-      {/* Fixed bottom toolbar -- the Encuentro layer's controls. Mic / camera /
+      {/* Fixed bottom toolbar -- the Unify layer's controls. Mic / camera /
           screen-share / participants come from the embedded platform's own
           toolbar; these are the tools we add on top. */}
       <div className="flex items-center justify-center gap-2 border-t border-ink-800 bg-ink-900/95 px-3 py-3 shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.35)] backdrop-blur-md sm:gap-3 sm:px-6">
