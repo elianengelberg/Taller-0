@@ -199,3 +199,34 @@ client/src/context/ThemeContext.tsx (new),
 client/src/components/{Logo,Button,IconButton,GradientBackdrop,
 AccountSettingsModal,GoogleButton}.tsx, client/index.html, sweep across
 all pages/components.
+
+## 2026-07-07 -- Meet bridge + moderation system + single-presenter + 30-user scale
+What: (1) extension/ = MV3 content script scraping Meet DOM (data-is-muted,
+leave-button presence, people-badge count, roster only while Meet's panel is
+open) -> POST /api/meet-bridge/:code (whitelist+clamp+rate-limit) -> relayed
+to companion room `meeting:GOOGLE-MEET:<CODE>` -> MeetCompanionPane renders
+with 30s freshness. Meet CANNOT be controlled remotely (no API) -- display
+only, never authority. Selectors are best-effort; can't be E2E'd from the
+sandbox (no network) -- bridge+UI verified with simulated posts.
+(2) moderationRole host|cohost|participant on Participant; ONE "moderate"
+socket event validates rank server-side (MODERATION_RANK + canModerate;
+HOST_ONLY set for cohost-mgmt/transfer/end). Kick bans by normalized name
+(guests have no durable identity -- documented weakness). Waiting room holds
+join acks as {ok,waiting:true} -> "admitted"/"join-rejected" events. Chat
+"hosts" mode delivers only to moderators+sender (toHostsOnly flag).
+(3) meeting.presenterId enforces ONE share; presenter-changed broadcast;
+auto-release on stop/leave/kick/policy; client toast via share-denied.
+Meeting.tsx registers its own socket listeners for kicked/meeting-ended/
+force-muted/moderation-request (media control lives there, not in context).
+(4) cap native = 30; ParticipantTile memoized; lib/toasts.ts = module-level
+store (fireable from socket handlers) + ToastViewport per page.
+Tests (scratchpad): moderation_e2e.js 20/20, load_sim.js 5/10/20/30 (p95
+<=6ms, 0 presenter violations), meet_and_mesh.js 11/11 (5x5 mesh ~6MB/tab),
+route_sweep.js 12/12. Gotcha: index.html's Google Fonts link hangs
+Playwright waitUntil:"load" in the sandbox -- always block **fonts.g** and
+use domcontentloaded.
+Files: extension/*, server/src/{types,meetingStore,socketHandlers,index}.ts,
+client/src/{types.ts,context/MeetingContext.tsx,lib/toasts.ts,
+components/{HostControlsPanel,MeetCompanionPane,ToastViewport,
+ParticipantsPanel,ControlBar,ParticipantTile,VideoGrid,ChatPanel}.tsx,
+pages/{Meeting,ExternalJoin,ExternalMeeting,Home}.tsx}.
