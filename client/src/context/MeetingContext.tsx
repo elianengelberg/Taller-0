@@ -16,11 +16,15 @@ import {
   ChatMessage,
   CompanionEmbed,
   ConnectionStatus,
+  MeetBridgeState,
   MeetingDraft,
+  MeetingSettings,
   MeetingSnapshot,
+  ModerationRole,
   Participant,
   Role,
   TranscriptLine,
+  WaitingAttendee,
 } from "../types";
 
 type MeetingAction =
@@ -37,6 +41,10 @@ type MeetingAction =
   | { type: "HAND_RAISED"; participantId: string; raised: boolean }
   | { type: "LANGUAGE_CHANGED"; participantId: string; language: string }
   | { type: "HOST_CHANGED"; hostId: string }
+  | { type: "SETTINGS_CHANGED"; settings: MeetingSettings }
+  | { type: "MODERATION_ROLE"; participantId: string; role: ModerationRole }
+  | { type: "PRESENTER_CHANGED"; presenterId: string | null }
+  | { type: "CONNECTION_QUALITY"; participantId: string; quality: "good" | "fair" | "poor" }
   | { type: "RESET" };
 
 function meetingReducer(state: MeetingSnapshot | null, action: MeetingAction): MeetingSnapshot | null {
@@ -125,6 +133,26 @@ function meetingReducer(state: MeetingSnapshot | null, action: MeetingAction): M
           isHost: p.id === action.hostId,
         })),
       };
+    case "SETTINGS_CHANGED":
+      return { ...state, settings: action.settings };
+    case "MODERATION_ROLE":
+      return {
+        ...state,
+        participants: state.participants.map((p) =>
+          p.id === action.participantId
+            ? { ...p, moderationRole: action.role, isHost: action.role === "host" }
+            : p
+        ),
+      };
+    case "PRESENTER_CHANGED":
+      return { ...state, presenterId: action.presenterId };
+    case "CONNECTION_QUALITY":
+      return {
+        ...state,
+        participants: state.participants.map((p) =>
+          p.id === action.participantId ? { ...p, connectionQuality: action.quality } : p
+        ),
+      };
     default:
       return state;
   }
@@ -163,6 +191,18 @@ interface MeetingContextValue {
   setHandRaised: (raised: boolean) => void;
   setSelfLanguage: (language: string) => void;
   leaveMeeting: () => void;
+  // People held in the waiting room (host/co-host view only).
+  waitingList: WaitingAttendee[];
+  // Live state of the linked external Google Meet (companion sessions with
+  // the Unify extension installed); null until the first report arrives.
+  meetState: MeetBridgeState | null;
+  // Runs a Zoom-style host action, authorized server-side. Resolves with the
+  // server's verdict so the UI can surface a denial.
+  moderate: (
+    action: string,
+    targetId?: string,
+    value?: unknown
+  ) => Promise<{ ok: boolean; error?: string }>;
 }
 
 const MeetingContext = createContext<MeetingContextValue | null>(null);
@@ -173,6 +213,8 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [selfId, setSelfId] = useState<string | null>(null);
   const [meeting, dispatch] = useReducer(meetingReducer, null);
+  const [waitingList, setWaitingList] = useState<WaitingAttendee[]>([]);
+  const [meetState, setMeetState] = useState<MeetBridgeState | null>(null);
   const socketRef = useRef(getSocket());
 
   // Mirrors of the latest state for the "connect" handler below, which is
@@ -290,6 +332,43 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     socket.on("host-changed", ({ hostId }: { hostId: string }) => {
       dispatch({ type: "HOST_CHANGED", hostId });
     });
+    socket.on("meeting-settings", ({ settings }: { settings: MeetingSettings }) => {
+      dispatch({ type: "SETTINGS_CHANGED", settings });
+    });
+    socket.on(
+      "moderation-role",
+      ({ participantId, role }: { participantId: string; role: ModerationRole }) => {
+        dispatch({ type: "MODERATION_ROLE", participantId, role });
+      }
+    );
+    socket.on(
+      "presenter-changed",
+      ({ presenterId }: { presenterId: string | null }) => {
+        dispatch({ type: "PRESENTER_CHANGED", presenterId });
+      }
+    );
+    socket.on(
+      "connection-quality",
+      (payload: { participantId: string; quality: "good" | "fair" | "poor" }) => {
+        dispatch({ type: "CONNECTION_QUALITY", ...payload });
+      }
+    );
+    socket.on("waiting-updated", ({ waiting }: { waiting: WaitingAttendee[] }) => {
+      setWaitingList(waiting ?? []);
+    });
+    // Waiting-room resolution for OUR pending join.
+    socket.on("admitted", (payload: { meeting: MeetingSnapshot; selfId: string }) => {
+      setSelfId(payload.selfId);
+      dispatch({ type: "SNAPSHOT_LOADED", meeting: payload.meeting });
+      setConnectionStatus("connected");
+    });
+    socket.on("join-rejected", ({ reason }: { reason?: string }) => {
+      setConnectionStatus("error");
+      setConnectionError(reason ?? "El anfitrión no te admitió en la reunión.");
+    });
+    socket.on("meet-state", (state: MeetBridgeState) => {
+      setMeetState(state);
+    });
     socket.on("connect_error", (err: Error) => {
       // Don't get stuck on "error" mid-reconnect after we already had a
       // working session -- the socket keeps retrying on its own and the
@@ -320,6 +399,14 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
       socket.off("hand-raised");
       socket.off("language-changed");
       socket.off("host-changed");
+      socket.off("meeting-settings");
+      socket.off("moderation-role");
+      socket.off("presenter-changed");
+      socket.off("connection-quality");
+      socket.off("waiting-updated");
+      socket.off("admitted");
+      socket.off("join-rejected");
+      socket.off("meet-state");
       socket.off("connect_error");
     };
   }, []);
@@ -370,7 +457,13 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     if (!socket.connected) socket.connect();
 
     const onResult = (fallbackError: string) =>
-      (res: { ok: boolean; meeting?: MeetingSnapshot; selfId?: string; error?: string }) => {
+      (res: { ok: boolean; waiting?: boolean; meeting?: MeetingSnapshot; selfId?: string; error?: string }) => {
+        if (res.ok && res.waiting) {
+          // Held at the waiting room -- resolution arrives later as an
+          // "admitted" or "join-rejected" event.
+          setConnectionStatus("waiting");
+          return;
+        }
         if (res.ok && res.meeting && res.selfId) {
           setSelfId(res.selfId);
           dispatch({ type: "SNAPSHOT_LOADED", meeting: res.meeting });
@@ -447,6 +540,21 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     socketRef.current.emit("set-language", { language });
   }, []);
 
+  const moderate = useCallback(
+    (action: string, targetId?: string, value?: unknown): Promise<{ ok: boolean; error?: string }> => {
+      return new Promise((resolve) => {
+        socketRef.current.emit(
+          "moderate",
+          { action, targetId, value },
+          (res: { ok: boolean; error?: string } | undefined) => {
+            resolve(res ?? { ok: false, error: "Sin respuesta del servidor." });
+          }
+        );
+      });
+    },
+    []
+  );
+
   const leaveMeeting = useCallback(() => {
     const socket = socketRef.current;
     socket.emit("leave-meeting");
@@ -456,6 +564,8 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     setConnectionStatus("idle");
     setConnectionError(null);
     setDraft(null);
+    setWaitingList([]);
+    setMeetState(null);
   }, []);
 
   const self = useMemo(
@@ -492,6 +602,9 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     setHandRaised,
     setSelfLanguage,
     leaveMeeting,
+    waitingList,
+    meetState,
+    moderate,
   };
 
   return <MeetingContext.Provider value={value}>{children}</MeetingContext.Provider>;

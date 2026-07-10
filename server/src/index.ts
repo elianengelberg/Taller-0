@@ -461,6 +461,70 @@ io.on("connection", (socket) => {
   registerSocketHandlers(io, socket);
 });
 
+// ============================================================================
+// Google Meet bridge: the Unify browser extension (see /extension) scrapes
+// what Meet's page exposes and POSTs it here; we relay it into the matching
+// companion room ("google-meet:<code>") where the web app renders it live.
+// Meet has NO official API for third-party in-call state -- DOM observation
+// from an extension is the only technically possible integration, which is
+// why this input is treated as best-effort display data, never as authority
+// for anything (no moderation, no persistence beyond the transcript flow).
+// ============================================================================
+const MEET_CODE_RE = /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/;
+const meetBridgeLimiters = new Map<string, { windowStart: number; count: number }>();
+
+function allowMeetBridge(meetId: string): boolean {
+  const now = Date.now();
+  const entry = meetBridgeLimiters.get(meetId) ?? { windowStart: now, count: 0 };
+  if (now - entry.windowStart > 10_000) {
+    entry.windowStart = now;
+    entry.count = 0;
+  }
+  entry.count += 1;
+  meetBridgeLimiters.set(meetId, entry);
+  if (meetBridgeLimiters.size > 500) {
+    const firstKey = meetBridgeLimiters.keys().next().value;
+    if (firstKey !== undefined) meetBridgeLimiters.delete(firstKey);
+  }
+  return entry.count <= 40;
+}
+
+app.post("/api/meet-bridge/:meetId", (req, res) => {
+  const meetId = String(req.params.meetId).toLowerCase();
+  if (!MEET_CODE_RE.test(meetId)) {
+    res.status(400).json({ error: "Código de Meet inválido." });
+    return;
+  }
+  if (!allowMeetBridge(meetId)) {
+    res.status(429).json({ error: "Demasiadas actualizaciones." });
+    return;
+  }
+  const b = req.body ?? {};
+  // Whitelist + clamp every field: this endpoint is reachable by anyone who
+  // knows the meet code, so nothing here is trusted beyond display.
+  const state = {
+    meetId,
+    inCall: Boolean(b.inCall),
+    participantCount:
+      Number.isFinite(Number(b.participantCount)) && Number(b.participantCount) >= 0
+        ? Math.min(Math.floor(Number(b.participantCount)), 1000)
+        : null,
+    micMuted: typeof b.micMuted === "boolean" ? b.micMuted : null,
+    cameraOff: typeof b.cameraOff === "boolean" ? b.cameraOff : null,
+    presenting: typeof b.presenting === "boolean" ? b.presenting : null,
+    activeSpeakers: Array.isArray(b.activeSpeakers)
+      ? b.activeSpeakers.slice(0, 10).map((n: unknown) => String(n).slice(0, 60))
+      : [],
+    participants: Array.isArray(b.participants)
+      ? b.participants.slice(0, 100).map((n: unknown) => String(n).slice(0, 60))
+      : null,
+    at: Date.now(),
+  };
+  io.to(`meeting:GOOGLE-MEET:${meetId.toUpperCase()}`).emit("meet-state", state);
+  res.json({ ok: true });
+});
+
+
 httpServer.listen(PORT, () => {
   console.log(`Servidor de reuniones escuchando en el puerto ${PORT}`);
 });

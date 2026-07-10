@@ -4,10 +4,45 @@ export interface Role {
   colorIndex: number;
 }
 
+// Moderation hierarchy (Zoom-style), separate from the meeting's custom
+// role labels. Mirrors the server's type.
+export type ModerationRole = "host" | "cohost" | "participant";
+
+export type ChatMode = "everyone" | "hosts" | "off";
+export type SharePolicy = "everyone" | "hosts";
+
+export interface MeetingSettings {
+  locked: boolean;
+  waitingRoomEnabled: boolean;
+  chatMode: ChatMode;
+  sharePolicy: SharePolicy;
+}
+
+export interface WaitingAttendee {
+  id: string;
+  name: string;
+}
+
+// Live state of an external Google Meet, as reported by the Unify browser
+// extension through the meet-bridge endpoint. Best-effort: fields are null
+// when Meet's DOM didn't expose them.
+export interface MeetBridgeState {
+  meetId: string;
+  inCall: boolean;
+  participantCount: number | null;
+  micMuted: boolean | null;
+  cameraOff: boolean | null;
+  presenting: boolean | null;
+  activeSpeakers: string[];
+  participants: string[] | null;
+  at: number;
+}
+
 export interface Participant {
   id: string;
   name: string;
   isHost: boolean;
+  moderationRole: ModerationRole;
   roleId: string | null;
   language: string;
   muted: boolean;
@@ -15,6 +50,7 @@ export interface Participant {
   sharingScreen: boolean;
   handRaised: boolean;
   joinedAt: number;
+  connectionQuality: "good" | "fair" | "poor" | null;
 }
 
 export interface ChatMessage {
@@ -25,6 +61,9 @@ export interface ChatMessage {
   text: string;
   sourceLang: string;
   timestamp: number;
+  // True when the host limited chat to "hosts": this message was only
+  // delivered to the sender and the hosts.
+  toHostsOnly?: boolean;
 }
 
 export interface TranscriptLine {
@@ -46,6 +85,8 @@ export interface MeetingSnapshot {
   participants: Participant[];
   chat: ChatMessage[];
   transcript: TranscriptLine[];
+  settings: MeetingSettings;
+  presenterId: string | null;
 }
 
 // What the embedded pane actually renders for a companion session, per
@@ -54,7 +95,11 @@ export interface MeetingSnapshot {
 export type CompanionEmbed =
   | { kind: "jitsi"; roomName: string }
   | { kind: "zoom"; meetingNumber: string; passcode?: string }
-  | { kind: "teams"; meetingLink: string };
+  | { kind: "teams"; meetingLink: string }
+  // Google Meet can't be embedded (no SDK, frame-blocked): the real call
+  // opens in its own tab and the Unify extension feeds live state back
+  // through the meet-bridge (see MeetBridgeState).
+  | { kind: "meet"; meetCode: string; meetLink: string };
 
 export type MeetingDraft =
   | { mode: "host"; name: string; language: string; roleNames: string[] }
@@ -72,4 +117,5 @@ export type MeetingDraft =
       embed: CompanionEmbed;
     };
 
-export type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
+// "waiting" = held in the meeting's waiting room until a host admits us.
+export type ConnectionStatus = "idle" | "connecting" | "waiting" | "connected" | "error";

@@ -1,5 +1,5 @@
 import { ReactNode } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import AccountMenu from "../components/AccountMenu";
 import Button from "../components/Button";
 import GradientBackdrop from "../components/GradientBackdrop";
@@ -11,6 +11,9 @@ import { cardClass } from "../lib/ui";
 
 export default function Home() {
   const navigate = useNavigate();
+  const location = useLocation();
+  // One-shot notice from a meeting exit (kicked, meeting ended for all).
+  const notice = (location.state as { notice?: string } | null)?.notice ?? null;
   const { user } = useAuth();
   // A guest who skipped the post-call save prompt gets a second chance here,
   // on their next visit -- see SaveMeetingPrompt / unsavedMeeting.ts.
@@ -32,6 +35,11 @@ export default function Home() {
         </div>
       </header>
 
+      {notice && (
+        <div className="relative mx-5 mb-1 rounded-xl border border-ink-600 bg-ink-800 px-4 py-3 text-center text-sm text-strong shadow-soft sm:mx-10">
+          {notice}
+        </div>
+      )}
       {!user && (
         <div className="relative mx-5 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-3 text-center text-sm text-brand-200 sm:mx-10">
           {unsaved ? (

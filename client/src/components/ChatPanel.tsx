@@ -16,6 +16,9 @@ export default function ChatPanel({ onClose, side }: { onClose: () => void; side
 
   const chat = meeting?.chat ?? [];
   const hostLang = hostParticipant?.language ?? "es-AR";
+  const chatMode = meeting?.settings.chatMode ?? "everyone";
+  const amModerator = self ? self.moderationRole !== "participant" : false;
+  const chatDisabledForMe = chatMode === "off" && !amModerator;
 
   // Follow new entries only when the reader is already at (or near) the
   // bottom -- yanking someone to the bottom while they're scrolled up
@@ -87,7 +90,14 @@ export default function ChatPanel({ onClose, side }: { onClose: () => void; side
         <form onSubmit={handleSubmit} className="flex items-center gap-2">
           <input
             className={`${inputClass} py-2.5 text-sm`}
-            placeholder="Escribí un mensaje…"
+            disabled={chatDisabledForMe}
+            placeholder={
+              chatDisabledForMe
+                ? "El anfitrión desactivó el chat"
+                : chatMode === "hosts" && !amModerator
+                  ? "Solo el anfitrión verá tu mensaje…"
+                  : "Escribí un mensaje…"
+            }
             value={text}
             onChange={(e) => setText(e.target.value)}
             maxLength={2000}
@@ -96,7 +106,7 @@ export default function ChatPanel({ onClose, side }: { onClose: () => void; side
             type="submit"
             aria-label="Enviar mensaje"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-500 text-on-accent transition hover:bg-brand-600 disabled:opacity-50"
-            disabled={!text.trim()}
+            disabled={!text.trim() || chatDisabledForMe}
           >
             <SendIcon className="h-4 w-4" />
           </button>
@@ -119,6 +129,11 @@ export default function ChatPanel({ onClose, side }: { onClose: () => void; side
                   <span className="font-semibold text-ink-100">
                     {isSelf ? "Vos" : message.senderName}
                   </span>
+                  {message.toHostsOnly && (
+                    <span className="rounded-full bg-ink-700 px-1.5 py-0.5 text-[10px] text-ink-300">
+                      solo anfitriones
+                    </span>
+                  )}
                   {role && <RoleBadge role={role} size="sm" />}
                 </div>
                 <div

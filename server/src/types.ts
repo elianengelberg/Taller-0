@@ -4,10 +4,25 @@ export interface Role {
   colorIndex: number;
 }
 
+// Moderation hierarchy (Zoom-style). Separate from the meeting's custom
+// "roles" (job labels): this one gates what actions you can perform.
+// Extending it later (e.g. "observer") = add a literal here + a rank below.
+export type ModerationRole = "host" | "cohost" | "participant";
+
+export const MODERATION_RANK: Record<ModerationRole, number> = {
+  host: 2,
+  cohost: 1,
+  participant: 0,
+};
+
+export type ChatMode = "everyone" | "hosts" | "off";
+export type SharePolicy = "everyone" | "hosts";
+
 export interface Participant {
   id: string;
   name: string;
   isHost: boolean;
+  moderationRole: ModerationRole;
   roleId: string | null;
   language: string;
   muted: boolean;
@@ -15,6 +30,8 @@ export interface Participant {
   sharingScreen: boolean;
   handRaised: boolean;
   joinedAt: number;
+  // Self-reported socket round-trip tier, for the host's participant list.
+  connectionQuality: "good" | "fair" | "poor" | null;
 }
 
 export interface ChatMessage {
@@ -25,6 +42,9 @@ export interface ChatMessage {
   text: string;
   sourceLang: string;
   timestamp: number;
+  // True when chatMode is "hosts": the message was delivered only to the
+  // sender and the hosts, not the whole room.
+  toHostsOnly?: boolean;
 }
 
 export interface TranscriptLine {
@@ -39,6 +59,19 @@ export interface TranscriptLine {
   // someone else in the meeting (keyed by short language code), attached at
   // broadcast time so most viewers don't need a separate translate request.
   translations?: Record<string, string>;
+}
+
+export interface MeetingSettings {
+  locked: boolean;
+  waitingRoomEnabled: boolean;
+  chatMode: ChatMode;
+  sharePolicy: SharePolicy;
+}
+
+export interface WaitingAttendee {
+  id: string; // socket id of the waiting connection
+  name: string;
+  language: string;
 }
 
 export interface Meeting {
@@ -65,6 +98,19 @@ export interface Meeting {
   pendingHostReclaim: { participantId: string; expiresAt: number } | null;
   chat: ChatMessage[];
   transcript: TranscriptLine[];
+  // --- Moderation state (Zoom-style host controls) ---
+  settings: MeetingSettings;
+  // The ONE participant currently sharing their screen (null = nobody).
+  // Enforced server-side: a second share attempt is rejected until this
+  // clears (stop, leave or host intervention).
+  presenterId: string | null;
+  // People held at the door while the waiting room is on.
+  waiting: Map<string, WaitingAttendee>;
+  // Kicked people can't immediately rejoin. Keyed by normalized display
+  // name -- the only identity a guest has (see kick handler note).
+  bannedNames: Set<string>;
+  // True once a host explicitly ended the meeting for everyone.
+  endedByHost: boolean;
 }
 
 export interface MeetingSnapshot {
@@ -75,6 +121,8 @@ export interface MeetingSnapshot {
   participants: Participant[];
   chat: ChatMessage[];
   transcript: TranscriptLine[];
+  settings: MeetingSettings;
+  presenterId: string | null;
 }
 
 export function toSnapshot(meeting: Meeting): MeetingSnapshot {
@@ -86,5 +134,7 @@ export function toSnapshot(meeting: Meeting): MeetingSnapshot {
     participants: Array.from(meeting.participants.values()),
     chat: meeting.chat,
     transcript: meeting.transcript,
+    settings: meeting.settings,
+    presenterId: meeting.presenterId,
   };
 }

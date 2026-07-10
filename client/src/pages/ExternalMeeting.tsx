@@ -4,6 +4,7 @@ import AiChatBox from "../components/AiChatBox";
 import IconButton from "../components/IconButton";
 import JitsiEmbed from "../components/JitsiEmbed";
 import LiveCaption from "../components/LiveCaption";
+import MeetCompanionPane from "../components/MeetCompanionPane";
 import Logo from "../components/Logo";
 import RecordingBanner from "../components/RecordingBanner";
 import SaveMeetingPrompt from "../components/SaveMeetingPrompt";
@@ -57,6 +58,8 @@ function CompanionEmbedPane({
       );
     case "teams":
       return <TeamsEmbed meetingLink={embed.meetingLink} displayName={displayName} onLeave={onLeave} />;
+    case "meet":
+      return <MeetCompanionPane meetLink={embed.meetLink} meetCode={embed.meetCode} />;
   }
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import { Participant, Role } from "../types";
 import { HandIcon, ScreenShareIcon } from "./icons";
 import RoleBadge from "./RoleBadge";
@@ -10,12 +10,16 @@ interface Props {
   isSelf: boolean;
   speakerId?: string | null;
   speaking?: boolean;
+  // Presenter mode: fill the parent's height instead of keeping a 16:9 box,
+  // and letterbox the content (object-contain) so a shared document/window
+  // never gets cropped or deformed.
+  fill?: boolean;
 }
 
 // setSinkId is non-standard and typed loosely across browsers.
 type WithSinkId = HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> };
 
-export default function ParticipantTile({ participant, role, stream, isSelf, speakerId, speaking }: Props) {
+function ParticipantTile({ participant, role, stream, isSelf, speakerId, speaking, fill }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -46,7 +50,9 @@ export default function ParticipantTile({ participant, role, stream, isSelf, spe
 
   return (
     <div
-      className={`relative flex aspect-video items-center justify-center overflow-hidden rounded-2xl bg-ink-900 shadow-lg ring-1 ring-white/[0.06] transition-all duration-150 ${speakingRing}`}
+      className={`relative flex items-center justify-center overflow-hidden rounded-2xl shadow-lg ring-1 ring-white/[0.06] transition-all duration-150 ${
+        fill ? "h-full w-full bg-black" : "aspect-video bg-ink-900"
+      } ${speakingRing}`}
     >
       {/* Always keep <video> mounted once we have a stream: conditionally
           rendering it in/out of the tree meant the DOM node (and its
@@ -59,9 +65,10 @@ export default function ParticipantTile({ participant, role, stream, isSelf, spe
           autoPlay
           playsInline
           muted={isSelf}
-          className={`h-full w-full object-cover ${
-            isSelf && !participant.sharingScreen ? "-scale-x-100" : ""
-          } ${showVideo ? "" : "hidden"
+          className={`h-full w-full ${
+            participant.sharingScreen ? "object-contain" : "object-cover"
+          } ${isSelf && !participant.sharingScreen ? "-scale-x-100" : ""} ${
+            showVideo ? "" : "hidden"
           }`}
         />
       )}
@@ -112,6 +119,11 @@ export default function ParticipantTile({ participant, role, stream, isSelf, spe
     </div>
   );
 }
+
+// Memoized: in a large meeting every roster update creates a new
+// participants array, but unchanged participants keep their object identity
+// (see meetingReducer), so this skips re-rendering every other tile.
+export default memo(ParticipantTile);
 
 function initials(name: string): string {
   return name.trim().slice(0, 2).toUpperCase() || "?";

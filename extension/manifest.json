@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Unify para Google Meet",
+  "version": "1.0.0",
+  "description": "Sincroniza tu reunión de Google Meet con Unify: estado en vivo de la llamada junto a los subtítulos, traducción e IA de Unify.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://meet.google.com/*",
+    "https://taller-0.onrender.com/*",
+    "http://localhost:4000/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": { "default_title": "Unify para Google Meet" }
+}

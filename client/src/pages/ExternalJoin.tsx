@@ -72,6 +72,18 @@ export default function ExternalJoin() {
       return;
     }
 
+    if (target.platform === "google-meet" && target.meetingId && target.url) {
+      const code = target.meetingId;
+      startCompanionDraft({
+        ...base,
+        externalKey: `google-meet:${code}`,
+        roomLabel: `Google Meet · ${code}`,
+        embed: { kind: "meet", meetCode: code, meetLink: target.url },
+      });
+      navigate("/externa/reunion");
+      return;
+    }
+
     if (target.platform === "microsoft-teams" && target.url) {
       startCompanionDraft({
         ...base,
@@ -202,8 +214,11 @@ function DetectionResult({
   // (A Zoom personal/vanity link, or an incomplete paste, can be "embed"-capable
   // yet have no number, in which case we can't join it.)
   const canEmbed =
-    info.joinMode === "embed" &&
-    (platform === "microsoft-teams" ? Boolean(url) : Boolean(meetingId));
+    (info.joinMode === "embed" &&
+      (platform === "microsoft-teams" ? Boolean(url) : Boolean(meetingId))) ||
+    // Meet can't be embedded, but with the Unify extension the call syncs
+    // live into a companion room -- so it gets the in-app join too.
+    (platform === "google-meet" && Boolean(meetingId) && Boolean(url));
 
   return (
     <div className="mt-5 rounded-xl border border-ink-700 bg-ink-900/60 p-4">
@@ -242,7 +257,7 @@ function DetectionResult({
         <>
           <p className="mt-2 text-xs text-ink-400">
             {info.joinMode === "overlay-extension"
-              ? "Esta plataforma no permite embeberse; se integra con una extensión del navegador (próximamente)."
+              ? "No pudimos extraer el código de la reunión del enlace. Pegá el enlace completo de Meet (meet.google.com/xxx-xxxx-xxx)."
               : info.joinMode === "embed"
                 ? "No pudimos extraer el número de la reunión del enlace. Pegá el enlace completo (con el número) para unirte acá dentro."
                 : "La conexión embebida a esta plataforma todavía no está disponible. Por ahora podés abrirla en su propia página."}

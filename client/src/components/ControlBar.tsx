@@ -1,5 +1,6 @@
 import IconButton from "./IconButton";
 import ShareMenu from "./ShareMenu";
+import { showToast } from "../lib/toasts";
 import {
   CameraIcon,
   CameraOffIcon,
@@ -13,6 +14,7 @@ import {
   RecordIcon,
   ScreenShareIcon,
   SettingsIcon,
+  ShieldIcon,
   SparklesIcon,
   StopIcon,
   TranscriptIcon,
@@ -50,6 +52,13 @@ interface ControlBarProps {
   onToggleRecording: () => void;
   sharingScreen: boolean;
   onToggleScreenShare: () => void;
+  // Someone ELSE is presenting (name given): the share button explains
+  // instead of starting a second share -- only one presenter at a time.
+  shareBlockedBy?: string | null;
+  // Host/co-host only: the moderation panel toggle. Hidden for participants.
+  showHostControls?: boolean;
+  hostControlsOpen?: boolean;
+  onToggleHostControls?: () => void;
   settingsOpen: boolean;
   onToggleSettings: () => void;
   onLeave: () => void;
@@ -79,6 +88,10 @@ export default function ControlBar({
   onToggleRecording,
   sharingScreen,
   onToggleScreenShare,
+  shareBlockedBy,
+  showHostControls,
+  hostControlsOpen,
+  onToggleHostControls,
   settingsOpen,
   onToggleSettings,
   onLeave,
@@ -148,10 +161,24 @@ export default function ControlBar({
 
         {/* Meeting features -- shared with everyone in the call. */}
         <IconButton
-          label={sharingScreen ? "Dejar de compartir pantalla" : "Compartir pantalla"}
-          caption={sharingScreen ? "Compartiendo" : "Compartir"}
+          label={
+            sharingScreen
+              ? "Dejar de compartir pantalla"
+              : shareBlockedBy
+                ? `${shareBlockedBy} ya está compartiendo su pantalla`
+                : "Compartir pantalla"
+          }
+          caption={sharingScreen ? "Compartiendo" : shareBlockedBy ? "En uso" : "Compartir"}
           active={sharingScreen}
-          onClick={onToggleScreenShare}
+          onClick={
+            shareBlockedBy && !sharingScreen
+              ? () =>
+                  showToast({
+                    text: `${shareBlockedBy} ya está compartiendo su pantalla. Cuando termine, vas a poder compartir la tuya.`,
+                    kind: "info",
+                  })
+              : onToggleScreenShare
+          }
         >
           <ScreenShareIcon className="h-5 w-5" />
         </IconButton>
@@ -206,6 +233,16 @@ export default function ControlBar({
         >
           {recording ? <StopIcon className="h-5 w-5" /> : <RecordIcon className="h-5 w-5" />}
         </IconButton>
+        {showHostControls && (
+          <IconButton
+            label="Controles del anfitrión: permisos, sala de espera y seguridad"
+            caption="Anfitrión"
+            active={hostControlsOpen}
+            onClick={onToggleHostControls}
+          >
+            <ShieldIcon className="h-5 w-5" />
+          </IconButton>
+        )}
         <IconButton
           label="Opciones: elegir micrófono, cámara y parlante"
           caption="Opciones"

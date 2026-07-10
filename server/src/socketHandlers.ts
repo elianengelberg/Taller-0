@@ -16,7 +16,7 @@ import {
 } from "./meetingStore";
 import { cleanTranscriptFragment, translateFragmentToAll } from "./transcriptCleanup";
 import { shortLang, translateText } from "./translate";
-import { Meeting, toSnapshot, TranscriptLine } from "./types";
+import { ChatMode, Meeting, MODERATION_RANK, ModerationRole, Participant, SharePolicy, toSnapshot, TranscriptLine } from "./types";
 
 const MAX_NAME_LENGTH = 60;
 const MAX_ROLE_NAME_LENGTH = 40;
@@ -31,12 +31,13 @@ const MAX_ROLES_PER_MEETING = 50;
 // Companion keys are "zoom:<num>" / "teams:<threadId>" / a fallback URL --
 // never anywhere near this long legitimately.
 const MAX_EXTERNAL_KEY_CHARS = 512;
-// Native meetings run a WebRTC mesh (everyone connects to everyone), which
-// degrades sharply past ~a dozen people -- each participant uploads their
-// video N-1 times. Cap it with a clear message instead of letting meeting
-// quality quietly collapse. Companion rooms carry no media (the external
-// platform does), so their cap is only an anti-abuse sanity bound.
-const MAX_PARTICIPANTS_NATIVE = 12;
+// Native meetings run a WebRTC mesh (everyone connects to everyone): with N
+// participants each browser uploads its video N-1 times, so video quality on
+// weak connections degrades well before this cap -- participants can always
+// turn cameras off (audio + captions stay light). The hard cap exists so the
+// room stays functional instead of quietly collapsing. Companion rooms carry
+// no media of ours, so their cap is only an anti-abuse sanity bound.
+const MAX_PARTICIPANTS_NATIVE = 30;
 const MAX_PARTICIPANTS_COMPANION = 100;
 
 // Deliberately generous per-socket rate caps -- far above anything a real
@@ -63,6 +64,42 @@ function roomName(meetingId: string): string {
 
 function requireHost(meeting: Meeting, socketId: string): boolean {
   return meeting.hostId === socketId;
+}
+
+function moderationRoleOf(meeting: Meeting, socketId: string): ModerationRole | null {
+  return meeting.participants.get(socketId)?.moderationRole ?? null;
+}
+
+// Can `actor` act on `target`? Equal or higher rank is protected: a co-host
+// can moderate participants but never another co-host or the host.
+function canModerate(meeting: Meeting, actorId: string, targetId: string): boolean {
+  const actor = moderationRoleOf(meeting, actorId);
+  const target = moderationRoleOf(meeting, targetId);
+  if (!actor || !target) return false;
+  return MODERATION_RANK[actor] > MODERATION_RANK[target];
+}
+
+function normalizedName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+function broadcastSettings(io: Server, meeting: Meeting): void {
+  io.to(roomName(meeting.id)).emit("meeting-settings", { settings: meeting.settings });
+}
+
+function broadcastWaitingToHosts(io: Server, meeting: Meeting): void {
+  const waiting = Array.from(meeting.waiting.values()).map((w) => ({ id: w.id, name: w.name }));
+  for (const p of meeting.participants.values()) {
+    if (p.moderationRole !== "participant") {
+      io.to(p.id).emit("waiting-updated", { waiting });
+    }
+  }
+}
+
+function clearPresenterIf(io: Server, meeting: Meeting, participantId: string): void {
+  if (meeting.presenterId !== participantId) return;
+  meeting.presenterId = null;
+  io.to(roomName(meeting.id)).emit("presenter-changed", { presenterId: null, presenterName: null });
 }
 
 function roleNameFor(meeting: Meeting, roleId: string | null): string | null {
@@ -199,6 +236,28 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
           });
           return;
         }
+        if (meeting.bannedNames.has(normalizedName(name))) {
+          ack?.({ ok: false, error: "El anfitrión te quitó de esta reunión." });
+          return;
+        }
+        // A returning host (resume) never gets stopped at the door by their
+        // own lock/waiting room.
+        const isReturningHost =
+          meeting.pendingHostReclaim &&
+          resumeParticipantId &&
+          meeting.pendingHostReclaim.participantId === resumeParticipantId &&
+          Date.now() < meeting.pendingHostReclaim.expiresAt;
+        if (meeting.settings.locked && !isReturningHost) {
+          ack?.({ ok: false, error: "La reunión está bloqueada por el anfitrión." });
+          return;
+        }
+        if (meeting.settings.waitingRoomEnabled && !isReturningHost && meeting.participants.size > 0) {
+          meeting.waiting.set(socket.id, { id: socket.id, name, language });
+          currentMeetingId = meeting.id;
+          broadcastWaitingToHosts(io, meeting);
+          ack?.({ ok: true, waiting: true });
+          return;
+        }
 
         cancelMeetingCleanup(meeting.id);
         // If everyone had left (meeting was just sitting in its grace
@@ -221,10 +280,18 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
           Date.now() < reclaim.expiresAt
         ) {
           const currentHost = meeting.participants.get(meeting.hostId);
-          if (currentHost) currentHost.isHost = false;
+          if (currentHost) {
+            currentHost.isHost = false;
+            // The stand-in keeps co-host powers instead of dropping to
+            // participant -- they were trusted enough to run the room.
+            currentHost.moderationRole = "cohost";
+            io.to(roomName(meeting.id)).emit("moderation-role", { participantId: currentHost.id, role: "cohost" });
+          }
           participant.isHost = true;
+          participant.moderationRole = "host";
           meeting.hostId = participant.id;
           meeting.pendingHostReclaim = null;
+          io.to(roomName(meeting.id)).emit("moderation-role", { participantId: participant.id, role: "host" });
           io.to(roomName(meeting.id)).emit("host-changed", { hostId: participant.id });
         }
 
@@ -354,7 +421,24 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
     const text = String(payload?.text ?? "").trim();
     if (!text) return ack?.({ ok: false, error: "Mensaje vacío." });
 
+    const isModerator = sender.moderationRole !== "participant";
+    if (meeting.settings.chatMode === "off" && !isModerator) {
+      return ack?.({ ok: false, error: "El anfitrión desactivó el chat." });
+    }
+
     const message = addChatMessage(meeting, sender, text);
+    if (meeting.settings.chatMode === "hosts" && !isModerator) {
+      // Deliver only to the hosts (and echo to the sender) -- Zoom's
+      // "chat with host only" mode.
+      message.toHostsOnly = true;
+      for (const p of meeting.participants.values()) {
+        if (p.moderationRole !== "participant" || p.id === sender.id) {
+          io.to(p.id).emit("chat-message", { message });
+        }
+      }
+    } else {
+      io.to(roomName(meeting.id)).emit("chat-message", { message });
+    }
     void db.recordMessage({
       meetingId: meeting.dbId,
       kind: "chat",
@@ -363,7 +447,6 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       text: message.text,
       sourceLang: message.sourceLang,
     });
-    io.to(roomName(meeting.id)).emit("chat-message", { message });
     ack?.({ ok: true });
   });
 
@@ -570,15 +653,67 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
     });
   });
 
-  socket.on("screen-share", (payload: { sharing?: boolean }) => {
+  socket.on("screen-share", (payload: { sharing?: boolean }, ack) => {
+    const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
+    if (!meeting) return ack?.({ ok: false });
+    const participant = meeting.participants.get(socket.id);
+    if (!participant) return ack?.({ ok: false });
+    const wantsToShare = Boolean(payload?.sharing);
+
+    if (wantsToShare) {
+      // Zoom rule: exactly ONE active presenter, enforced here (the client
+      // disables its button too, but the server is the authority).
+      if (meeting.presenterId && meeting.presenterId !== participant.id) {
+        const current = meeting.participants.get(meeting.presenterId);
+        socket.emit("share-denied", {
+          reason: `${current?.name ?? "Otra persona"} ya está compartiendo su pantalla.`,
+        });
+        return ack?.({ ok: false, error: "Ya hay una pantalla compartida." });
+      }
+      if (meeting.settings.sharePolicy === "hosts" && participant.moderationRole === "participant") {
+        socket.emit("share-denied", {
+          reason: "El anfitrión limitó el compartir pantalla a los anfitriones.",
+        });
+        return ack?.({ ok: false, error: "Compartir pantalla está restringido." });
+      }
+      meeting.presenterId = participant.id;
+      participant.sharingScreen = true;
+      io.to(roomName(meeting.id)).emit("presenter-changed", {
+        presenterId: participant.id,
+        presenterName: participant.name,
+      });
+    } else if (participant.sharingScreen) {
+      participant.sharingScreen = false;
+      clearPresenterIf(io, meeting, participant.id);
+    }
+
+    io.to(roomName(meeting.id)).emit("screen-share", {
+      participantId: participant.id,
+      sharingScreen: participant.sharingScreen,
+    });
+    ack?.({ ok: true });
+  });
+
+  // Instant echo so the client can measure its own socket round trip.
+  socket.on("quality-ping", (ack?: () => void) => {
+    if (typeof ack === "function") ack();
+  });
+
+  // Self-reported socket round trip, mapped to a coarse tier shown in the
+  // participants panel. Only broadcast when the tier actually changes.
+  socket.on("connection-quality", (payload: { rtt?: number }) => {
     const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
     if (!meeting) return;
     const participant = meeting.participants.get(socket.id);
     if (!participant) return;
-    participant.sharingScreen = Boolean(payload?.sharing);
-    io.to(roomName(meeting.id)).emit("screen-share", {
+    const rtt = Number(payload?.rtt);
+    if (!Number.isFinite(rtt) || rtt < 0) return;
+    const quality = rtt < 150 ? "good" : rtt < 400 ? "fair" : "poor";
+    if (participant.connectionQuality === quality) return;
+    participant.connectionQuality = quality;
+    io.to(roomName(meeting.id)).emit("connection-quality", {
       participantId: participant.id,
-      sharingScreen: participant.sharingScreen,
+      quality,
     });
   });
 
@@ -594,6 +729,261 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
     });
   });
 
+
+  // =========================================================================
+  // Moderation: every Zoom-style host action arrives through this one event
+  // and is authorized SERVER-SIDE. The client hiding a button is cosmetic --
+  // a hand-crafted socket message from a participant gets rejected here.
+  //
+  //   host-only:            make-cohost, remove-cohost, transfer-host,
+  //                         end-meeting
+  //   host or co-host:      everything else (never against an equal or
+  //                         higher rank -- see canModerate)
+  // =========================================================================
+  type ModerateAction =
+    | "mute"
+    | "mute-all"
+    | "request-unmute"
+    | "request-camera-on"
+    | "request-camera-off"
+    | "lower-hand"
+    | "stop-share"
+    | "kick"
+    | "make-cohost"
+    | "remove-cohost"
+    | "transfer-host"
+    | "end-meeting"
+    | "admit"
+    | "reject"
+    | "set-lock"
+    | "set-waiting-room"
+    | "set-chat-mode"
+    | "set-share-policy";
+
+  const HOST_ONLY: ReadonlySet<ModerateAction> = new Set([
+    "make-cohost",
+    "remove-cohost",
+    "transfer-host",
+    "end-meeting",
+  ]);
+
+  socket.on(
+    "moderate",
+    (payload: { action?: ModerateAction; targetId?: string; value?: unknown }, ack) => {
+      const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
+      if (!meeting) return ack?.({ ok: false, error: "Reunión no encontrada." });
+      const actor = meeting.participants.get(socket.id);
+      const action = payload?.action;
+      if (!actor || !action) return ack?.({ ok: false, error: "Acción inválida." });
+
+      if (actor.moderationRole === "participant") {
+        return ack?.({ ok: false, error: "Solo el anfitrión puede hacer eso." });
+      }
+      if (HOST_ONLY.has(action) && actor.moderationRole !== "host") {
+        return ack?.({ ok: false, error: "Solo el anfitrión principal puede hacer eso." });
+      }
+
+      const room = roomName(meeting.id);
+      const targetId = typeof payload?.targetId === "string" ? payload.targetId : "";
+      const target = meeting.participants.get(targetId);
+
+      // Per-person actions need a valid target the actor outranks.
+      const perPerson: ModerateAction[] = [
+        "mute", "request-unmute", "request-camera-on", "request-camera-off",
+        "lower-hand", "stop-share", "kick", "make-cohost", "remove-cohost", "transfer-host",
+      ];
+      if (perPerson.includes(action)) {
+        if (!target) return ack?.({ ok: false, error: "Participante no encontrado." });
+        // transfer/make-cohost target any participant below host rank; the
+        // rest require strict rank superiority too (same check).
+        if (!canModerate(meeting, actor.id, target.id)) {
+          return ack?.({ ok: false, error: "No podés moderar a otro anfitrión." });
+        }
+      }
+
+      switch (action) {
+        case "mute": {
+          target!.muted = true;
+          io.to(room).emit("media-state", {
+            participantId: target!.id,
+            muted: true,
+            cameraOff: target!.cameraOff,
+          });
+          io.to(target!.id).emit("force-muted", { by: actor.name });
+          return ack?.({ ok: true });
+        }
+        case "mute-all": {
+          for (const p of meeting.participants.values()) {
+            if (p.moderationRole !== "participant" || p.muted) continue;
+            p.muted = true;
+            io.to(room).emit("media-state", { participantId: p.id, muted: true, cameraOff: p.cameraOff });
+            io.to(p.id).emit("force-muted", { by: actor.name });
+          }
+          return ack?.({ ok: true });
+        }
+        case "request-unmute":
+        case "request-camera-on":
+        case "request-camera-off": {
+          // The browser can't remote-control someone's devices (by design):
+          // these send a polite prompt the person accepts or ignores.
+          const kind = action.replace("request-", "") as "unmute" | "camera-on" | "camera-off";
+          io.to(target!.id).emit("moderation-request", { kind, by: actor.name });
+          return ack?.({ ok: true });
+        }
+        case "lower-hand": {
+          target!.handRaised = false;
+          io.to(room).emit("hand-raised", { participantId: target!.id, raised: false });
+          return ack?.({ ok: true });
+        }
+        case "stop-share": {
+          if (meeting.presenterId !== target!.id) return ack?.({ ok: false, error: "No está compartiendo." });
+          target!.sharingScreen = false;
+          clearPresenterIf(io, meeting, target!.id);
+          io.to(room).emit("screen-share", { participantId: target!.id, sharingScreen: false });
+          io.to(target!.id).emit("share-stopped-by-host", { by: actor.name });
+          return ack?.({ ok: true });
+        }
+        case "kick": {
+          // Guests have no durable identity, so the ban is by display name:
+          // it stops the immediate "rejoin with the same name" case, which
+          // is the realistic abuse here. (A determined person can rename --
+          // a real account-level ban needs authenticated-only meetings.)
+          meeting.bannedNames.add(normalizedName(target!.name));
+          io.to(target!.id).emit("kicked", { by: actor.name });
+          const departed = removeParticipant(meeting, target!.id);
+          io.sockets.sockets.get(target!.id)?.leave(room);
+          if (departed) {
+            io.to(room).emit("participant-left", { participantId: departed.id });
+            clearPresenterIf(io, meeting, departed.id);
+            persistParticipants(meeting);
+          }
+          scheduleMeetingCleanupIfEmpty(meeting.id);
+          return ack?.({ ok: true });
+        }
+        case "make-cohost": {
+          target!.moderationRole = "cohost";
+          io.to(room).emit("moderation-role", { participantId: target!.id, role: "cohost" });
+          broadcastWaitingToHosts(io, meeting);
+          return ack?.({ ok: true });
+        }
+        case "remove-cohost": {
+          if (target!.moderationRole !== "cohost") return ack?.({ ok: false, error: "No es co-anfitrión." });
+          target!.moderationRole = "participant";
+          io.to(room).emit("moderation-role", { participantId: target!.id, role: "participant" });
+          return ack?.({ ok: true });
+        }
+        case "transfer-host": {
+          actor.isHost = false;
+          actor.moderationRole = "cohost";
+          target!.isHost = true;
+          target!.moderationRole = "host";
+          meeting.hostId = target!.id;
+          meeting.pendingHostReclaim = null;
+          io.to(room).emit("moderation-role", { participantId: actor.id, role: "cohost" });
+          io.to(room).emit("moderation-role", { participantId: target!.id, role: "host" });
+          io.to(room).emit("host-changed", { hostId: target!.id });
+          persistParticipants(meeting);
+          return ack?.({ ok: true });
+        }
+        case "end-meeting": {
+          meeting.endedByHost = true;
+          io.to(room).emit("meeting-ended", { by: actor.name });
+          for (const p of meeting.participants.values()) {
+            io.sockets.sockets.get(p.id)?.leave(room);
+          }
+          meeting.participants.clear();
+          for (const w of meeting.waiting.values()) {
+            io.to(w.id).emit("join-rejected", { reason: "La reunión terminó." });
+          }
+          meeting.waiting.clear();
+          persistParticipants(meeting);
+          scheduleMeetingCleanupIfEmpty(meeting.id);
+          return ack?.({ ok: true });
+        }
+        case "admit": {
+          const attendee = meeting.waiting.get(targetId);
+          if (!attendee) return ack?.({ ok: false, error: "Ya no está esperando." });
+          meeting.waiting.delete(targetId);
+          const attendeeSocket = io.sockets.sockets.get(attendee.id);
+          if (!attendeeSocket) {
+            broadcastWaitingToHosts(io, meeting);
+            return ack?.({ ok: false, error: "Esa persona ya se fue." });
+          }
+          const participant = addParticipant(meeting, attendee.id, attendee.name, attendee.language, false);
+          attendeeSocket.join(room);
+          attendeeSocket.to(room).emit("participant-joined", { participant });
+          io.to(attendee.id).emit("admitted", { meeting: toSnapshot(meeting), selfId: attendee.id });
+          persistParticipants(meeting);
+          broadcastWaitingToHosts(io, meeting);
+          return ack?.({ ok: true });
+        }
+        case "reject": {
+          const attendee = meeting.waiting.get(targetId);
+          if (!attendee) return ack?.({ ok: false, error: "Ya no está esperando." });
+          meeting.waiting.delete(targetId);
+          io.to(attendee.id).emit("join-rejected", { reason: "El anfitrión no te admitió en la reunión." });
+          broadcastWaitingToHosts(io, meeting);
+          return ack?.({ ok: true });
+        }
+        case "set-lock": {
+          meeting.settings.locked = Boolean(payload?.value);
+          broadcastSettings(io, meeting);
+          return ack?.({ ok: true });
+        }
+        case "set-waiting-room": {
+          meeting.settings.waitingRoomEnabled = Boolean(payload?.value);
+          if (!meeting.settings.waitingRoomEnabled) {
+            // Turning it off lets everyone currently waiting straight in.
+            for (const attendee of Array.from(meeting.waiting.values())) {
+              meeting.waiting.delete(attendee.id);
+              const attendeeSocket = io.sockets.sockets.get(attendee.id);
+              if (!attendeeSocket) continue;
+              const participant = addParticipant(meeting, attendee.id, attendee.name, attendee.language, false);
+              attendeeSocket.join(room);
+              attendeeSocket.to(room).emit("participant-joined", { participant });
+              io.to(attendee.id).emit("admitted", { meeting: toSnapshot(meeting), selfId: attendee.id });
+            }
+            persistParticipants(meeting);
+          }
+          broadcastSettings(io, meeting);
+          broadcastWaitingToHosts(io, meeting);
+          return ack?.({ ok: true });
+        }
+        case "set-chat-mode": {
+          const value = payload?.value;
+          if (value !== "everyone" && value !== "hosts" && value !== "off") {
+            return ack?.({ ok: false, error: "Modo de chat inválido." });
+          }
+          meeting.settings.chatMode = value as ChatMode;
+          broadcastSettings(io, meeting);
+          return ack?.({ ok: true });
+        }
+        case "set-share-policy": {
+          const value = payload?.value;
+          if (value !== "everyone" && value !== "hosts") {
+            return ack?.({ ok: false, error: "Política inválida." });
+          }
+          meeting.settings.sharePolicy = value as SharePolicy;
+          // If a participant is presenting and sharing becomes hosts-only,
+          // their share ends now (Zoom does the same).
+          if (value === "hosts" && meeting.presenterId) {
+            const presenter = meeting.participants.get(meeting.presenterId);
+            if (presenter && presenter.moderationRole === "participant") {
+              presenter.sharingScreen = false;
+              clearPresenterIf(io, meeting, presenter.id);
+              io.to(room).emit("screen-share", { participantId: presenter.id, sharingScreen: false });
+              io.to(presenter.id).emit("share-stopped-by-host", { by: actor.name });
+            }
+          }
+          broadcastSettings(io, meeting);
+          return ack?.({ ok: true });
+        }
+        default:
+          return ack?.({ ok: false, error: "Acción desconocida." });
+      }
+    }
+  );
+
   socket.on("leave-meeting", () => {
     handleDeparture();
   });
@@ -608,8 +998,14 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
     currentMeetingId = null;
     if (!meeting) return;
 
+    // Someone who was still in the waiting room just left/gave up.
+    if (meeting.waiting.delete(socket.id)) {
+      broadcastWaitingToHosts(io, meeting);
+    }
+
     const departed = removeParticipant(meeting, socket.id);
     if (!departed) return;
+    clearPresenterIf(io, meeting, departed.id);
 
     socket.leave(roomName(meeting.id));
     io.to(roomName(meeting.id)).emit("participant-left", { participantId: departed.id });

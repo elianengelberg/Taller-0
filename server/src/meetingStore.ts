@@ -29,6 +29,11 @@ export function createMeeting(): Meeting {
     pendingHostReclaim: null,
     chat: [],
     transcript: [],
+    settings: { locked: false, waitingRoomEnabled: false, chatMode: "everyone", sharePolicy: "everyone" },
+    presenterId: null,
+    waiting: new Map(),
+    bannedNames: new Set(),
+    endedByHost: false,
   };
   meetings.set(meeting.id, meeting);
   return meeting;
@@ -65,6 +70,11 @@ export function getOrCreateCompanionMeeting(externalKey: string): {
     pendingHostReclaim: null,
     chat: [],
     transcript: [],
+    settings: { locked: false, waitingRoomEnabled: false, chatMode: "everyone", sharePolicy: "everyone" },
+    presenterId: null,
+    waiting: new Map(),
+    bannedNames: new Set(),
+    endedByHost: false,
   };
   meetings.set(id, meeting);
   return { meeting, created: true };
@@ -123,6 +133,7 @@ export function addParticipant(
     id: socketId,
     name: name.trim().slice(0, 60) || "Invitado",
     isHost,
+    moderationRole: isHost ? "host" : "participant",
     roleId: null,
     language,
     muted: false,
@@ -130,6 +141,7 @@ export function addParticipant(
     sharingScreen: false,
     handRaised: false,
     joinedAt: Date.now(),
+    connectionQuality: null,
   };
   meeting.participants.set(socketId, participant);
   // Same object reference on purpose: later mutations (role changes, mute
@@ -149,12 +161,18 @@ export function removeParticipant(meeting: Meeting, socketId: string): Participa
 }
 
 export function promoteNextHost(meeting: Meeting): Participant | undefined {
-  const remaining = Array.from(meeting.participants.values()).sort(
-    (a, b) => a.joinedAt - b.joinedAt
-  );
+  // Prefer a co-host (that's what they're for); otherwise whoever has been
+  // in the meeting longest.
+  const remaining = Array.from(meeting.participants.values()).sort((a, b) => {
+    if (a.moderationRole !== b.moderationRole) {
+      return a.moderationRole === "cohost" ? -1 : 1;
+    }
+    return a.joinedAt - b.joinedAt;
+  });
   const next = remaining[0];
   if (next) {
     next.isHost = true;
+    next.moderationRole = "host";
     meeting.hostId = next.id;
   }
   return next;

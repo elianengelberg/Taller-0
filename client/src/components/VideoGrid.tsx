@@ -86,10 +86,22 @@ export default function VideoGrid({
     return (
       <div
         ref={containerRef}
-        className={`flex flex-col gap-3 ${fullscreen ? "h-dvh bg-ink-950 p-4" : ""}`}
+        className={`flex h-full min-h-[60vh] flex-col gap-3 ${fullscreen ? "h-dvh bg-ink-950 p-4" : ""}`}
       >
-        <div className="relative">
-          {tileFor(presenter)}
+        {/* The shared screen owns all remaining height (Zoom/Meet style):
+            letterboxed, never cropped, never deformed (see ParticipantTile
+            fill mode). Cameras ride in a fixed-height strip below. */}
+        <div className="relative min-h-0 flex-1">
+          <ParticipantTile
+            key={presenter.id}
+            participant={presenter}
+            role={roles.find((r) => r.id === presenter.roleId) ?? null}
+            stream={presenter.id === selfId ? localStream : remoteStreams[presenter.id] ?? null}
+            isSelf={presenter.id === selfId}
+            speakerId={speakerId}
+            speaking={Boolean(speaking?.[presenter.id])}
+            fill
+          />
           {fullscreenSupported() && (
             <button
               type="button"
@@ -102,7 +114,7 @@ export default function VideoGrid({
           )}
         </div>
         {others.length > 0 && (
-          <div className="flex gap-3 overflow-x-auto pb-1">
+          <div className="flex shrink-0 gap-3 overflow-x-auto pb-1">
             {others.map((participant) => (
               <div key={participant.id} className="w-40 shrink-0 sm:w-48">
                 {tileFor(participant)}

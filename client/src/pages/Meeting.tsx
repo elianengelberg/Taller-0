@@ -4,21 +4,24 @@ import AiChatBox from "../components/AiChatBox";
 import Button from "../components/Button";
 import ChatPanel from "../components/ChatPanel";
 import ControlBar from "../components/ControlBar";
+import HostControlsPanel from "../components/HostControlsPanel";
 import LiveCaption from "../components/LiveCaption";
 import LoadingDots from "../components/LoadingDots";
 import Logo from "../components/Logo";
-import { ClockIcon, PeopleIcon } from "../components/icons";
+import { ClockIcon, PeopleIcon, ScreenShareIcon } from "../components/icons";
 import ParticipantsPanel from "../components/ParticipantsPanel";
 import RecordingBanner from "../components/RecordingBanner";
 import SaveMeetingPrompt from "../components/SaveMeetingPrompt";
 import SettingsPanel from "../components/SettingsPanel";
 import SidePanel from "../components/SidePanel";
+import ToastViewport from "../components/ToastViewport";
 import TranscriptPanel from "../components/TranscriptPanel";
 import VideoGrid from "../components/VideoGrid";
 import { useAuth } from "../context/AuthContext";
 import { useMeeting } from "../context/MeetingContext";
 import { askMeetingAI } from "../lib/api";
 import { recentCaptionEntries } from "../lib/captionLines";
+import { showToast } from "../lib/toasts";
 import { setUnsavedMeeting } from "../lib/unsavedMeeting";
 import { useActiveSpeakers } from "../hooks/useActiveSpeakers";
 import { useLocalMedia } from "../hooks/useLocalMedia";
@@ -29,7 +32,7 @@ import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { useWebRTC } from "../hooks/useWebRTC";
 import { getSocket } from "../lib/socket";
 
-type Panel = "participants" | "chat" | "transcript" | "ai" | "settings";
+type Panel = "participants" | "chat" | "transcript" | "ai" | "settings" | "host";
 
 // True from the sm breakpoint up (matches Tailwind's 640px). Two panels can be
 // open side by side only on desktop; phones stick to one at a time.
@@ -89,6 +92,98 @@ export default function Meeting() {
   const media = useLocalMedia();
   const isDesktop = useIsDesktop();
   const elapsedTime = useElapsedTime(connectionStatus === "connected");
+
+  // Mirror the current mute/camera state for the moderation handlers below
+  // (registered once): they must act on the LIVE state, not a stale closure.
+  const mediaRef = useRef(media);
+  mediaRef.current = media;
+
+  // Zoom-style moderation events aimed at ME. Kicked/ended send us home with
+  // an explanation; force-mute obeys immediately; requests show a toast with
+  // a one-tap action (the browser can't let a host remote-control someone's
+  // devices -- consent by design, like Zoom's "the host asks you to unmute").
+  useEffect(() => {
+    const socket = getSocket();
+    const goHome = (notice: string) => {
+      leaveMeeting();
+      navigate("/", { replace: true, state: { notice } });
+    };
+    const onKicked = ({ by }: { by?: string }) =>
+      goHome(`${by ?? "El anfitrión"} te quitó de la reunión.`);
+    const onEnded = ({ by }: { by?: string }) =>
+      goHome(`${by ?? "El anfitrión"} finalizó la reunión para todos.`);
+    const onForceMuted = ({ by }: { by?: string }) => {
+      if (!mediaRef.current.muted) mediaRef.current.toggleMic();
+      showToast({ text: `${by ?? "El anfitrión"} te silenció.`, kind: "info" });
+    };
+    const onRequest = ({ kind, by }: { kind: string; by?: string }) => {
+      const who = by ?? "El anfitrión";
+      if (kind === "unmute") {
+        showToast({
+          text: `${who} te pide que actives el micrófono.`,
+          kind: "info",
+          actionLabel: "Activar",
+          onAction: () => {
+            if (mediaRef.current.muted) mediaRef.current.toggleMic();
+          },
+        });
+      } else if (kind === "camera-on") {
+        showToast({
+          text: `${who} te pide que prendas la cámara.`,
+          kind: "info",
+          actionLabel: "Prender",
+          onAction: () => {
+            if (mediaRef.current.cameraOff) mediaRef.current.toggleCamera();
+          },
+        });
+      } else if (kind === "camera-off") {
+        showToast({
+          text: `${who} te pide que apagues la cámara.`,
+          kind: "info",
+          actionLabel: "Apagar",
+          onAction: () => {
+            if (!mediaRef.current.cameraOff) mediaRef.current.toggleCamera();
+          },
+        });
+      }
+    };
+    const onShareDenied = ({ reason }: { reason?: string }) => {
+      showToast({ text: reason ?? "No se pudo compartir la pantalla.", kind: "warning" });
+    };
+    const onShareStopped = ({ by }: { by?: string }) => {
+      showToast({ text: `${by ?? "El anfitrión"} detuvo tu pantalla compartida.`, kind: "info" });
+    };
+    socket.on("kicked", onKicked);
+    socket.on("meeting-ended", onEnded);
+    socket.on("force-muted", onForceMuted);
+    socket.on("moderation-request", onRequest);
+    socket.on("share-denied", onShareDenied);
+    socket.on("share-stopped-by-host", onShareStopped);
+    return () => {
+      socket.off("kicked", onKicked);
+      socket.off("meeting-ended", onEnded);
+      socket.off("force-muted", onForceMuted);
+      socket.off("moderation-request", onRequest);
+      socket.off("share-denied", onShareDenied);
+      socket.off("share-stopped-by-host", onShareStopped);
+    };
+  }, [leaveMeeting, navigate]);
+
+  // Report our socket round-trip every 15s so hosts see everyone's
+  // connection quality (a green/yellow/red dot in the participants panel).
+  useEffect(() => {
+    if (connectionStatus !== "connected") return;
+    const socket = getSocket();
+    const report = () => {
+      const start = Date.now();
+      socket.timeout(5000).emit("quality-ping", (err: unknown) => {
+        if (!err) socket.emit("connection-quality", { rtt: Date.now() - start });
+      });
+    };
+    report();
+    const timer = window.setInterval(report, 15_000);
+    return () => window.clearInterval(timer);
+  }, [connectionStatus]);
   // Open panels, oldest first. On desktop up to two can be open at once (one
   // docked left, one right -- e.g. IA on one side, chat on the other); on a
   // phone only the most recent stays open. Opening a third on desktop evicts
@@ -179,6 +274,15 @@ export default function Meeting() {
   useEffect(() => {
     if (connectionStatus === "connected") setSharingScreen(screenShare.sharing);
   }, [screenShare.sharing, connectionStatus, setSharingScreen]);
+
+  // A host stopped our share (or the policy changed): the server already
+  // cleared our presenter slot -- stop the local capture to match.
+  useEffect(() => {
+    if (screenShare.sharing && self && !self.sharingScreen) {
+      screenShare.stop();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [self?.sharingScreen]);
 
   useEffect(() => {
     if (connectionStatus === "connected") {
@@ -280,6 +384,21 @@ export default function Meeting() {
     return <StatusScreen loading title="Conectando" description="Estamos preparando tu reunión." />;
   }
 
+  if (connectionStatus === "waiting") {
+    return (
+      <StatusScreen
+        loading
+        title="Sala de espera"
+        description="El anfitrión ya sabe que estás acá. Vas a entrar en cuanto te admita."
+        action={
+          <Button variant="secondary" onClick={handleLeave}>
+            Salir
+          </Button>
+        }
+      />
+    );
+  }
+
   if (connectionStatus === "error" || !meeting || !selfId) {
     return (
       <StatusScreen
@@ -339,6 +458,8 @@ export default function Meeting() {
             )}
           </SidePanel>
         );
+      case "host":
+        return <HostControlsPanel key="host" side={side} onClose={() => closePanel("host")} />;
       case "settings":
         return (
           <SettingsPanel
@@ -387,7 +508,7 @@ export default function Meeting() {
             (a flex item's default min-width:auto would otherwise keep it at
             its content's min width and squeeze/overlap the panel); overflow-x
             clip stops a wide video tile from spilling sideways over the panel. */}
-        <main className="relative min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6">
+        <main className="relative flex min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden p-4 sm:p-6">
           {media.error && (
             <div className="mb-4 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm text-brand-300">
               {media.error}
@@ -403,11 +524,19 @@ export default function Meeting() {
               {captionsError}
             </div>
           )}
+          {meeting.presenterId && meeting.presenterId !== selfId && (
+            <div className="mb-4 flex items-center gap-2 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm text-brand-300">
+              <ScreenShareIcon className="h-4 w-4 shrink-0" />
+              {meeting.participants.find((p) => p.id === meeting.presenterId)?.name ?? "Alguien"} está
+              compartiendo su pantalla.
+            </div>
+          )}
           {screenShare.error && (
             <div className="mb-4 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm text-brand-300">
               {screenShare.error}
             </div>
           )}
+          <div className="min-h-0 flex-1">
           <VideoGrid
             participants={meeting.participants}
             roles={meeting.roles}
@@ -417,6 +546,7 @@ export default function Meeting() {
             speakerId={media.activeSpeakerId}
             speaking={activeSpeakers}
           />
+          </div>
           <LiveCaption
             lines={captionLines}
             localInterim={
@@ -459,10 +589,19 @@ export default function Meeting() {
         onToggleRecording={toggleRecording}
         sharingScreen={screenShare.sharing}
         onToggleScreenShare={toggleScreenShare}
+        shareBlockedBy={
+          meeting.presenterId && meeting.presenterId !== selfId
+            ? meeting.participants.find((p) => p.id === meeting.presenterId)?.name ?? "Alguien"
+            : null
+        }
+        showHostControls={self?.moderationRole !== "participant"}
+        hostControlsOpen={openPanels.includes("host")}
+        onToggleHostControls={() => togglePanel("host")}
         settingsOpen={openPanels.includes("settings")}
         onToggleSettings={() => togglePanel("settings")}
         onLeave={handleLeave}
       />
+      <ToastViewport />
       {pendingLeave && <SaveMeetingPrompt onSave={confirmSaveMeeting} onSkip={skipSaveMeeting} />}
     </div>
   );
