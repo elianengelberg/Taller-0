@@ -2,6 +2,11 @@ import IconButton from "./IconButton";
 import ShareMenu from "./ShareMenu";
 import { showToast } from "../lib/toasts";
 import {
+  screenCaptureSupported,
+  RECORDING_UNSUPPORTED_MESSAGE,
+  SHARE_UNSUPPORTED_MESSAGE,
+} from "../lib/screenCapture";
+import {
   CameraIcon,
   CameraOffIcon,
   CaptionsIcon,
@@ -164,20 +169,24 @@ export default function ControlBar({
           label={
             sharingScreen
               ? "Dejar de compartir pantalla"
-              : shareBlockedBy
-                ? `${shareBlockedBy} ya está compartiendo su pantalla`
-                : "Compartir pantalla"
+              : !screenCaptureSupported
+                ? "Compartir pantalla no está disponible en este navegador"
+                : shareBlockedBy
+                  ? `${shareBlockedBy} ya está compartiendo su pantalla`
+                  : "Compartir pantalla"
           }
           caption={sharingScreen ? "Compartiendo" : shareBlockedBy ? "En uso" : "Compartir"}
           active={sharingScreen}
           onClick={
-            shareBlockedBy && !sharingScreen
-              ? () =>
-                  showToast({
-                    text: `${shareBlockedBy} ya está compartiendo su pantalla. Cuando termine, vas a poder compartir la tuya.`,
-                    kind: "info",
-                  })
-              : onToggleScreenShare
+            !screenCaptureSupported && !sharingScreen
+              ? () => showToast({ text: SHARE_UNSUPPORTED_MESSAGE, kind: "info" })
+              : shareBlockedBy && !sharingScreen
+                ? () =>
+                    showToast({
+                      text: `${shareBlockedBy} ya está compartiendo su pantalla. Cuando termine, vas a poder compartir la tuya.`,
+                      kind: "info",
+                    })
+                : onToggleScreenShare
           }
         >
           <ScreenShareIcon className="h-5 w-5" />
@@ -225,11 +234,17 @@ export default function ControlBar({
           label={
             recording
               ? "Detener grabación"
-              : 'Grabar la reunión (elegí "esta pestaña" y tildá compartir audio para grabar también lo que dicen los demás)'
+              : !screenCaptureSupported
+                ? "La grabación no está disponible en este navegador"
+                : 'Grabar la reunión (elegí "esta pestaña" y tildá compartir audio para grabar también lo que dicen los demás)'
           }
           caption={recording ? "Grabando" : "Grabar"}
           danger={recording}
-          onClick={onToggleRecording}
+          onClick={
+            !screenCaptureSupported && !recording
+              ? () => showToast({ text: RECORDING_UNSUPPORTED_MESSAGE, kind: "info" })
+              : onToggleRecording
+          }
         >
           {recording ? <StopIcon className="h-5 w-5" /> : <RecordIcon className="h-5 w-5" />}
         </IconButton>

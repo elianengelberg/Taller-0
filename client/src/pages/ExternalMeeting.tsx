@@ -28,6 +28,7 @@ import { useRecorder } from "../hooks/useRecorder";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { askMeetingAI } from "../lib/api";
 import { recentCaptionEntries } from "../lib/captionLines";
+import { screenCaptureSupported } from "../lib/screenCapture";
 import { setUnsavedMeeting } from "../lib/unsavedMeeting";
 import { CompanionEmbed } from "../types";
 
@@ -290,7 +291,9 @@ export default function ExternalMeeting() {
           label={
             recording
               ? "Detener grabación"
-              : 'Grabar la reunión (elegí "esta pestaña" y tildá compartir audio)'
+              : !screenCaptureSupported
+                ? "La grabación no está disponible en este navegador"
+                : 'Grabar la reunión (elegí "esta pestaña" y tildá compartir audio)'
           }
           caption={recording ? "Grabando" : "Grabar"}
           danger={recording}

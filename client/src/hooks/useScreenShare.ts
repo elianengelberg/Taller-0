@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  displayMediaErrorMessage,
+  screenCaptureSupported,
+  SHARE_UNSUPPORTED_MESSAGE,
+} from "../lib/screenCapture";
 
 interface UseScreenShareOptions {
   localStream: MediaStream | null;
@@ -43,6 +48,10 @@ export function useScreenShare({ localStream, onReplaceTrack, onRemoveTrack }: U
   const start = useCallback(async () => {
     if (!localStream) return;
     setError(null);
+    if (!screenCaptureSupported) {
+      setError(SHARE_UNSUPPORTED_MESSAGE);
+      return;
+    }
     try {
       const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
       const screenTrack = displayStream.getVideoTracks()[0];
@@ -61,8 +70,8 @@ export function useScreenShare({ localStream, onReplaceTrack, onRemoveTrack }: U
       screenTrack.addEventListener("ended", stop);
 
       setSharing(true);
-    } catch {
-      setError("No se pudo compartir la pantalla (¿cancelaste el permiso?).");
+    } catch (err) {
+      setError(displayMediaErrorMessage(err, "compartir la pantalla"));
     }
   }, [localStream, onReplaceTrack, stop]);
 
@@ -77,7 +86,7 @@ export function useScreenShare({ localStream, onReplaceTrack, onRemoveTrack }: U
   // for the rest of the call after a single cancelled share attempt.
   useEffect(() => {
     if (!error) return;
-    const timeout = setTimeout(() => setError(null), 8000);
+    const timeout = setTimeout(() => setError(null), 12000);
     return () => clearTimeout(timeout);
   }, [error]);
 

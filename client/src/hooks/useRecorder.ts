@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { confirmRecordingComplete, requestRecordingUploadUrl } from "../lib/api";
+import {
+  displayMediaErrorMessage,
+  screenCaptureSupported,
+  RECORDING_UNSUPPORTED_MESSAGE,
+} from "../lib/screenCapture";
 
 export type RecordingStatus = "idle" | "recording" | "processing" | "done" | "error";
 export type UploadStatus = "idle" | "uploading" | "uploaded" | "unavailable" | "failed";
@@ -85,6 +90,11 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
     setError(null);
     setResultUrl(null);
     setUploadStatus("idle");
+    if (!screenCaptureSupported) {
+      setError(RECORDING_UNSUPPORTED_MESSAGE);
+      setStatus("error");
+      return;
+    }
     try {
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
@@ -149,10 +159,8 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
       mediaRecorderRef.current = recorder;
       recorder.start(1000);
       setStatus("recording");
-    } catch {
-      setError(
-        "No se pudo iniciar la grabación (¿cancelaste el permiso de compartir pantalla?)."
-      );
+    } catch (err) {
+      setError(displayMediaErrorMessage(err, "iniciar la grabación"));
       setStatus("error");
       cleanupStreams();
     }
