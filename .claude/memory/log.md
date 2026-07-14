@@ -230,3 +230,9 @@ client/src/{types.ts,context/MeetingContext.tsx,lib/toasts.ts,
 components/{HostControlsPanel,MeetCompanionPane,ToastViewport,
 ParticipantsPanel,ControlBar,ParticipantTile,VideoGrid,ChatPanel}.tsx,
 pages/{Meeting,ExternalJoin,ExternalMeeting,Home}.tsx}.
+
+## 2026-07-14 — Compartir pantalla en iPad: "¿cancelaste el permiso?"
+- Causa real: `getDisplayMedia` NO existe en iOS/iPadOS (todo navegador ahí es WebKit); el catch genérico culpaba a un permiso cancelado.
+- Fix: `client/src/lib/screenCapture.ts` — `screenCaptureSupported` (feature-detect) + `displayMediaErrorMessage()` (NotAllowedError = cancelación O bloqueo del SO en Mac; incluye la ruta de Ajustes). Hooks `useScreenShare`/`useRecorder` cortan temprano con mensaje honesto; botones Compartir/Grabar en ControlBar y ExternalMeeting muestran toast/label honesto.
+- Verificado 11/11 con Playwright simulando API ausente, NotAllowedError y share normal (commit 3884bda).
+- Regla: nunca un catch genérico sobre APIs de permisos — clasificar por `DOMException.name` y feature-detectar antes de llamar.
