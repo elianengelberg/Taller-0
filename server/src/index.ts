@@ -55,18 +55,25 @@ const PORT = Number(process.env.PORT) || 4000;
 function normalizeOrigin(value: string): string {
   return value.trim().replace(/^["']+|["']+$/g, "").replace(/\/+$/, "").toLowerCase();
 }
-const CLIENT_ORIGIN = normalizeOrigin(process.env.CLIENT_ORIGIN || "http://localhost:5173");
-console.log(`[cors] origen permitido: ${CLIENT_ORIGIN}`);
+// CLIENT_ORIGIN accepts a comma-separated list so a domain migration doesn't
+// cut off the old origin overnight. The FIRST entry is the canonical one:
+// OAuth redirects always land there.
+const CLIENT_ORIGINS = (process.env.CLIENT_ORIGIN || "http://localhost:5173")
+  .split(",")
+  .map(normalizeOrigin)
+  .filter(Boolean);
+const CLIENT_ORIGIN = CLIENT_ORIGINS[0];
+console.log(`[cors] orígenes permitidos: ${CLIENT_ORIGINS.join(", ")}`);
 
 function corsOrigin(
   origin: string | undefined,
   cb: (err: Error | null, allow?: boolean) => void
 ): void {
-  if (!origin || normalizeOrigin(origin) === CLIENT_ORIGIN) {
+  if (!origin || CLIENT_ORIGINS.includes(normalizeOrigin(origin))) {
     cb(null, true);
     return;
   }
-  console.warn(`[cors] Origin rechazado: "${origin}" (esperado: "${CLIENT_ORIGIN}")`);
+  console.warn(`[cors] Origin rechazado: "${origin}" (esperados: ${CLIENT_ORIGINS.join(", ")})`);
   cb(null, false);
 }
 
