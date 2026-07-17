@@ -24,6 +24,18 @@ function pickSupportedMimeType(): string | undefined {
   return undefined;
 }
 
+// MediaRecorder's default video bitrate (~2.5 Mbps) makes 1080p+ screen
+// content look smeared. Scale the target with the actually-captured size --
+// asking for 12 Mbps at 720p just wastes upload, and 2.5 Mbps at 4K is mush.
+function videoBitrateFor(track: MediaStreamTrack): number {
+  const { width = 1920, height = 1080 } = track.getSettings();
+  const pixels = width * height;
+  if (pixels >= 3200 * 1700) return 12_000_000; // 4K / retina fullscreen
+  if (pixels >= 1900 * 1000) return 8_000_000; // 1080p-1440p
+  if (pixels >= 1200 * 650) return 5_000_000; // 720p-900p
+  return 3_500_000;
+}
+
 // Records the shared screen/tab + its audio, mixed with the local
 // microphone (via Web Audio), so the file captures the whole conversation --
 // not just what the recording user hears.
@@ -97,10 +109,16 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
     }
     try {
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
+        // Without explicit ideals Chrome sometimes hands back a downscaled
+        // capture; asking high keeps the surface at its native resolution.
+        video: { width: { ideal: 3840 }, height: { ideal: 2160 }, frameRate: { ideal: 30 } },
         audio: true,
       });
       displayStreamRef.current = displayStream;
+      // Screen content is mostly text/UI: "detail" tells the encoder to spend
+      // its bits on sharpness instead of smooth motion.
+      const captureTrack = displayStream.getVideoTracks()[0];
+      if (captureTrack) captureTrack.contentHint = "detail";
 
       const audioContext = new AudioContext();
       audioContextRef.current = audioContext;
@@ -131,7 +149,11 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
       ]);
 
       const mimeType = pickSupportedMimeType();
-      const recorder = new MediaRecorder(combined, mimeType ? { mimeType } : undefined);
+      const recorder = new MediaRecorder(combined, {
+        ...(mimeType ? { mimeType } : {}),
+        videoBitsPerSecond: captureTrack ? videoBitrateFor(captureTrack) : 8_000_000,
+        audioBitsPerSecond: 192_000,
+      });
       chunksRef.current = [];
 
       recorder.ondataavailable = (event) => {
