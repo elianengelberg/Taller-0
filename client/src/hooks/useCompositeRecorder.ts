@@ -72,7 +72,16 @@ export function useCompositeRecorder({ sceneRef, meetingDbId }: Options) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const destRef = useRef<MediaStreamDestination | null>(null);
+  // Everyone's audio is summed into a limiter, then the limiter feeds the
+  // recording. Summing raw would clip once a few people talk at once (the
+  // "saturación" the user heard); the limiter tames peaks so it stays clean.
+  const busRef = useRef<AudioNode | null>(null);
   const connectedAudioRef = useRef<Set<string>>(new Set());
+  // One-time gesture handlers that resume a still-suspended AudioContext, so a
+  // fully hands-off auto-record still gets sound the instant anything is
+  // touched (and usually right away, since joining the call already counts as
+  // a user gesture for the page).
+  const resumeKickRef = useRef<(() => void) | null>(null);
   // Hidden <video> element per participant stream, kept playing so the canvas
   // has live frames to draw.
   const videosRef = useRef<Map<string, HTMLVideoElement>>(new Map());
@@ -101,14 +110,14 @@ export function useCompositeRecorder({ sceneRef, meetingDbId }: Options) {
 
   const ensureAudio = useCallback((tiles: RecTile[]) => {
     const ctx = audioCtxRef.current;
-    const dest = destRef.current;
-    if (!ctx || !dest) return;
+    const bus = busRef.current;
+    if (!ctx || !bus) return;
     for (const t of tiles) {
       if (!t.stream || connectedAudioRef.current.has(t.id)) continue;
       const audioTracks = t.stream.getAudioTracks();
-      if (audioTracks.length === 0) continue;
+      if (audioTracks.length === 0) continue; // not marked, so we retry later
       try {
-        ctx.createMediaStreamSource(new MediaStream(audioTracks)).connect(dest);
+        ctx.createMediaStreamSource(new MediaStream(audioTracks)).connect(bus);
         connectedAudioRef.current.add(t.id);
       } catch {
         /* a track already tied to another context -- skip */
@@ -226,9 +235,16 @@ export function useCompositeRecorder({ sceneRef, meetingDbId }: Options) {
   const cleanup = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     rafRef.current = null;
+    if (resumeKickRef.current) {
+      for (const ev of ["pointerdown", "keydown", "touchstart"]) {
+        window.removeEventListener(ev, resumeKickRef.current);
+      }
+      resumeKickRef.current = null;
+    }
     audioCtxRef.current?.close().catch(() => {});
     audioCtxRef.current = null;
     destRef.current = null;
+    busRef.current = null;
     connectedAudioRef.current.clear();
     for (const el of videosRef.current.values()) {
       el.srcObject = null;
@@ -278,9 +294,35 @@ export function useCompositeRecorder({ sceneRef, meetingDbId }: Options) {
       renderFrame();
 
       const audioCtx = new AudioContext();
-      if (audioCtx.state === "suspended") await audioCtx.resume().catch(() => {});
       audioCtxRef.current = audioCtx;
-      destRef.current = audioCtx.createMediaStreamDestination();
+      await audioCtx.resume().catch(() => {});
+      // If it's still suspended (no user gesture yet), resume on the very next
+      // interaction so hands-off recordings don't lose their audio.
+      if (audioCtx.state !== "running") {
+        const kick = () => audioCtx.resume().catch(() => {});
+        resumeKickRef.current = kick;
+        for (const ev of ["pointerdown", "keydown", "touchstart"]) {
+          window.addEventListener(ev, kick, { passive: true });
+        }
+      }
+
+      const dest = audioCtx.createMediaStreamDestination();
+      destRef.current = dest;
+      // Clean audio bus: every voice sums into a pre-gain (leaves headroom so
+      // a single loud source can never reach full scale on its own), then a
+      // limiter catches the peaks when several people talk at once. The result
+      // never clips/saturates yet stays at a natural level. Sources connect to
+      // the pre-gain (busRef); it feeds limiter -> destination.
+      const preGain = audioCtx.createGain();
+      preGain.gain.value = 0.8; // -1.9 dB headroom per source
+      const limiter = audioCtx.createDynamicsCompressor();
+      limiter.threshold.value = -3;
+      limiter.knee.value = 6;
+      limiter.ratio.value = 12;
+      limiter.attack.value = 0.001;
+      limiter.release.value = 0.2;
+      preGain.connect(limiter).connect(dest);
+      busRef.current = preGain;
       ensureAudio(sceneRef.current);
 
       const canvasStream = canvas.captureStream(FPS);
