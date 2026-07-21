@@ -2,10 +2,19 @@ import { ReactNode, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import AiChatBox from "../components/AiChatBox";
 import Button from "../components/Button";
-import { DownloadIcon } from "../components/icons";
+import MarkdownText from "../components/MarkdownText";
+import { DownloadIcon, SparklesIcon } from "../components/icons";
 import Logo from "../components/Logo";
 import RoleBadge from "../components/RoleBadge";
-import { askMeetingAI, fetchMeetingDetail, MeetingHistoryDetail } from "../lib/api";
+import {
+  fetchFolders,
+  fetchMeetingDetail,
+  FolderSummary,
+  generateMeetingReport,
+  askMeetingAI,
+  MeetingHistoryDetail,
+  moveMeetingToFolderApi,
+} from "../lib/api";
 import { isExternalMeeting, meetingSourceLabel } from "../lib/meetingPlatforms";
 import { groupConsecutive } from "../lib/transcriptGroups";
 import { cardClass } from "../lib/ui";
@@ -47,6 +56,28 @@ export default function MeetingDetail() {
   }
   if (meeting === null) {
     return <StatusMessage text="No encontramos esa reunión." />;
+  }
+
+  return <MeetingDetailView meeting={meeting} />;
+}
+
+function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
+  const readOnly = Boolean(meeting.sharedView);
+  const [folders, setFolders] = useState<FolderSummary[]>([]);
+  const [folderId, setFolderId] = useState<string | null>(meeting.folderId);
+
+  // Only owners get the move control -- a shared viewer can't refile someone
+  // else's meeting.
+  useEffect(() => {
+    if (readOnly) return;
+    fetchFolders().then(({ folders }) => setFolders(folders));
+  }, [readOnly]);
+
+  async function moveTo(target: string | null) {
+    const prev = folderId;
+    setFolderId(target); // optimistic
+    const ok = await moveMeetingToFolderApi(meeting.id, target);
+    if (!ok) setFolderId(prev);
   }
 
   return (
@@ -92,6 +123,34 @@ export default function MeetingDetail() {
             );
           })}
         </div>
+
+        {readOnly ? (
+          <p className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-ink-800 px-3 py-1 text-xs text-ink-300">
+            Reunión compartida con vos (solo lectura)
+          </p>
+        ) : (
+          <div className="mt-4 flex items-center gap-2">
+            <label htmlFor="folder" className="text-xs text-ink-400">
+              Carpeta:
+            </label>
+            <select
+              id="folder"
+              aria-label="Carpeta de la reunión"
+              value={folderId ?? ""}
+              onChange={(e) => moveTo(e.target.value || null)}
+              className="rounded-lg border border-ink-600 bg-ink-800 px-2.5 py-1.5 text-xs text-strong focus:border-brand-400 focus:outline-none"
+            >
+              <option value="">Sin carpeta</option>
+              {folders.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <MeetingReportCard meeting={meeting} />
 
         {meeting.recordingUrl && (
           <div className={`${cardClass} mt-6`}>
@@ -161,6 +220,65 @@ export default function MeetingDetail() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// AI report: generated on demand, then persisted server-side so it's instant
+// on later opens. Shows the saved report right away when there is one.
+function MeetingReportCard({ meeting }: { meeting: MeetingHistoryDetail }) {
+  const [report, setReport] = useState<string | null>(meeting.report);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const hasContent = meeting.messages.length > 0;
+
+  async function generate(regenerate: boolean) {
+    setLoading(true);
+    setError(null);
+    const res = await generateMeetingReport(meeting.id, regenerate);
+    if (res.error) setError(res.error);
+    else if (res.report) setReport(res.report);
+    setLoading(false);
+  }
+
+  return (
+    <div className={`${cardClass} mt-6`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-strong">
+          <SparklesIcon className="h-5 w-5 text-brand-300" />
+          Informe de la reunión
+        </h2>
+        {report && !loading && (
+          <button
+            type="button"
+            onClick={() => generate(true)}
+            className="text-xs font-medium text-ink-400 hover:text-brand-300"
+          >
+            Regenerar
+          </button>
+        )}
+      </div>
+
+      {report ? (
+        <div className="mt-3">
+          <MarkdownText text={report} />
+        </div>
+      ) : (
+        <div className="mt-2">
+          <p className="text-sm text-ink-400">
+            {hasContent
+              ? "Generá un informe con resumen, decisiones, tareas y participación, a partir de la transcripción."
+              : "Esta reunión no tiene transcripción guardada, así que no hay con qué armar un informe."}
+          </p>
+          {hasContent && (
+            <Button className="mt-3" onClick={() => generate(false)} disabled={loading}>
+              {loading ? "Generando informe…" : "Generar informe con IA"}
+            </Button>
+          )}
+        </div>
+      )}
+      {loading && report && <p className="mt-2 text-xs text-ink-400">Regenerando…</p>}
+      {error && <p className="mt-2 text-sm text-brand-300">{error}</p>}
     </div>
   );
 }

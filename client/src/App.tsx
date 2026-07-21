@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import CalendarRecordWatcher from "./components/CalendarRecordWatcher";
 import RequireAuth from "./components/RequireAuth";
 import { AuthProvider } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
@@ -20,6 +21,9 @@ export default function App() {
     <ThemeProvider>
     <AuthProvider>
       <MeetingProvider>
+        {/* Global: watches the connected Outlook calendar and offers to
+            record meetings as they start, on any page while logged in. */}
+        <CalendarRecordWatcher />
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/ingresar" element={<Login />} />

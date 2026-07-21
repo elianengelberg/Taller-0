@@ -36,6 +36,33 @@ export interface MeetingHistorySummary {
   startedAt: string;
   endedAt: string | null;
   messageCount: number;
+  folderId: string | null;
+  hasReport: boolean;
+}
+
+export interface FolderSummary {
+  id: string;
+  name: string;
+  createdAt: string;
+  meetingCount: number;
+  ownerName?: string;
+  sharedWithCount?: number;
+}
+
+export interface FolderShareRecipient {
+  userId: string;
+  name: string;
+  email: string;
+}
+
+export interface CalendarEvent {
+  id: string;
+  subject: string;
+  start: string;
+  end: string;
+  organizer: string | null;
+  joinUrl: string | null;
+  platform: "google-meet" | "microsoft-teams" | "zoom" | "other" | null;
 }
 
 export interface MeetingHistoryMessage {
@@ -51,6 +78,9 @@ export interface MeetingHistoryMessage {
 export interface MeetingHistoryDetail extends MeetingHistorySummary {
   roles: HistoryRole[];
   messages: MeetingHistoryMessage[];
+  report: string | null;
+  reportGeneratedAt: string | null;
+  sharedView?: boolean;
 }
 
 // Render's free tier can take ~50s to wake up a sleeping instance, so this
@@ -316,5 +346,205 @@ export async function claimMeeting(meetingDbId: string): Promise<boolean> {
     return Boolean(data.ok);
   } catch {
     return false;
+  }
+}
+
+// --- Folders ---------------------------------------------------------------
+
+export async function fetchFolders(): Promise<{ folders: FolderSummary[]; shared: FolderSummary[] }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/folders`, { headers: authHeaders() });
+    if (!res.ok) return { folders: [], shared: [] };
+    const data = await res.json();
+    return { folders: data.folders ?? [], shared: data.shared ?? [] };
+  } catch {
+    return { folders: [], shared: [] };
+  }
+}
+
+export async function createFolderApi(name: string): Promise<{ folder?: FolderSummary; error?: string }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/folders`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo crear la carpeta." };
+    return { folder: data.folder };
+  } catch {
+    return { error: "No pudimos conectar con el servidor." };
+  }
+}
+
+export async function renameFolderApi(id: string, name: string): Promise<boolean> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/folders/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ name }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteFolderApi(id: string): Promise<boolean> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/folders/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function fetchFolderMeetings(id: string): Promise<MeetingHistorySummary[]> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/folders/${id}/meetings`, {
+      headers: authHeaders(),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.meetings ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchFolderShares(id: string): Promise<FolderShareRecipient[]> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/folders/${id}/shares`, {
+      headers: authHeaders(),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.recipients ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function shareFolderApi(id: string, email: string): Promise<{ ok?: boolean; error?: string }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/folders/${id}/share`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo compartir la carpeta." };
+    return { ok: true };
+  } catch {
+    return { error: "No pudimos conectar con el servidor." };
+  }
+}
+
+export async function unshareFolderApi(id: string, userId: string): Promise<boolean> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/folders/${id}/share/${userId}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function moveMeetingToFolderApi(
+  meetingId: string,
+  folderId: string | null
+): Promise<boolean> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/meetings/${meetingId}/folder`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ folderId }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// --- AI report -------------------------------------------------------------
+
+export async function generateMeetingReport(
+  meetingId: string,
+  regenerate = false
+): Promise<{ report?: string; error?: string }> {
+  try {
+    const url = `${SERVER_URL}/api/meetings/${meetingId}/report${regenerate ? "?regenerate=1" : ""}`;
+    const res = await fetchWithTimeout(url, { method: "POST", headers: authHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo generar el informe." };
+    return { report: data.report };
+  } catch {
+    return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };
+  }
+}
+
+// --- Outlook / Microsoft calendar ------------------------------------------
+
+export async function fetchCalendarStatus(): Promise<{ configured: boolean; connected: boolean }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/calendar/status`, { headers: authHeaders() });
+    if (!res.ok) return { configured: false, connected: false };
+    return await res.json();
+  } catch {
+    return { configured: false, connected: false };
+  }
+}
+
+// Full-page navigation to Microsoft's consent screen. We first fetch the URL
+// (authenticated) so the session token never rides in a query string.
+export async function startCalendarConnect(): Promise<{ error?: string }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/calendar/connect-url`, {
+      headers: authHeaders(),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.url) return { error: data.error ?? "No se pudo conectar con Outlook." };
+    window.location.href = data.url;
+    return {};
+  } catch {
+    return { error: "No pudimos conectar con el servidor." };
+  }
+}
+
+export async function disconnectCalendar(): Promise<void> {
+  try {
+    await fetchWithTimeout(`${SERVER_URL}/api/calendar/disconnect`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
+export async function fetchUpcomingMeetings(): Promise<{
+  configured: boolean;
+  connected: boolean;
+  events: CalendarEvent[];
+  error?: string;
+}> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/calendar/upcoming`, {
+      headers: authHeaders(),
+    });
+    const data = await res.json().catch(() => ({}));
+    return {
+      configured: Boolean(data.configured),
+      connected: Boolean(data.connected),
+      events: data.events ?? [],
+      error: data.error,
+    };
+  } catch {
+    return { configured: false, connected: false, events: [] };
   }
 }

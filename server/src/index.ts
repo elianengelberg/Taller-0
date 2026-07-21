@@ -2,28 +2,51 @@ import cors from "cors";
 import express, { NextFunction, Request, Response } from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
-import { answerFromMeeting } from "./ai";
+import { answerFromMeeting, generateMeetingReport } from "./ai";
 import { hashPassword, signToken, verifyPassword, verifyToken } from "./auth";
 import {
   attachRecording,
+  canAccessFolder,
   claimMeeting,
+  clearMsRefreshToken,
+  createFolder,
   createUser,
   createUserWithGoogle,
   dbEnabled,
-  getMeetingDetail,
+  deleteFolder,
+  getMeetingDetailForUser,
+  getMsRefreshToken,
   getUserAuthById,
   getUserByEmail,
   getUserByGoogleId,
   getUserById,
   linkGoogleId,
+  listFolders,
+  listFolderShares,
   listMeetings,
+  listMeetingsInFolder,
+  listSharedFolders,
   meetingExists,
+  moveMeetingToFolder,
+  renameFolder,
+  setMsRefreshToken,
+  shareFolderWithEmail,
+  unshareFolder,
   updateUserName,
   updateUserPasswordHash,
 } from "./db";
 import { explainError } from "./explainError";
 import { answerAcrossMeetings } from "./globalAi";
 import { consumeState, createState, exchangeGoogleCode, googleAuthEnabled, googleAuthUrl } from "./googleAuth";
+import {
+  calendarAuthUrl,
+  consumeCalendarState,
+  createCalendarState,
+  exchangeCalendarCode,
+  fetchUpcomingEvents,
+  microsoftEnabled,
+  refreshAccessToken,
+} from "./microsoftAuth";
 import { registerSocketHandlers } from "./socketHandlers";
 import { createRecordingUploadUrl, isOwnRecordingUrl, storageEnabled } from "./storage";
 import { createTeamsUserToken, teamsEnabled } from "./teams";
@@ -358,12 +381,141 @@ app.get("/api/meetings", requireAuth, async (req, res) => {
 });
 
 app.get("/api/meetings/:id", requireAuth, async (req, res) => {
-  const meeting = await getMeetingDetail(req.params.id, (req as AuthedRequest).userId!);
+  const meeting = await getMeetingDetailForUser(req.params.id, (req as AuthedRequest).userId!);
   if (!meeting) {
     res.status(404).json({ error: "No encontramos esa reunión." });
     return;
   }
   res.json({ meeting });
+});
+
+// --- Folders ---------------------------------------------------------------
+// Organize saved meetings into folders ("Ingeniería", "Clientes"…), move
+// meetings between them, and share a whole folder (read-only) with another
+// account. All owner-scoped in SQL; sharing is by the recipient's email.
+
+app.get("/api/folders", requireAuth, async (req, res) => {
+  const userId = (req as AuthedRequest).userId!;
+  const [owned, shared] = await Promise.all([listFolders(userId), listSharedFolders(userId)]);
+  res.json({ folders: owned, shared });
+});
+
+app.post("/api/folders", requireAuth, async (req, res) => {
+  const name = String(req.body?.name ?? "").trim().slice(0, 80);
+  if (!name) {
+    res.status(400).json({ error: "Poné un nombre para la carpeta." });
+    return;
+  }
+  const folder = await createFolder((req as AuthedRequest).userId!, name);
+  if (!folder) {
+    res.status(503).json({ error: "No se pudo crear la carpeta en este momento." });
+    return;
+  }
+  res.json({ folder });
+});
+
+app.patch("/api/folders/:id", requireAuth, async (req, res) => {
+  const name = String(req.body?.name ?? "").trim().slice(0, 80);
+  if (!name) {
+    res.status(400).json({ error: "Poné un nombre para la carpeta." });
+    return;
+  }
+  const ok = await renameFolder(req.params.id, (req as AuthedRequest).userId!, name);
+  if (!ok) {
+    res.status(404).json({ error: "No encontramos esa carpeta." });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+app.delete("/api/folders/:id", requireAuth, async (req, res) => {
+  const ok = await deleteFolder(req.params.id, (req as AuthedRequest).userId!);
+  if (!ok) {
+    res.status(404).json({ error: "No encontramos esa carpeta." });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+// Meetings inside a folder -- owner or a share recipient. 403 if the caller
+// has no access to the folder at all.
+app.get("/api/folders/:id/meetings", requireAuth, async (req, res) => {
+  const userId = (req as AuthedRequest).userId!;
+  if (!(await canAccessFolder(req.params.id, userId))) {
+    res.status(403).json({ error: "No tenés acceso a esa carpeta." });
+    return;
+  }
+  const meetings = await listMeetingsInFolder(req.params.id);
+  res.json({ meetings });
+});
+
+app.get("/api/folders/:id/shares", requireAuth, async (req, res) => {
+  const recipients = await listFolderShares(req.params.id, (req as AuthedRequest).userId!);
+  res.json({ recipients });
+});
+
+app.post("/api/folders/:id/share", requireAuth, async (req, res) => {
+  const email = String(req.body?.email ?? "").trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    res.status(400).json({ error: "Ingresá el email de la persona." });
+    return;
+  }
+  const result = await shareFolderWithEmail(req.params.id, (req as AuthedRequest).userId!, email);
+  if (!result.ok) {
+    const msg =
+      result.reason === "not-owner"
+        ? "No encontramos esa carpeta."
+        : result.reason === "no-user"
+          ? "No hay ninguna cuenta de Unify con ese email. La persona tiene que registrarse primero."
+          : result.reason === "self"
+            ? "Esa carpeta ya es tuya."
+            : "No se pudo compartir la carpeta en este momento.";
+    res.status(result.reason === "not-owner" ? 404 : 400).json({ error: msg });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+app.delete("/api/folders/:id/share/:userId", requireAuth, async (req, res) => {
+  const ok = await unshareFolder(
+    req.params.id,
+    (req as AuthedRequest).userId!,
+    req.params.userId
+  );
+  if (!ok) {
+    res.status(404).json({ error: "No encontramos esa carpeta." });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+// Move (or remove, folderId=null) one of the caller's meetings into one of
+// their folders.
+app.post("/api/meetings/:id/folder", requireAuth, async (req, res) => {
+  const raw = req.body?.folderId;
+  const folderId = typeof raw === "string" && raw ? raw : null;
+  const ok = await moveMeetingToFolder(req.params.id, (req as AuthedRequest).userId!, folderId);
+  if (!ok) {
+    res.status(404).json({ error: "No se pudo mover la reunión (revisá que sea tuya)." });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+// AI report: generated once over the whole transcript and saved, then served
+// instantly on later opens. `?regenerate=1` forces a fresh one.
+app.post("/api/meetings/:id/report", requireAuth, async (req, res) => {
+  const regenerate = req.query.regenerate === "1" || req.body?.regenerate === true;
+  const result = await generateMeetingReport(
+    req.params.id,
+    (req as AuthedRequest).userId!,
+    regenerate
+  );
+  if (!result.ok) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+  res.json({ report: result.answer });
 });
 
 app.post("/api/meetings/:id/recording-upload-url", async (req, res) => {
@@ -442,6 +594,87 @@ app.post("/api/meetings/ask-all", requireAuth, async (req, res) => {
     return;
   }
   res.json({ answer: result.answer });
+});
+
+// --- Outlook / Microsoft calendar ------------------------------------------
+// Connect a Microsoft 365 / Outlook calendar so the app can show upcoming
+// meetings and offer to auto-record. `configured` reflects whether the server
+// has Azure credentials at all; `connected` whether THIS user linked their
+// calendar. Everything degrades gracefully when unconfigured.
+
+app.get("/api/calendar/status", requireAuth, async (req, res) => {
+  if (!microsoftEnabled) {
+    res.json({ configured: false, connected: false });
+    return;
+  }
+  const token = await getMsRefreshToken((req as AuthedRequest).userId!);
+  res.json({ configured: true, connected: Boolean(token) });
+});
+
+// The client fetches this WITH its Bearer token, then navigates the browser to
+// the returned URL. Doing it this way (instead of a plain redirect endpoint)
+// keeps the session token out of the URL/query logs while still binding the
+// OAuth `state` to the right Unify account.
+app.get("/api/calendar/connect-url", requireAuth, (req, res) => {
+  if (!microsoftEnabled) {
+    res.status(503).json({ error: "La conexión con Outlook no está configurada en el servidor." });
+    return;
+  }
+  const state = createCalendarState((req as AuthedRequest).userId!);
+  res.json({ url: calendarAuthUrl(state) });
+});
+
+app.get("/api/calendar/callback", async (req, res) => {
+  if (!microsoftEnabled) {
+    res.status(503).send("La conexión con Outlook no está configurada en el servidor.");
+    return;
+  }
+  const code = typeof req.query.code === "string" ? req.query.code : null;
+  const state = typeof req.query.state === "string" ? req.query.state : undefined;
+  const userId = consumeCalendarState(state);
+  if (!userId || !code) {
+    res.redirect(`${CLIENT_ORIGIN}/historial?calendar=error`);
+    return;
+  }
+  try {
+    const { refreshToken } = await exchangeCalendarCode(code);
+    await setMsRefreshToken(userId, refreshToken);
+    res.redirect(`${CLIENT_ORIGIN}/historial?calendar=connected`);
+  } catch (err) {
+    console.error("[calendar] callback error:", err instanceof Error ? err.message : err);
+    res.redirect(`${CLIENT_ORIGIN}/historial?calendar=error`);
+  }
+});
+
+app.post("/api/calendar/disconnect", requireAuth, async (req, res) => {
+  await clearMsRefreshToken((req as AuthedRequest).userId!);
+  res.json({ ok: true });
+});
+
+app.get("/api/calendar/upcoming", requireAuth, async (req, res) => {
+  if (!microsoftEnabled) {
+    res.json({ configured: false, connected: false, events: [] });
+    return;
+  }
+  const userId = (req as AuthedRequest).userId!;
+  const refreshToken = await getMsRefreshToken(userId);
+  if (!refreshToken) {
+    res.json({ configured: true, connected: false, events: [] });
+    return;
+  }
+  try {
+    const { accessToken, refreshToken: rotated } = await refreshAccessToken(refreshToken);
+    // Microsoft rotates refresh tokens -- persist the new one so the link
+    // doesn't silently die after the old token expires.
+    if (rotated && rotated !== refreshToken) await setMsRefreshToken(userId, rotated);
+    const events = await fetchUpcomingEvents(accessToken);
+    res.json({ configured: true, connected: true, events });
+  } catch (err) {
+    console.error("[calendar] upcoming error:", err instanceof Error ? err.message : err);
+    // A failed refresh usually means the user revoked access on Microsoft's
+    // side; surface it so the client can offer to reconnect.
+    res.status(502).json({ configured: true, connected: true, events: [], error: "refresh-failed" });
+  }
 });
 
 // Last-resort error handler so a malformed JSON body (or any synchronous

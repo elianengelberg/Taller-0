@@ -84,6 +84,52 @@ function migrate(): Promise<void> {
       // is how a returning Google login is matched back to its account.
       .then(() => pool.query(`ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;`))
       .then(() => pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT UNIQUE;`))
+      // Outlook/Microsoft calendar: the long-lived refresh token so we can
+      // fetch the person's upcoming meetings on their behalf. NULL until they
+      // connect their calendar; cleared when they disconnect.
+      .then(() => pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ms_refresh_token TEXT;`))
+      // Folders: organize a person's saved meetings ("Ingeniería", "Clientes"…).
+      .then(() =>
+        pool.query(
+          `CREATE TABLE IF NOT EXISTS folders (
+            id UUID PRIMARY KEY,
+            owner_id UUID NOT NULL,
+            name TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+          );`
+        )
+      )
+      .then(() =>
+        pool.query(`CREATE INDEX IF NOT EXISTS folders_owner_id_idx ON folders(owner_id);`)
+      )
+      // A meeting lives in at most one folder (NULL = loose in the history).
+      .then(() => pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS folder_id UUID;`))
+      .then(() =>
+        pool.query(`CREATE INDEX IF NOT EXISTS meetings_folder_id_idx ON meetings(folder_id);`)
+      )
+      // Sharing a whole folder with another account (read-only access to
+      // every meeting inside it). One row per (folder, recipient).
+      .then(() =>
+        pool.query(
+          `CREATE TABLE IF NOT EXISTS folder_shares (
+            folder_id UUID NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+            shared_with_user_id UUID NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (folder_id, shared_with_user_id)
+          );`
+        )
+      )
+      .then(() =>
+        pool.query(
+          `CREATE INDEX IF NOT EXISTS folder_shares_user_idx ON folder_shares(shared_with_user_id);`
+        )
+      )
+      // Saved AI report per meeting (generated once, then persisted so it
+      // doesn't cost a model call every time the meeting is opened).
+      .then(() => pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS report TEXT;`))
+      .then(() =>
+        pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS report_generated_at TIMESTAMPTZ;`)
+      )
       .then(() => undefined)
       .catch((err) => {
         console.error("No se pudo preparar la base de datos:", err.message);
@@ -138,11 +184,28 @@ export interface MeetingSummary {
   startedAt: string;
   endedAt: string | null;
   messageCount: number;
+  folderId: string | null;
+  hasReport: boolean;
 }
 
 export interface MeetingDetail extends MeetingSummary {
   roles: PersistedRole[];
   messages: PersistedMessage[];
+  report: string | null;
+  reportGeneratedAt: string | null;
+  // True when the viewer is not the owner but reached this meeting through a
+  // folder shared with them -- the UI uses it to present a read-only view.
+  sharedView?: boolean;
+}
+
+export interface FolderSummary {
+  id: string;
+  name: string;
+  createdAt: string;
+  meetingCount: number;
+  // Present only for folders shared WITH the current user (who owns them).
+  ownerName?: string;
+  sharedWithCount?: number;
 }
 
 async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
@@ -281,6 +344,229 @@ export function updateUserPasswordHash(id: string, passwordHash: string): Promis
   }, undefined);
 }
 
+// --- Microsoft/Outlook calendar tokens -------------------------------------
+
+export function setMsRefreshToken(userId: string, token: string): Promise<void> {
+  return safe(async () => {
+    await pool!.query(`UPDATE users SET ms_refresh_token = $2 WHERE id = $1`, [userId, token]);
+  }, undefined);
+}
+
+export function getMsRefreshToken(userId: string): Promise<string | null> {
+  return safe(async () => {
+    const { rows } = await pool!.query(`SELECT ms_refresh_token FROM users WHERE id = $1`, [userId]);
+    return (rows[0]?.ms_refresh_token as string | null) ?? null;
+  }, null);
+}
+
+export function clearMsRefreshToken(userId: string): Promise<void> {
+  return safe(async () => {
+    await pool!.query(`UPDATE users SET ms_refresh_token = NULL WHERE id = $1`, [userId]);
+  }, undefined);
+}
+
+// --- Folders ---------------------------------------------------------------
+
+export function createFolder(ownerId: string, name: string): Promise<FolderSummary | null> {
+  return safe(async () => {
+    const id = randomUUID();
+    const { rows } = await pool!.query(
+      `INSERT INTO folders (id, owner_id, name) VALUES ($1, $2, $3) RETURNING created_at`,
+      [id, ownerId, name]
+    );
+    return { id, name, createdAt: rows[0].created_at, meetingCount: 0 };
+  }, null);
+}
+
+// Folders the user OWNS, each with how many meetings it holds.
+export function listFolders(ownerId: string): Promise<FolderSummary[]> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `SELECT f.id, f.name, f.created_at,
+              (SELECT count(*) FROM meetings m WHERE m.folder_id = f.id) AS meeting_count,
+              (SELECT count(*) FROM folder_shares s WHERE s.folder_id = f.id) AS shared_count
+       FROM folders f
+       WHERE f.owner_id = $1
+       ORDER BY f.name ASC`,
+      [ownerId]
+    );
+    return rows.map(
+      (r): FolderSummary => ({
+        id: r.id,
+        name: r.name,
+        createdAt: r.created_at,
+        meetingCount: Number(r.meeting_count),
+        sharedWithCount: Number(r.shared_count),
+      })
+    );
+  }, []);
+}
+
+// Folders shared WITH this user by someone else (read-only). Includes the
+// owner's name so the UI can show "Ingeniería · de Papá".
+export function listSharedFolders(userId: string): Promise<FolderSummary[]> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `SELECT f.id, f.name, f.created_at, u.name AS owner_name,
+              (SELECT count(*) FROM meetings m WHERE m.folder_id = f.id) AS meeting_count
+       FROM folder_shares s
+       JOIN folders f ON f.id = s.folder_id
+       JOIN users u ON u.id = f.owner_id
+       WHERE s.shared_with_user_id = $1
+       ORDER BY f.name ASC`,
+      [userId]
+    );
+    return rows.map(
+      (r): FolderSummary => ({
+        id: r.id,
+        name: r.name,
+        createdAt: r.created_at,
+        meetingCount: Number(r.meeting_count),
+        ownerName: r.owner_name,
+      })
+    );
+  }, []);
+}
+
+export function renameFolder(id: string, ownerId: string, name: string): Promise<boolean> {
+  return safe(async () => {
+    const r = await pool!.query(`UPDATE folders SET name = $3 WHERE id = $1 AND owner_id = $2`, [
+      id,
+      ownerId,
+      name,
+    ]);
+    return (r.rowCount ?? 0) > 0;
+  }, false);
+}
+
+// Deleting a folder frees its meetings (folder_id -> NULL) rather than
+// deleting them; the shares cascade away via the FK.
+export function deleteFolder(id: string, ownerId: string): Promise<boolean> {
+  return safe(async () => {
+    const owned = await pool!.query(`SELECT 1 FROM folders WHERE id = $1 AND owner_id = $2`, [
+      id,
+      ownerId,
+    ]);
+    if (owned.rowCount === 0) return false;
+    await pool!.query(`UPDATE meetings SET folder_id = NULL WHERE folder_id = $1`, [id]);
+    await pool!.query(`DELETE FROM folders WHERE id = $1`, [id]);
+    return true;
+  }, false);
+}
+
+// Moves one of the user's OWN meetings into one of their OWN folders (or out,
+// when folderId is null). Both ownership checks are enforced in SQL so a user
+// can't file a meeting they don't own, nor into someone else's folder.
+export function moveMeetingToFolder(
+  meetingId: string,
+  ownerId: string,
+  folderId: string | null
+): Promise<boolean> {
+  return safe(async () => {
+    if (folderId) {
+      const folder = await pool!.query(`SELECT 1 FROM folders WHERE id = $1 AND owner_id = $2`, [
+        folderId,
+        ownerId,
+      ]);
+      if (folder.rowCount === 0) return false;
+    }
+    const r = await pool!.query(
+      `UPDATE meetings SET folder_id = $3 WHERE id = $1 AND owner_id = $2`,
+      [meetingId, ownerId, folderId]
+    );
+    return (r.rowCount ?? 0) > 0;
+  }, false);
+}
+
+export type ShareFolderResult =
+  | { ok: true }
+  | { ok: false; reason: "not-owner" | "no-user" | "self" | "unavailable" };
+
+// Shares an owned folder with the account that has `email`. The recipient
+// must already have a Unify account (we don't invite by email here).
+export function shareFolderWithEmail(
+  folderId: string,
+  ownerId: string,
+  email: string
+): Promise<ShareFolderResult> {
+  return safe<ShareFolderResult>(async () => {
+    const owned = await pool!.query(`SELECT 1 FROM folders WHERE id = $1 AND owner_id = $2`, [
+      folderId,
+      ownerId,
+    ]);
+    if (owned.rowCount === 0) return { ok: false, reason: "not-owner" };
+    const target = await pool!.query(`SELECT id FROM users WHERE email = $1`, [email]);
+    const targetId = target.rows[0]?.id as string | undefined;
+    if (!targetId) return { ok: false, reason: "no-user" };
+    if (targetId === ownerId) return { ok: false, reason: "self" };
+    await pool!.query(
+      `INSERT INTO folder_shares (folder_id, shared_with_user_id) VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
+      [folderId, targetId]
+    );
+    return { ok: true };
+  }, { ok: false, reason: "unavailable" });
+}
+
+export function unshareFolder(
+  folderId: string,
+  ownerId: string,
+  targetUserId: string
+): Promise<boolean> {
+  return safe(async () => {
+    const owned = await pool!.query(`SELECT 1 FROM folders WHERE id = $1 AND owner_id = $2`, [
+      folderId,
+      ownerId,
+    ]);
+    if (owned.rowCount === 0) return false;
+    await pool!.query(
+      `DELETE FROM folder_shares WHERE folder_id = $1 AND shared_with_user_id = $2`,
+      [folderId, targetUserId]
+    );
+    return true;
+  }, false);
+}
+
+export interface FolderShareRecipient {
+  userId: string;
+  name: string;
+  email: string;
+}
+
+export function listFolderShares(
+  folderId: string,
+  ownerId: string
+): Promise<FolderShareRecipient[]> {
+  return safe(async () => {
+    const owned = await pool!.query(`SELECT 1 FROM folders WHERE id = $1 AND owner_id = $2`, [
+      folderId,
+      ownerId,
+    ]);
+    if (owned.rowCount === 0) return [];
+    const { rows } = await pool!.query(
+      `SELECT u.id, u.name, u.email
+       FROM folder_shares s JOIN users u ON u.id = s.shared_with_user_id
+       WHERE s.folder_id = $1
+       ORDER BY u.name ASC`,
+      [folderId]
+    );
+    return rows.map((r) => ({ userId: r.id, name: r.name, email: r.email }));
+  }, []);
+}
+
+// True when the user may read this folder: they own it, or it's shared with
+// them. Used to gate folder-scoped meeting listing.
+export function canAccessFolder(folderId: string, userId: string): Promise<boolean> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `SELECT 1 FROM folders WHERE id = $1 AND owner_id = $2
+       UNION SELECT 1 FROM folder_shares WHERE folder_id = $1 AND shared_with_user_id = $2`,
+      [folderId, userId]
+    );
+    return rows.length > 0;
+  }, false);
+}
+
 // --- Meetings --------------------------------------------------------------
 
 export function createMeetingRecord(params: {
@@ -380,30 +666,108 @@ export function claimMeeting(id: string, ownerId: string): Promise<boolean> {
 
 // Only ever returns meetings owned by `ownerId` -- history is private per
 // account, so a logged-in user never sees anyone else's meetings.
+function toSummary(row: {
+  id: string;
+  join_code: string;
+  host_name: string;
+  participants: PersistedParticipant[] | null;
+  recording_url: string | null;
+  started_at: string;
+  ended_at: string | null;
+  message_count: number | string;
+  folder_id: string | null;
+  report: string | null;
+}): MeetingSummary {
+  return {
+    id: row.id,
+    joinCode: row.join_code,
+    hostName: row.host_name,
+    participants: row.participants ?? [],
+    recordingUrl: row.recording_url,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    messageCount: Number(row.message_count),
+    folderId: row.folder_id,
+    hasReport: Boolean(row.report),
+  };
+}
+
+const SUMMARY_COLUMNS = `m.id, m.join_code, m.host_name, m.participants, m.recording_url,
+  m.started_at, m.ended_at, m.folder_id, m.report,
+  (SELECT count(*) FROM messages msg WHERE msg.meeting_id = m.id) AS message_count`;
+
 export function listMeetings(ownerId: string, limit = 50): Promise<MeetingSummary[]> {
   return safe(async () => {
     const { rows } = await pool!.query(
-      `SELECT m.id, m.join_code, m.host_name, m.participants, m.recording_url, m.started_at, m.ended_at,
-              (SELECT count(*) FROM messages msg WHERE msg.meeting_id = m.id) AS message_count
-       FROM meetings m
+      `SELECT ${SUMMARY_COLUMNS} FROM meetings m
        WHERE m.owner_id = $1
        ORDER BY m.started_at DESC
        LIMIT $2`,
       [ownerId, limit]
     );
-    return rows.map(
-      (row): MeetingSummary => ({
-        id: row.id,
-        joinCode: row.join_code,
-        hostName: row.host_name,
-        participants: row.participants ?? [],
-        recordingUrl: row.recording_url,
-        startedAt: row.started_at,
-        endedAt: row.ended_at,
-        messageCount: Number(row.message_count),
-      })
-    );
+    return rows.map(toSummary);
   }, []);
+}
+
+// Meetings inside one folder. Caller must have already confirmed access to the
+// folder (canAccessFolder) -- this doesn't re-check ownership, so a shared
+// recipient sees every meeting in the folder regardless of who owns each one.
+export function listMeetingsInFolder(folderId: string, limit = 200): Promise<MeetingSummary[]> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `SELECT ${SUMMARY_COLUMNS} FROM meetings m
+       WHERE m.folder_id = $1
+       ORDER BY m.started_at DESC
+       LIMIT $2`,
+      [folderId, limit]
+    );
+    return rows.map(toSummary);
+  }, []);
+}
+
+async function buildDetail(meeting: {
+  id: string;
+  join_code: string;
+  host_name: string;
+  roles: PersistedRole[] | null;
+  participants: PersistedParticipant[] | null;
+  recording_url: string | null;
+  started_at: string;
+  ended_at: string | null;
+  folder_id: string | null;
+  report: string | null;
+  report_generated_at: string | null;
+}): Promise<MeetingDetail> {
+  const { rows: messageRows } = await pool!.query(
+    `SELECT id, kind, sender_name, role_name, text, source_lang, created_at
+     FROM messages WHERE meeting_id = $1 ORDER BY created_at ASC`,
+    [meeting.id]
+  );
+  const messages: PersistedMessage[] = messageRows.map((row) => ({
+    id: row.id,
+    kind: row.kind,
+    senderName: row.sender_name,
+    roleName: row.role_name,
+    text: row.text,
+    sourceLang: row.source_lang,
+    createdAt: row.created_at,
+  }));
+  return {
+    id: meeting.id,
+    joinCode: meeting.join_code,
+    hostName: meeting.host_name,
+    roles: meeting.roles ?? [],
+    participants: meeting.participants ?? [],
+    recordingUrl: meeting.recording_url,
+    startedAt: meeting.started_at,
+    endedAt: meeting.ended_at,
+    folderId: meeting.folder_id,
+    hasReport: Boolean(meeting.report),
+    report: meeting.report,
+    reportGeneratedAt: meeting.report_generated_at,
+    messageCount: messages.length,
+    messages,
+  };
 }
 
 // Scoped to the owner: a user can only open the detail of their OWN meetings,
@@ -414,36 +778,71 @@ export function getMeetingDetail(id: string, ownerId: string): Promise<MeetingDe
       id,
       ownerId,
     ]);
-    const meeting = rows[0];
-    if (!meeting) return null;
+    return rows[0] ? buildDetail(rows[0]) : null;
+  }, null);
+}
 
-    const { rows: messageRows } = await pool!.query(
-      `SELECT id, kind, sender_name, role_name, text, source_lang, created_at
-       FROM messages WHERE meeting_id = $1 ORDER BY created_at ASC`,
+// Owner OR a folder-share recipient may open the meeting. Recipients get
+// `sharedView: true` so the UI can hide owner-only actions (move, delete,
+// re-share). The meeting must be filed in a folder that's shared with them.
+export function getMeetingDetailForUser(
+  id: string,
+  userId: string
+): Promise<MeetingDetail | null> {
+  return safe(async () => {
+    const owned = await pool!.query(`SELECT * FROM meetings WHERE id = $1 AND owner_id = $2`, [
+      id,
+      userId,
+    ]);
+    if (owned.rows[0]) return buildDetail(owned.rows[0]);
+
+    const shared = await pool!.query(
+      `SELECT m.* FROM meetings m
+       JOIN folder_shares s ON s.folder_id = m.folder_id
+       WHERE m.id = $1 AND s.shared_with_user_id = $2`,
+      [id, userId]
+    );
+    if (!shared.rows[0]) return null;
+    const detail = await buildDetail(shared.rows[0]);
+    return { ...detail, sharedView: true };
+  }, null);
+}
+
+// Whether the user can read this meeting at all (owner or via a shared
+// folder) -- cheap check used before generating/reading its report.
+export function canAccessMeeting(id: string, userId: string): Promise<boolean> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `SELECT 1 FROM meetings WHERE id = $1 AND owner_id = $2
+       UNION
+       SELECT 1 FROM meetings m JOIN folder_shares s ON s.folder_id = m.folder_id
+       WHERE m.id = $1 AND s.shared_with_user_id = $2`,
+      [id, userId]
+    );
+    return rows.length > 0;
+  }, false);
+}
+
+export function saveMeetingReport(id: string, report: string): Promise<void> {
+  return safe(async () => {
+    await pool!.query(
+      `UPDATE meetings SET report = $2, report_generated_at = now() WHERE id = $1`,
+      [id, report]
+    );
+  }, undefined);
+}
+
+export function getMeetingReport(
+  id: string
+): Promise<{ report: string | null; reportGeneratedAt: string | null }> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `SELECT report, report_generated_at FROM meetings WHERE id = $1`,
       [id]
     );
-
-    const messages: PersistedMessage[] = messageRows.map((row) => ({
-      id: row.id,
-      kind: row.kind,
-      senderName: row.sender_name,
-      roleName: row.role_name,
-      text: row.text,
-      sourceLang: row.source_lang,
-      createdAt: row.created_at,
-    }));
-
     return {
-      id: meeting.id,
-      joinCode: meeting.join_code,
-      hostName: meeting.host_name,
-      roles: meeting.roles ?? [],
-      participants: meeting.participants ?? [],
-      recordingUrl: meeting.recording_url,
-      startedAt: meeting.started_at,
-      endedAt: meeting.ended_at,
-      messageCount: messages.length,
-      messages,
+      report: rows[0]?.report ?? null,
+      reportGeneratedAt: rows[0]?.report_generated_at ?? null,
     };
-  }, null);
+  }, { report: null, reportGeneratedAt: null });
 }

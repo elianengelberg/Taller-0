@@ -1,5 +1,10 @@
 import { anthropicClient } from "./anthropicClient";
-import { getMeetingDetail, MeetingDetail, PersistedMessage } from "./db";
+import {
+  getMeetingDetailForUser,
+  MeetingDetail,
+  PersistedMessage,
+  saveMeetingReport,
+} from "./db";
 
 // Override with ANTHROPIC_MODEL if you want a cheaper/faster model (e.g.
 // "claude-haiku-4-5"). Defaults to Anthropic's most capable model since
@@ -102,30 +107,11 @@ recalcules leyendo la transcripción):
 ${lines || "  (sin datos)"}`;
 }
 
-export type AskResult = { ok: true; answer: string } | { ok: false; error: string };
-
-export async function answerFromMeeting(
-  meetingId: string,
-  question: string,
-  ownerId: string
-): Promise<AskResult> {
-  if (!anthropicClient) {
-    return { ok: false, error: "La función de IA no está configurada en el servidor." };
-  }
-
-  const trimmedQuestion = question.trim();
-  if (!trimmedQuestion) {
-    return { ok: false, error: "Escribí una pregunta." };
-  }
-
-  const meeting = await getMeetingDetail(meetingId, ownerId);
-  if (!meeting) {
-    return { ok: false, error: "No encontramos esa reunión." };
-  }
-  if (meeting.messages.length === 0) {
-    return { ok: false, error: "Esa reunión todavía no tiene mensajes ni transcripción guardada." };
-  }
-
+// Shared context builder: the system prompt that grounds both the Q&A and the
+// full-report generation in a single meeting's real data (transcript + exact
+// precomputed stats + participant list). Kept in one place so the two flows
+// never drift in what the model is allowed to use.
+function buildMeetingSystemPrompt(meeting: MeetingDetail): string {
   const transcriptText = buildTranscriptText(meeting.messages);
   const statsText = formatStats(computeStats(meeting));
   const participantList = meeting.participants
@@ -135,7 +121,7 @@ export async function answerFromMeeting(
     })
     .join("\n");
 
-  const systemPrompt = `Sos un asistente que analiza reuniones. Respondés preguntas y generás
+  return `Sos un asistente que analiza reuniones. Respondés preguntas y generás
 informes EXCLUSIVAMENTE en base a lo que pasó en una reunión específica: la transcripción de
 lo que se dijo (por voz o por chat), quién lo dijo, y las estadísticas ya calculadas.
 
@@ -158,25 +144,111 @@ ${statsText}
 Transcripción completa de la reunión (orden cronológico; "[chat]" marca lo escrito, el resto
 es lo que se dijo por voz):
 ${transcriptText}`;
+}
+
+function firstText(content: { type: string; text?: string }[]): string {
+  for (const block of content) {
+    if (block.type === "text" && block.text) return block.text;
+  }
+  return "No pude generar una respuesta.";
+}
+
+export type AskResult = { ok: true; answer: string } | { ok: false; error: string };
+
+export async function answerFromMeeting(
+  meetingId: string,
+  question: string,
+  userId: string
+): Promise<AskResult> {
+  if (!anthropicClient) {
+    return { ok: false, error: "La función de IA no está configurada en el servidor." };
+  }
+
+  const trimmedQuestion = question.trim();
+  if (!trimmedQuestion) {
+    return { ok: false, error: "Escribí una pregunta." };
+  }
+
+  const meeting = await getMeetingDetailForUser(meetingId, userId);
+  if (!meeting) {
+    return { ok: false, error: "No encontramos esa reunión." };
+  }
+  if (meeting.messages.length === 0) {
+    return { ok: false, error: "Esa reunión todavía no tiene mensajes ni transcripción guardada." };
+  }
 
   try {
     const response = await anthropicClient.messages.create({
       model: MODEL,
       max_tokens: 4096,
-      system: systemPrompt,
+      system: buildMeetingSystemPrompt(meeting),
       messages: [{ role: "user", content: trimmedQuestion.slice(0, 2000) }],
     });
-
-    let answer = "No pude generar una respuesta.";
-    for (const block of response.content) {
-      if (block.type === "text") {
-        answer = block.text;
-        break;
-      }
-    }
-    return { ok: true, answer };
+    return { ok: true, answer: firstText(response.content) };
   } catch (err) {
     console.error("Error llamando a la API de Anthropic:", err);
     return { ok: false, error: "No se pudo consultar a la IA en este momento." };
+  }
+}
+
+// Generates a full structured report for the meeting and PERSISTS it, so it's
+// produced once (a real model call over the whole transcript) and then served
+// instantly from the DB on every later open. `regenerate` forces a fresh one.
+const REPORT_REQUEST = `Generá un informe completo y profesional de esta reunión, en español y en
+Markdown, con estas secciones (omití una sección solo si de verdad no hay información para ella):
+
+## Resumen ejecutivo
+2-4 frases con lo esencial de la reunión.
+
+## Temas tratados
+Lista de los temas principales que se discutieron.
+
+## Decisiones tomadas
+Qué se decidió. Si no se tomaron decisiones, decilo.
+
+## Tareas y pendientes
+Quién quedó a cargo de qué (si se mencionó). Formato: - **Responsable**: tarea.
+
+## Participación
+Un renglón por persona con su aporte principal, usando las estadísticas ya calculadas.
+
+## Próximos pasos
+Qué sigue después de esta reunión, si se mencionó.
+
+No inventes nada que no esté en la transcripción.`;
+
+export async function generateMeetingReport(
+  meetingId: string,
+  userId: string,
+  regenerate = false
+): Promise<AskResult> {
+  const meeting = await getMeetingDetailForUser(meetingId, userId);
+  if (!meeting) {
+    return { ok: false, error: "No encontramos esa reunión." };
+  }
+  // Serve the saved report unless a fresh one was explicitly requested.
+  if (!regenerate && meeting.report) {
+    return { ok: true, answer: meeting.report };
+  }
+  if (!anthropicClient) {
+    return { ok: false, error: "La función de IA no está configurada en el servidor." };
+  }
+  if (meeting.messages.length === 0) {
+    return { ok: false, error: "Esa reunión todavía no tiene transcripción para armar un informe." };
+  }
+
+  try {
+    const response = await anthropicClient.messages.create({
+      model: MODEL,
+      max_tokens: 4096,
+      system: buildMeetingSystemPrompt(meeting),
+      messages: [{ role: "user", content: REPORT_REQUEST }],
+    });
+    const answer = firstText(response.content);
+    await saveMeetingReport(meetingId, answer);
+    return { ok: true, answer };
+  } catch (err) {
+    console.error("Error generando el informe con la API de Anthropic:", err);
+    return { ok: false, error: "No se pudo generar el informe en este momento." };
   }
 }
