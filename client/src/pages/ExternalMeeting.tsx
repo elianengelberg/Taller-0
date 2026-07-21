@@ -145,6 +145,14 @@ export default function ExternalMeeting() {
     else if (recorder.status === "idle" || recorder.status === "error") void recorder.start();
   }
 
+  // One-shot flag left by the from-Meet deep link (extension button):
+  // surface a "ready to record" hint until they start (or dismiss it).
+  const [recHint, setRecHint] = useState(() => sessionStorage.getItem("unify_autorec") === "1");
+  useEffect(() => {
+    sessionStorage.removeItem("unify_autorec");
+  }, []);
+  const showRecHint = recHint && recorder.status === "idle";
+
   function togglePanel(panel: Exclude<PanelKey, null>) {
     setActivePanel((current) => (current === panel ? null : panel));
   }
@@ -194,6 +202,23 @@ export default function ExternalMeeting() {
         </div>
       </header>
 
+      {showRecHint && (
+        <div className="flex items-center justify-center gap-3 border-b border-brand-500/30 bg-brand-500/10 px-4 py-2 text-xs text-brand-300">
+          <span>
+            Listo para grabar: tocá <span className="font-semibold">Grabar</span> y elegí la
+            pestaña de Meet con la casilla de audio tildada.
+          </span>
+          <button
+            type="button"
+            onClick={() => setRecHint(false)}
+            aria-label="Cerrar aviso de grabación"
+            className="rounded-full px-1.5 py-0.5 hover:bg-brand-500/20"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* flex (not just relative) so the transcript/AI panel becomes a real
           column beside the embed on desktop -- SidePanel switches to
           `sm:static sm:w-96 sm:shrink-0` there, which only lines up correctly
@@ -224,6 +249,7 @@ export default function ExternalMeeting() {
             uploadStatus={recorder.uploadStatus}
             error={recorder.error}
             resultUrl={recorder.resultUrl}
+            resultType={recorder.resultType}
             onDismiss={recorder.reset}
           />
         </div>
@@ -287,20 +313,22 @@ export default function ExternalMeeting() {
         >
           <SparklesIcon className="h-5 w-5" />
         </IconButton>
-        <IconButton
-          label={
-            recording
-              ? "Detener grabación"
-              : !screenCaptureSupported
-                ? "La grabación no está disponible en este navegador"
-                : 'Grabar la reunión (elegí "esta pestaña" y tildá compartir audio)'
-          }
-          caption={recording ? "Grabando" : "Grabar"}
-          danger={recording}
-          onClick={toggleRecording}
-        >
-          {recording ? <StopIcon className="h-5 w-5" /> : <RecordIcon className="h-5 w-5" />}
-        </IconButton>
+        <div className={showRecHint ? "animate-pulse" : undefined}>
+          <IconButton
+            label={
+              recording
+                ? "Detener grabación"
+                : !screenCaptureSupported
+                  ? "La grabación no está disponible en este navegador"
+                  : 'Grabar la reunión (elegí "esta pestaña" y tildá compartir audio)'
+            }
+            caption={recording ? "Grabando" : "Grabar"}
+            danger={recording}
+            onClick={toggleRecording}
+          >
+            {recording ? <StopIcon className="h-5 w-5" /> : <RecordIcon className="h-5 w-5" />}
+          </IconButton>
+        </div>
         <IconButton label="Salir de la reunión" caption="Salir" danger onClick={handleLeave}>
           <PhoneOffIcon className="h-5 w-5" />
         </IconButton>

@@ -6,10 +6,19 @@ interface Props {
   uploadStatus: UploadStatus;
   error: string | null;
   resultUrl: string | null;
+  // Container of the finished file, e.g. "video/mp4" -- names the download.
+  resultType?: string;
   onDismiss: () => void;
 }
 
-export default function RecordingBanner({ status, uploadStatus, error, resultUrl, onDismiss }: Props) {
+export default function RecordingBanner({
+  status,
+  uploadStatus,
+  error,
+  resultUrl,
+  resultType,
+  onDismiss,
+}: Props) {
   if (status === "idle") return null;
 
   if (status === "recording") {
@@ -73,7 +82,7 @@ export default function RecordingBanner({ status, uploadStatus, error, resultUrl
         {resultUrl && (
           <a
             href={resultUrl}
-            download={`reunion-${Date.now()}.webm`}
+            download={`reunion-${Date.now()}.${resultType?.includes("mp4") ? "mp4" : "webm"}`}
             className="mt-3 flex items-center justify-center gap-2 rounded-lg bg-brand-500 px-3 py-2 text-sm font-semibold text-on-accent hover:bg-brand-600"
           >
             <DownloadIcon className="h-4 w-4" />

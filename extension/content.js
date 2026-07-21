@@ -15,17 +15,22 @@
 
 (() => {
   const DEFAULT_SERVER = "https://taller-0.onrender.com";
+  const DEFAULT_APP = "https://www.unify-meet.com";
   const MEET_CODE_RE = /^\/([a-z]{3}-[a-z]{4}-[a-z]{3})(?:$|[/?#])/;
 
   let serverBase = DEFAULT_SERVER;
+  let appBase = DEFAULT_APP;
   try {
-    chrome.storage.sync.get({ serverBase: DEFAULT_SERVER }, (v) => {
+    chrome.storage.sync.get({ serverBase: DEFAULT_SERVER, appBase: DEFAULT_APP }, (v) => {
       if (v && typeof v.serverBase === "string" && v.serverBase.startsWith("http")) {
         serverBase = v.serverBase.replace(/\/+$/, "");
       }
+      if (v && typeof v.appBase === "string" && v.appBase.startsWith("http")) {
+        appBase = v.appBase.replace(/\/+$/, "");
+      }
     });
   } catch (e) {
-    /* storage unavailable -- keep the default */
+    /* storage unavailable -- keep the defaults */
   }
 
   const log = (...args) => console.debug("[unify-meet]", ...args);
@@ -110,6 +115,53 @@
     return names.length ? names.slice(0, 100) : null;
   }
 
+  // ---- "Grabar con Unify" button injected into the call ----
+  //
+  // A content script cannot start a recording by itself (getDisplayMedia and
+  // tabCapture both require a user gesture on the extension/app side), so
+  // the honest integrated flow is: one click here opens the Unify companion
+  // pre-filled with THIS meeting's link, where a remembered user lands
+  // already joined and one tap away from recording the Meet tab.
+  const BTN_ID = "unify-record-launcher";
+  function ensureRecordButton(inCall) {
+    const existing = document.getElementById(BTN_ID);
+    if (!inCall || sessionStorage.getItem("unify-btn-hidden") === "1") {
+      if (existing) existing.remove();
+      return;
+    }
+    if (existing) return;
+
+    const wrap = document.createElement("div");
+    wrap.id = BTN_ID;
+    wrap.style.cssText =
+      "position:fixed;bottom:92px;right:16px;z-index:2147483000;display:flex;align-items:center;gap:6px;font-family:'Google Sans',Roboto,Arial,sans-serif;";
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "⏺ Grabar con Unify";
+    btn.title = "Abre Unify con esta reunión lista para grabar, transcribir y traducir";
+    btn.style.cssText =
+      "border:none;cursor:pointer;background:#2563EB;color:#fff;font-size:13px;font-weight:600;padding:10px 14px;border-radius:999px;box-shadow:0 4px 14px rgba(37,99,235,.45);";
+    btn.addEventListener("click", () => {
+      const link = `${location.origin}${location.pathname}`;
+      window.open(`${appBase}/externa?link=${encodeURIComponent(link)}&rec=1`, "_blank", "noopener");
+    });
+
+    const close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "✕";
+    close.setAttribute("aria-label", "Ocultar el botón de Unify en esta pestaña");
+    close.style.cssText =
+      "border:none;cursor:pointer;background:rgba(32,33,36,.85);color:#e8eaed;font-size:11px;width:22px;height:22px;border-radius:50%;";
+    close.addEventListener("click", () => {
+      sessionStorage.setItem("unify-btn-hidden", "1");
+      wrap.remove();
+    });
+
+    wrap.append(btn, close);
+    document.body.appendChild(wrap);
+  }
+
   // ---- State collection + sync ----
 
   function collect() {
@@ -170,6 +222,7 @@
     if (!code) return;
 
     const state = collect();
+    ensureRecordButton(state.inCall);
     const body = JSON.stringify(state);
     if (!force && body === lastSent) return; // only sync real changes
     lastSent = body;

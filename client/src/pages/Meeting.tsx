@@ -558,6 +558,7 @@ export default function Meeting() {
             uploadStatus={recorder.uploadStatus}
             error={recorder.error}
             resultUrl={recorder.resultUrl}
+            resultType={recorder.resultType}
             onDismiss={recorder.reset}
           />
         </main>

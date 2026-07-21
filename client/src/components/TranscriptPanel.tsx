@@ -1,7 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useMeeting } from "../context/MeetingContext";
 import { AUTO_LANG, ORIGINAL_LANG } from "../hooks/useLineTranslations";
 import { LANGUAGES, shortLang } from "../lib/languages";
+import { groupConsecutive } from "../lib/transcriptGroups";
 import { GlobeIcon } from "./icons";
 import RoleBadge from "./RoleBadge";
 import SidePanel from "./SidePanel";
@@ -31,6 +32,16 @@ export default function TranscriptPanel({
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const transcript = meeting?.transcript ?? [];
+  // Paragraph blocks (Otter-style): consecutive lines from the same speaker
+  // read as one flowing card instead of a stack of one-liners.
+  const paragraphs = useMemo(
+    () =>
+      groupConsecutive(transcript, (line) => ({
+        speakerKey: line.speakerId,
+        timestamp: line.timestamp,
+      })),
+    [transcript]
+  );
 
   // Follow new entries only when the reader is already at (or near) the
   // bottom -- yanking someone to the bottom while they're scrolled up
@@ -100,19 +111,35 @@ export default function TranscriptPanel({
         </p>
       ) : (
         <ul className="space-y-3">
-          {transcript.map((line) => {
-            const role = meeting?.roles.find((r) => r.id === line.roleId) ?? null;
-            const translated = getTranslation(line.id);
-            const alreadyInTargetLang = shortLang(line.sourceLang) === shortLang(resolvedTargetLang);
-            const isTranslating =
-              resolvedTargetLang !== ORIGINAL_LANG && !translated && !alreadyInTargetLang;
+          {paragraphs.map((group) => {
+            const first = group[0];
+            const role = meeting?.roles.find((r) => r.id === first.roleId) ?? null;
+            const originalText = group.map((l) => l.text).join(" ");
+            // Per-line target text: lines already spoken in the target
+            // language contribute their original; the rest wait on the
+            // translation cache. The paragraph flips to "translated" only
+            // when every piece is ready, so mixed-language text never shows.
+            const wantTranslation = resolvedTargetLang !== ORIGINAL_LANG;
+            const pieces = group.map((l) =>
+              shortLang(l.sourceLang) === shortLang(resolvedTargetLang)
+                ? l.text
+                : getTranslation(l.id)
+            );
+            const anyForeign =
+              wantTranslation &&
+              group.some((l) => shortLang(l.sourceLang) !== shortLang(resolvedTargetLang));
+            const translated =
+              wantTranslation && anyForeign && pieces.every(Boolean)
+                ? pieces.join(" ")
+                : null;
+            const isTranslating = anyForeign && !translated;
             return (
-              <li key={line.id} className="rounded-xl border border-ink-700 bg-ink-800/60 p-3">
+              <li key={first.id} className="rounded-xl border border-ink-700 bg-ink-800/60 p-3">
                 <div className="flex flex-wrap items-center gap-1.5 text-xs text-ink-400">
-                  <span className="font-semibold text-strong">{line.speakerName}</span>
+                  <span className="font-semibold text-strong">{first.speakerName}</span>
                   {role && <RoleBadge role={role} size="sm" />}
                   <span className="ml-auto shrink-0 text-[11px] text-ink-500">
-                    {new Date(line.timestamp).toLocaleTimeString([], {
+                    {new Date(first.timestamp).toLocaleTimeString([], {
                       hour: "2-digit",
                       minute: "2-digit",
                     })}
@@ -121,15 +148,15 @@ export default function TranscriptPanel({
 
                 {translated ? (
                   <>
-                    <p className="mt-1.5 flex items-start gap-1.5 text-sm text-ink-100">
-                      <GlobeIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-300" />
-                      {translated}
+                    <p className="mt-1.5 flex items-start gap-1.5 text-sm leading-relaxed text-ink-100">
+                      <GlobeIcon className="mt-1 h-3.5 w-3.5 shrink-0 text-brand-300" />
+                      <span>{translated}</span>
                     </p>
-                    <p className="mt-1 pl-5 text-xs text-ink-500">{line.text}</p>
+                    <p className="mt-1 pl-5 text-xs leading-relaxed text-ink-500">{originalText}</p>
                   </>
                 ) : (
-                  <p className="mt-1.5 text-sm text-ink-100">
-                    {line.text}
+                  <p className="mt-1.5 text-sm leading-relaxed text-ink-100">
+                    {originalText}
                     {isTranslating && (
                       <span className="ml-1.5 text-xs text-ink-500">(traduciendo…)</span>
                     )}

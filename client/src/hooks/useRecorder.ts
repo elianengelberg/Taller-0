@@ -14,8 +14,18 @@ interface UseRecorderOptions {
   meetingDbId: string | null;
 }
 
+// MP4 (H.264 + AAC) first: it's the only format that also plays on
+// iPhone/iPad Safari, which can't decode WebM files -- recordings used to
+// "look empty" there while playing fine on desktop. WebM stays as the
+// fallback for browsers whose MediaRecorder can't mux MP4 yet.
 function pickSupportedMimeType(): string | undefined {
-  const candidates = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
+  const candidates = [
+    "video/mp4;codecs=avc1.640028,mp4a.40.2",
+    "video/mp4",
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm",
+  ];
   for (const type of candidates) {
     if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported?.(type)) {
       return type;
@@ -44,6 +54,9 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [resultUrl, setResultUrl] = useState<string | null>(null);
+  // Actual container of the finished file ("video/mp4" or "video/webm"), so
+  // the download button can name the file with the right extension.
+  const [resultType, setResultType] = useState<string>("video/webm");
   // Mirror for the unmount cleanup below -- leaving the page without
   // dismissing the "Grabación lista" card would otherwise leak the blob URL
   // (and the recording's memory) for the rest of the session.
@@ -161,11 +174,24 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
       };
 
       recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mimeType || "video/webm" });
+        const contentType = (mimeType || "video/webm").split(";")[0];
+        const blob = new Blob(chunksRef.current, { type: contentType });
+        cleanupStreams();
+        // A "successful" recording with (almost) no data means the capture
+        // never produced frames -- typically a minimized window, a closed
+        // source, or stopping immediately. Saying so beats handing the user
+        // an empty file that "doesn't play".
+        if (blob.size < 20_000) {
+          setError(
+            "La grabación quedó vacía. Suele pasar si la ventana elegida estaba minimizada, si la fuente se cerró o si se detuvo al instante. Elegí una pestaña o pantalla visible y probá de nuevo."
+          );
+          setStatus("error");
+          return;
+        }
+        setResultType(contentType);
         setResultUrl(URL.createObjectURL(blob));
         setStatus("done");
-        cleanupStreams();
-        void uploadRecording(blob, mimeType || "video/webm");
+        void uploadRecording(blob, contentType);
       };
 
       recorder.onerror = () => {
@@ -209,5 +235,5 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
     };
   }, [stop]);
 
-  return { status, uploadStatus, error, resultUrl, start, stop, reset };
+  return { status, uploadStatus, error, resultUrl, resultType, start, stop, reset };
 }

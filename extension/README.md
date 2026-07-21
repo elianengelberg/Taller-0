@@ -18,6 +18,24 @@ la IA.
 
 El badge del ícono muestra **ON** (verde) cuando el puente está conectado.
 
+## Botón "Grabar con Unify" dentro de Meet
+
+Al entrar a una llamada de Meet, la extensión muestra un botón flotante
+**⏺ Grabar con Unify** (abajo a la derecha). Un clic abre Unify con esa
+reunión ya detectada: si ya usaste Unify antes (nombre recordado), entrás
+directo a la sala companion con el aviso "Listo para grabar" — un solo tap
+en **Grabar** y elegís la pestaña de Meet (con la casilla de audio tildada).
+
+¿Por qué no graba directamente desde Meet? Los navegadores exigen que la
+captura de pantalla/pestaña la inicie un gesto del usuario en la app o en
+la UI de la extensión — ningún script inyectado puede arrancar una grabación
+solo. Este flujo de un clic es la integración más directa que la plataforma
+permite, y es honesta: siempre ves qué se está capturando.
+
+El botón se puede ocultar con la ✕ (queda oculto en esa pestaña). Si tu
+Unify corre en otro dominio, configurá `appBase` en el storage de la
+extensión (por defecto `https://www.unify-meet.com`).
+
 ## Qué puede y qué no puede hacer (limitaciones reales)
 
 Google Meet **no tiene API pública** para apps de terceros dentro de la

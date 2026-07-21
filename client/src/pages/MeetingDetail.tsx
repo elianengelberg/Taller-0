@@ -7,6 +7,7 @@ import Logo from "../components/Logo";
 import RoleBadge from "../components/RoleBadge";
 import { askMeetingAI, fetchMeetingDetail, MeetingHistoryDetail } from "../lib/api";
 import { isExternalMeeting, meetingSourceLabel } from "../lib/meetingPlatforms";
+import { groupConsecutive } from "../lib/transcriptGroups";
 import { cardClass } from "../lib/ui";
 
 export default function MeetingDetail() {
@@ -120,31 +121,42 @@ export default function MeetingDetail() {
             <p className="text-sm text-ink-400">No se guardó nada en esta reunión.</p>
           ) : (
             <ul className="space-y-3">
-              {meeting.messages.map((m) => (
-                <li
-                  key={`${m.kind}-${m.id}`}
-                  className="rounded-xl border border-ink-700 bg-ink-800/60 p-3"
-                >
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs text-ink-400">
-                    <span className="font-semibold text-strong">{m.senderName}</span>
-                    {m.roleName && (
-                      <span className="rounded-full bg-ink-700 px-2 py-0.5 text-[11px] text-ink-200">
-                        {m.roleName}
+              {/* Consecutive VOICE entries from the same person merge into one
+                  readable paragraph (chat messages stay individual: they're
+                  discrete on purpose). */}
+              {groupConsecutive(meeting.messages, (m) => ({
+                speakerKey: m.kind === "transcript" ? `voz:${m.senderName}` : `chat:${m.id}`,
+                timestamp: new Date(m.createdAt).getTime(),
+              })).map((group) => {
+                const m = group[0];
+                return (
+                  <li
+                    key={`${m.kind}-${m.id}`}
+                    className="rounded-xl border border-ink-700 bg-ink-800/60 p-3"
+                  >
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-ink-400">
+                      <span className="font-semibold text-strong">{m.senderName}</span>
+                      {m.roleName && (
+                        <span className="rounded-full bg-ink-700 px-2 py-0.5 text-[11px] text-ink-200">
+                          {m.roleName}
+                        </span>
+                      )}
+                      <span className="rounded-full bg-ink-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ink-400">
+                        {m.kind === "chat" ? "chat" : "voz"}
                       </span>
-                    )}
-                    <span className="rounded-full bg-ink-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ink-400">
-                      {m.kind === "chat" ? "chat" : "voz"}
-                    </span>
-                    <span className="ml-auto shrink-0 text-[11px] text-ink-500">
-                      {new Date(m.createdAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  </div>
-                  <p className="mt-1.5 text-sm text-ink-100">{m.text}</p>
-                </li>
-              ))}
+                      <span className="ml-auto shrink-0 text-[11px] text-ink-500">
+                        {new Date(m.createdAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                    <p className="mt-1.5 text-sm leading-relaxed text-ink-100">
+                      {group.map((g) => g.text).join(" ")}
+                    </p>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

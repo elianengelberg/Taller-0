@@ -1,5 +1,5 @@
-import { FormEvent, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import Button from "../components/Button";
 import Logo from "../components/Logo";
 import { useMeeting } from "../context/MeetingContext";
@@ -19,7 +19,9 @@ export default function ExternalJoin() {
   // Warm the backend/socket while they paste the link, so joining is instant.
   useEffect(() => prewarm(), [prewarm]);
   const [link, setLink] = useState("");
-  const [name, setName] = useState("");
+  // Remembered across sessions so the from-Meet flow (extension button) can
+  // skip straight into the companion without retyping anything.
+  const [name, setName] = useState(() => localStorage.getItem("unify_external_name") ?? "");
   const [language, setLanguage] = useState(LANGUAGES[0].code);
   const [passcode, setPasscode] = useState("");
   const [detected, setDetected] = useState<DetectedMeeting | null>(null);
@@ -42,6 +44,7 @@ export default function ExternalJoin() {
   // everyone who opens the same link lands together) and the per-platform
   // embed descriptor, then jumps into the overlay page.
   function joinDetected(target: DetectedMeeting) {
+    if (name.trim()) localStorage.setItem("unify_external_name", name.trim());
     const base = { name: name.trim() || "Invitado", language };
 
     if (target.platform === "jitsi" && target.meetingId) {
@@ -96,6 +99,29 @@ export default function ExternalJoin() {
       navigate("/externa/reunion");
     }
   }
+
+  // Deep link from the browser extension's "Grabar con Unify" button inside
+  // Meet: /externa?link=<meet url>&rec=1. Prefill + detect immediately, and
+  // with a remembered name jump straight into the companion (rec=1 leaves a
+  // one-shot flag that the companion page turns into a "ready to record"
+  // hint), so the whole flow from Meet is a single click.
+  const [searchParams] = useSearchParams();
+  const deepLinkRan = useRef(false);
+  useEffect(() => {
+    if (deepLinkRan.current) return;
+    const prefill = searchParams.get("link");
+    if (!prefill) return;
+    deepLinkRan.current = true;
+    setLink(prefill);
+    if (searchParams.get("rec") === "1") sessionStorage.setItem("unify_autorec", "1");
+    const result = detectMeetingPlatform(prefill, { selfHosts: [window.location.hostname] });
+    setDetected(result);
+    const savedName = (localStorage.getItem("unify_external_name") ?? "").trim();
+    if (savedName && result.platform === "google-meet" && result.meetingId && result.url) {
+      joinDetected(result);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   return (
     <div className="flex min-h-screen flex-col items-center bg-ink-950 px-6 py-10">
