@@ -10,6 +10,7 @@ import LoadingDots from "../components/LoadingDots";
 import Logo from "../components/Logo";
 import { ClockIcon, PeopleIcon, ScreenShareIcon } from "../components/icons";
 import ParticipantsPanel from "../components/ParticipantsPanel";
+import RecordAutoPrompt from "../components/RecordAutoPrompt";
 import RecordingBanner from "../components/RecordingBanner";
 import SaveMeetingPrompt from "../components/SaveMeetingPrompt";
 import SettingsPanel from "../components/SettingsPanel";
@@ -26,7 +27,7 @@ import { setUnsavedMeeting } from "../lib/unsavedMeeting";
 import { useActiveSpeakers } from "../hooks/useActiveSpeakers";
 import { useLocalMedia } from "../hooks/useLocalMedia";
 import { AUTO_LANG, ORIGINAL_LANG, useLineTranslations } from "../hooks/useLineTranslations";
-import { useRecorder } from "../hooks/useRecorder";
+import { RecTile, useCompositeRecorder } from "../hooks/useCompositeRecorder";
 import { useScreenShare } from "../hooks/useScreenShare";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { useWebRTC } from "../hooks/useWebRTC";
@@ -332,12 +333,57 @@ export default function Meeting() {
 
   const { getTranslation } = useLineTranslations(meeting?.transcript ?? [], targetLang);
 
-  const recorder = useRecorder({ micStream: media.stream, meetingDbId: meeting?.dbId ?? null });
+  // Composite recorder: records the whole meeting (all cameras + shared
+  // screen, laid out like the room) by drawing to a canvas and mixing every
+  // participant's audio -- no getDisplayMedia, so it needs no user gesture
+  // and can start automatically, and it always has real frames (never an
+  // empty/black file). The scene ref is refreshed below every render.
+  const sceneRef = useRef<RecTile[]>([]);
+  const recorder = useCompositeRecorder({ sceneRef, meetingDbId: meeting?.dbId ?? null });
+
+  useEffect(() => {
+    if (!meeting || !selfId) {
+      sceneRef.current = [];
+      return;
+    }
+    sceneRef.current = meeting.participants.map((p) => ({
+      id: p.id,
+      name: p.name + (p.id === selfId ? " (vos)" : ""),
+      stream: p.id === selfId ? media.stream : remoteStreams[p.id] ?? null,
+      cameraOff: p.cameraOff,
+      sharingScreen: p.sharingScreen,
+    }));
+  }, [meeting, selfId, media.stream, remoteStreams]);
+
+  // Auto-record: a discreet prompt appears once on joining; if it isn't
+  // answered (or the countdown ends) recording starts on its own.
+  const [showRecPrompt, setShowRecPrompt] = useState(false);
+  const recPromptShownRef = useRef(false);
+  useEffect(() => {
+    if (connectionStatus === "connected" && !recPromptShownRef.current) {
+      recPromptShownRef.current = true;
+      setShowRecPrompt(true);
+    }
+  }, [connectionStatus]);
+
+  function beginRecording(auto: boolean) {
+    setShowRecPrompt(false);
+    if (recorder.status === "recording") return;
+    void recorder.start();
+    showToast({
+      text: auto ? "La grabación empezó automáticamente." : "Grabación iniciada.",
+      kind: "info",
+    });
+  }
+  function declineRecording() {
+    setShowRecPrompt(false);
+  }
   function toggleRecording() {
+    setShowRecPrompt(false);
     if (recorder.status === "recording") {
       recorder.stop();
     } else if (recorder.status === "idle" || recorder.status === "error") {
-      void recorder.start();
+      beginRecording(false);
     }
   }
 
@@ -603,6 +649,9 @@ export default function Meeting() {
         onLeave={handleLeave}
       />
       <ToastViewport />
+      {showRecPrompt && recorder.status === "idle" && (
+        <RecordAutoPrompt onStart={(auto) => beginRecording(auto)} onDecline={declineRecording} />
+      )}
       {pendingLeave && <SaveMeetingPrompt onSave={confirmSaveMeeting} onSkip={skipSaveMeeting} />}
     </div>
   );

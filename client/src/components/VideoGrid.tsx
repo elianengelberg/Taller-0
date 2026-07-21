@@ -36,6 +36,14 @@ export default function VideoGrid({
   const presenter = participants.find((p) => p.sharingScreen) ?? null;
   const containerRef = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
+  // Remembered across shares and sessions. "bottom" = filmstrip under the
+  // screen (Meet/Zoom style), "side" = column beside it.
+  const [presenterLayout, setPresenterLayout] = useState<PresenterLayout>(
+    () => (localStorage.getItem("unify_presenter_layout") as PresenterLayout) || "bottom"
+  );
+  useEffect(() => {
+    localStorage.setItem("unify_presenter_layout", presenterLayout);
+  }, [presenterLayout]);
 
   useEffect(() => {
     if (!fullscreenSupported()) return;
@@ -82,51 +90,121 @@ export default function VideoGrid({
   }
 
   if (presenter) {
+    // Everyone except the presenter still gets a camera tile -- the whole
+    // point of the fix: the shared screen is primary, but the people don't
+    // vanish. Both layouts below keep them all visible (scroll only kicks in
+    // past what fits, never hiding someone at 5).
     const others = participants.filter((p) => p.id !== presenter.id);
-    return (
-      <div
-        ref={containerRef}
-        className={`flex h-full min-h-[60vh] flex-col gap-3 ${fullscreen ? "h-dvh bg-ink-950 p-4" : ""}`}
-      >
-        {/* The shared screen owns all remaining height (Zoom/Meet style):
-            letterboxed, never cropped, never deformed (see ParticipantTile
-            fill mode). Cameras ride in a fixed-height strip below. */}
-        <div className="relative min-h-0 flex-1">
-          <ParticipantTile
-            key={presenter.id}
-            participant={presenter}
-            role={roles.find((r) => r.id === presenter.roleId) ?? null}
-            stream={presenter.id === selfId ? localStream : remoteStreams[presenter.id] ?? null}
-            isSelf={presenter.id === selfId}
-            speakerId={speakerId}
-            speaking={Boolean(speaking?.[presenter.id])}
-            fill
-          />
+    const side = presenterLayout === "side";
+
+    const presenterStage = (
+      <div className="relative min-h-0 min-w-0 flex-1">
+        <ParticipantTile
+          key={presenter.id}
+          participant={presenter}
+          role={roles.find((r) => r.id === presenter.roleId) ?? null}
+          stream={presenter.id === selfId ? localStream : remoteStreams[presenter.id] ?? null}
+          isSelf={presenter.id === selfId}
+          speakerId={speakerId}
+          speaking={Boolean(speaking?.[presenter.id])}
+          fill
+        />
+        {/* Layout toggle + fullscreen, top-right over the shared screen. */}
+        <div className="absolute right-2 top-2 flex items-center gap-1.5">
+          <LayoutToggle layout={presenterLayout} onChange={setPresenterLayout} />
           {fullscreenSupported() && (
             <button
               type="button"
               onClick={toggleFullscreen}
               title={fullscreen ? "Achicar pantalla compartida" : "Agrandar pantalla compartida"}
-              className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-on-accent hover:bg-black/80"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-on-accent hover:bg-black/80"
             >
               {fullscreen ? <CollapseIcon className="h-4 w-4" /> : <ExpandIcon className="h-4 w-4" />}
             </button>
           )}
         </div>
-        {others.length > 0 && (
-          <div className="flex shrink-0 gap-3 overflow-x-auto pb-1">
-            {others.map((participant) => (
-              <div key={participant.id} className="w-40 shrink-0 sm:w-48">
-                {tileFor(participant)}
-              </div>
-            ))}
+      </div>
+    );
+
+    // Camera strip. In "side" mode it's a vertical column to the right; in
+    // "bottom" mode a centered horizontal filmstrip below. In both, tiles
+    // flex-shrink so at least ~5 fit before any scrolling starts.
+    const cameraStrip = others.length > 0 && (
+      <div
+        className={
+          side
+            ? "flex w-40 shrink-0 flex-col gap-2 overflow-y-auto sm:w-48"
+            : "flex shrink-0 items-stretch justify-center gap-2 overflow-x-auto pb-1"
+        }
+      >
+        {others.map((participant) => (
+          <div
+            key={participant.id}
+            className={
+              side
+                ? "w-full shrink-0"
+                : "aspect-video min-w-[6rem] max-w-[11rem] grow basis-0 sm:min-w-[7.5rem]"
+            }
+          >
+            {tileFor(participant)}
           </div>
-        )}
+        ))}
+      </div>
+    );
+
+    return (
+      <div
+        ref={containerRef}
+        className={`flex h-full min-h-[60vh] gap-3 ${side ? "flex-row" : "flex-col"} ${
+          fullscreen ? "h-dvh bg-ink-950 p-4" : ""
+        }`}
+      >
+        {presenterStage}
+        {cameraStrip}
       </div>
     );
   }
 
   return <div className={`grid gap-4 ${gridColumnsFor(participants.length)}`}>{participants.map(tileFor)}</div>;
+}
+
+// Segmented control to switch the camera layout during a screen share.
+// Persisted so the choice sticks across shares and sessions.
+type PresenterLayout = "side" | "bottom";
+
+function LayoutToggle({
+  layout,
+  onChange,
+}: {
+  layout: PresenterLayout;
+  onChange: (l: PresenterLayout) => void;
+}) {
+  return (
+    <div className="flex items-center gap-0.5 rounded-full bg-black/60 p-0.5 text-on-accent">
+      <button
+        type="button"
+        onClick={() => onChange("bottom")}
+        aria-pressed={layout === "bottom"}
+        title="Cámaras abajo (estilo Meet/Zoom)"
+        className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+          layout === "bottom" ? "bg-white/20" : "hover:bg-white/10"
+        }`}
+      >
+        Abajo
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("side")}
+        aria-pressed={layout === "side"}
+        title="Cámaras al costado"
+        className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+          layout === "side" ? "bg-white/20" : "hover:bg-white/10"
+        }`}
+      >
+        Al costado
+      </button>
+    </div>
+  );
 }
 
 function gridColumnsFor(count: number): string {
