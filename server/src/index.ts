@@ -100,8 +100,30 @@ function corsOrigin(
   cb(null, false);
 }
 
+// Per-request CORS: the Google Meet bridge is written to by the Unify
+// extension running INSIDE meet.google.com, so its Origin is
+// https://meet.google.com -- never the app's origin. That endpoint must
+// therefore accept any origin (its payload is whitelisted, clamped and
+// rate-limited, and treated as display-only, never as authority). Every
+// other endpoint keeps the strict CLIENT_ORIGIN allowlist.
+function corsDelegate(
+  req: Request,
+  callback: (err: Error | null, options?: import("cors").CorsOptions) => void
+): void {
+  if (req.path.startsWith("/api/meet-bridge/")) {
+    callback(null, { origin: true, methods: ["POST", "OPTIONS"] });
+    return;
+  }
+  const origin = req.headers.origin;
+  const allowed = !origin || CLIENT_ORIGINS.includes(normalizeOrigin(origin));
+  if (origin && !allowed) {
+    console.warn(`[cors] Origin rechazado: "${origin}" (esperados: ${CLIENT_ORIGINS.join(", ")})`);
+  }
+  callback(null, { origin: allowed });
+}
+
 const app = express();
-app.use(cors({ origin: corsOrigin }));
+app.use(cors(corsDelegate));
 app.use(express.json());
 
 app.get("/health", (_req, res) => {
