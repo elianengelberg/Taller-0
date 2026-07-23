@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { confirmRecordingComplete, requestRecordingUploadUrl } from "../lib/api";
+import {
+  confirmRecordingComplete,
+  requestRecordingUploadUrl,
+  uploadRecordingViaServer,
+} from "../lib/api";
 import {
   displayMediaErrorMessage,
   screenCaptureSupported,
@@ -95,18 +99,29 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
         setUploadStatus("unavailable");
         return;
       }
+      // Fast path: direct browser -> R2 PUT. A CORS-blocked PUT rejects the
+      // fetch rather than returning !ok, so both outcomes fall through to the
+      // server fallback below.
+      let directOk = false;
       try {
         const putResponse = await fetch(target.uploadUrl, {
           method: "PUT",
           headers: { "Content-Type": contentType },
           body: blob,
         });
-        if (!putResponse.ok) throw new Error("upload failed");
+        directOk = putResponse.ok;
+      } catch {
+        directOk = false;
+      }
+      if (directOk) {
         await confirmRecordingComplete(meetingDbId, target.publicUrl);
         setUploadStatus("uploaded");
-      } catch {
-        setUploadStatus("failed");
+        return;
       }
+      // Fallback: stream the video through our server (no browser CORS), which
+      // uploads to R2 and attaches it to the meeting itself.
+      const viaServer = await uploadRecordingViaServer(meetingDbId, blob, contentType, 0);
+      setUploadStatus(viaServer ? "uploaded" : "failed");
     },
     [meetingDbId]
   );

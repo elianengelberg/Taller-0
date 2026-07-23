@@ -49,7 +49,12 @@ import {
   refreshAccessToken,
 } from "./microsoftAuth";
 import { registerSocketHandlers } from "./socketHandlers";
-import { createRecordingUploadUrl, isOwnRecordingUrl, storageEnabled } from "./storage";
+import {
+  createRecordingUploadUrl,
+  isOwnRecordingUrl,
+  storageEnabled,
+  uploadRecordingStream,
+} from "./storage";
 import { createTeamsUserToken, teamsEnabled } from "./teams";
 import { translateText } from "./translate";
 import { generateMeetingSdkSignature, zoomEnabled } from "./zoom";
@@ -601,6 +606,48 @@ app.post("/api/meetings/:id/recording-complete", async (req, res) => {
   const durationMs = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : undefined;
   await attachRecording(req.params.id, publicUrl, durationMs);
   res.json({ ok: true });
+});
+
+// Fallback path when the browser's direct-to-R2 PUT fails (typically the
+// bucket's CORS not allowing PUT from the app origin). The client re-sends the
+// raw video body here; the server streams it to R2 with its own credentials
+// (no browser CORS involved) and attaches it to the meeting. The body is the
+// video itself (Content-Type video/mp4|webm), so express.json() leaves the
+// stream untouched and we pipe `req` straight into the multipart upload without
+// buffering the whole file. durationMs comes as a query param so we never have
+// to read the body twice.
+app.post("/api/meetings/:id/recording-upload", async (req, res) => {
+  if (!storageEnabled) {
+    res.status(503).json({ error: "El almacenamiento de grabaciones no está configurado." });
+    return;
+  }
+  const rawType = req.headers["content-type"] ?? "video/webm";
+  const contentType = String(rawType).startsWith("video/mp4") ? "video/mp4" : "video/webm";
+  // Reject an oversized/garbage body up front (this endpoint is unauthenticated
+  // by design, like the presign one, so it must not become a free file host).
+  const declaredLen = Number(req.headers["content-length"]);
+  if (Number.isFinite(declaredLen) && declaredLen > 800 * 1024 * 1024) {
+    res.status(413).json({ error: "La grabación es demasiado grande." });
+    return;
+  }
+  if (dbEnabled && !(await meetingExists(req.params.id))) {
+    res.status(404).json({ error: "No encontramos esa reunión." });
+    return;
+  }
+  const rawDuration = Number(req.query.durationMs);
+  const durationMs = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : undefined;
+  try {
+    const publicUrl = await uploadRecordingStream(req.params.id, contentType, req);
+    if (!publicUrl) {
+      res.status(503).json({ error: "No se pudo subir la grabación." });
+      return;
+    }
+    await attachRecording(req.params.id, publicUrl, durationMs);
+    res.json({ ok: true, publicUrl });
+  } catch (err) {
+    console.error("[storage] server upload error:", err instanceof Error ? err.message : err);
+    res.status(503).json({ error: "No se pudo subir la grabación." });
+  }
 });
 
 // Lets a just-registered/logged-in user claim a meeting they created/joined

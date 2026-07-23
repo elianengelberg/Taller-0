@@ -337,6 +337,28 @@ export async function confirmRecordingComplete(
   }
 }
 
+// Fallback for when the direct browser->R2 PUT fails (most often the bucket's
+// CORS not allowing PUT from the app origin). Re-sends the whole video through
+// our server, which has R2 credentials and isn't subject to browser CORS, and
+// attaches it to the meeting itself. Plain fetch (no timeout) so a large upload
+// over a slow connection isn't aborted mid-way. Returns whether it landed.
+export async function uploadRecordingViaServer(
+  meetingDbId: string,
+  blob: Blob,
+  contentType: string,
+  durationMs: number
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${SERVER_URL}/api/meetings/${meetingDbId}/recording-upload?durationMs=${Math.round(durationMs)}`,
+      { method: "POST", headers: { "Content-Type": contentType }, body: blob }
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 // Attaches an ownerless meeting (created/joined as a guest) to the just
 // logged-in/registered account so it shows up in their history.
 export async function claimMeeting(meetingDbId: string): Promise<boolean> {

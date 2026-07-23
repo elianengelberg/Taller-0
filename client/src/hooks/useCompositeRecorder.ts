@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { confirmRecordingComplete, requestRecordingUploadUrl } from "../lib/api";
+import {
+  confirmRecordingComplete,
+  requestRecordingUploadUrl,
+  uploadRecordingViaServer,
+} from "../lib/api";
 import type { RecordingStatus, UploadStatus } from "./useRecorder";
 
 // Records a NATIVE Unify meeting by compositing every participant's video onto
@@ -272,23 +276,37 @@ export function useCompositeRecorder({ sceneRef, meetingDbId }: Options) {
         setUploadStatus("unavailable");
         return;
       }
-      // Retry the direct-to-R2 PUT once: a single transient network hiccup
-      // shouldn't cost the whole recording.
+      // Fast path: the browser PUTs straight to R2 with the presigned URL
+      // (retry once so a single transient hiccup doesn't cost the recording).
+      // A CORS-blocked PUT makes fetch reject rather than return !ok, so both
+      // outcomes funnel to the same fallback below.
       const putOnce = () =>
         fetch(target.uploadUrl, { method: "PUT", headers: { "Content-Type": contentType }, body: blob });
+      let directOk = false;
       try {
         let res = await putOnce();
         if (!res.ok) {
           await new Promise((r) => setTimeout(r, 1000));
           res = await putOnce();
         }
-        if (!res.ok) throw new Error(`upload failed (${res.status})`);
+        directOk = res.ok;
+      } catch {
+        directOk = false;
+      }
+
+      if (directOk) {
         // durationMs lets the server anchor the transcript to the video.
         await confirmRecordingComplete(dbId, target.publicUrl, durationMs);
         setUploadStatus("uploaded");
-      } catch {
-        setUploadStatus("failed");
+        return;
       }
+
+      // Fallback: stream the video through our own server (no browser CORS in
+      // play), which uploads to R2 and attaches it to the meeting itself -- so
+      // the recording reaches the history even if the bucket's CORS isn't set
+      // up to allow a direct browser PUT.
+      const viaServer = await uploadRecordingViaServer(dbId, blob, contentType, durationMs);
+      setUploadStatus(viaServer ? "uploaded" : "failed");
     },
     []
   );
