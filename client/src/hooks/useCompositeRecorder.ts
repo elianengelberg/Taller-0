@@ -86,6 +86,9 @@ export function useCompositeRecorder({ sceneRef, meetingDbId }: Options) {
   // has live frames to draw.
   const videosRef = useRef<Map<string, HTMLVideoElement>>(new Map());
   const startedAtRef = useRef<number>(0);
+  // The meeting id captured when recording starts, so a later upload attaches
+  // to the right meeting even if the meeting state was cleared on leave.
+  const dbIdRef = useRef<string | null>(meetingDbId);
   const resultUrlRef = useRef<string | null>(null);
   resultUrlRef.current = resultUrl;
 
@@ -254,31 +257,40 @@ export function useCompositeRecorder({ sceneRef, meetingDbId }: Options) {
 
   const uploadRecording = useCallback(
     async (blob: Blob, contentType: string, durationMs: number) => {
-      if (!meetingDbId) {
+      // Read the meeting id from a ref snapshotted at record start -- if the
+      // person leaves while the recording is still uploading, the meeting
+      // state may already be cleared, but the recording must still attach to
+      // the meeting it belongs to.
+      const dbId = dbIdRef.current;
+      if (!dbId) {
         setUploadStatus("unavailable");
         return;
       }
       setUploadStatus("uploading");
-      const target = await requestRecordingUploadUrl(meetingDbId, contentType);
+      const target = await requestRecordingUploadUrl(dbId, contentType);
       if (!target) {
         setUploadStatus("unavailable");
         return;
       }
+      // Retry the direct-to-R2 PUT once: a single transient network hiccup
+      // shouldn't cost the whole recording.
+      const putOnce = () =>
+        fetch(target.uploadUrl, { method: "PUT", headers: { "Content-Type": contentType }, body: blob });
       try {
-        const put = await fetch(target.uploadUrl, {
-          method: "PUT",
-          headers: { "Content-Type": contentType },
-          body: blob,
-        });
-        if (!put.ok) throw new Error("upload failed");
+        let res = await putOnce();
+        if (!res.ok) {
+          await new Promise((r) => setTimeout(r, 1000));
+          res = await putOnce();
+        }
+        if (!res.ok) throw new Error(`upload failed (${res.status})`);
         // durationMs lets the server anchor the transcript to the video.
-        await confirmRecordingComplete(meetingDbId, target.publicUrl, durationMs);
+        await confirmRecordingComplete(dbId, target.publicUrl, durationMs);
         setUploadStatus("uploaded");
       } catch {
         setUploadStatus("failed");
       }
     },
-    [meetingDbId]
+    []
   );
 
   const start = useCallback(async () => {
@@ -365,6 +377,7 @@ export function useCompositeRecorder({ sceneRef, meetingDbId }: Options) {
 
       recorderRef.current = recorder;
       startedAtRef.current = Date.now();
+      dbIdRef.current = meetingDbId; // snapshot for the eventual upload
       recorder.start(1000);
       setStatus("recording");
     } catch {
@@ -372,7 +385,7 @@ export function useCompositeRecorder({ sceneRef, meetingDbId }: Options) {
       setStatus("error");
       cleanup();
     }
-  }, [renderFrame, ensureAudio, sceneRef, cleanup, uploadRecording]);
+  }, [renderFrame, ensureAudio, sceneRef, cleanup, uploadRecording, meetingDbId]);
 
   const stop = useCallback(() => {
     const recorder = recorderRef.current;

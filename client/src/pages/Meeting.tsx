@@ -405,14 +405,51 @@ export default function Meeting() {
   // and unreachable forever (see .claude/memory/log.md). `pendingLeave` holds
   // the meeting's dbId captured before leaveMeeting() clears it.
   const [pendingLeave, setPendingLeave] = useState<string | null>(null);
+  // While a recording is still being captured or uploaded, don't yank the user
+  // out of the meeting -- finish saving it first, so it reliably lands in the
+  // history instead of the upload being abandoned mid-flight when they leave.
+  const [savingRecording, setSavingRecording] = useState(false);
+  const leftRef = useRef(false);
+
   function handleLeave() {
     if (!user && meeting?.dbId) {
       setPendingLeave(meeting.dbId);
       return;
     }
+    const busy =
+      recorder.status === "recording" ||
+      recorder.status === "processing" ||
+      recorder.uploadStatus === "uploading";
+    if (busy) {
+      if (recorder.status === "recording") recorder.stop();
+      setSavingRecording(true); // an effect below leaves once the save finishes
+      return;
+    }
     leaveMeeting();
     navigate("/", { replace: true });
   }
+
+  // Completes the deferred leave once the recording is safely uploaded (or a
+  // 30s fallback elapses, so a stuck upload can never trap someone here).
+  useEffect(() => {
+    if (!savingRecording || leftRef.current) return;
+    const finish = () => {
+      if (leftRef.current) return;
+      leftRef.current = true;
+      leaveMeeting();
+      navigate("/", { replace: true });
+    };
+    const busy =
+      recorder.status === "recording" ||
+      recorder.status === "processing" ||
+      recorder.uploadStatus === "uploading";
+    if (!busy) {
+      finish();
+      return;
+    }
+    const t = setTimeout(finish, 30000);
+    return () => clearTimeout(t);
+  }, [savingRecording, recorder.status, recorder.uploadStatus, leaveMeeting, navigate]);
   function confirmSaveMeeting() {
     const dbId = pendingLeave!;
     leaveMeeting();
@@ -653,6 +690,19 @@ export default function Meeting() {
         <RecordAutoPrompt onStart={(auto) => beginRecording(auto)} onDecline={declineRecording} />
       )}
       {pendingLeave && <SaveMeetingPrompt onSave={confirmSaveMeeting} onSkip={skipSaveMeeting} />}
+      {savingRecording && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-4 rounded-2xl border border-white/10 bg-ink-900/90 px-8 py-7 text-center shadow-2xl">
+            <div className="h-9 w-9 animate-spin rounded-full border-2 border-white/20 border-t-brand-400" />
+            <div>
+              <p className="text-sm font-semibold text-white">Guardando grabación…</p>
+              <p className="mt-1 text-xs text-white/60">
+                No cierres esta pestaña. Terminaremos de subir el video y te llevaremos al historial.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
