@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import AiChatBox from "../components/AiChatBox";
 import Button from "../components/Button";
@@ -13,6 +13,7 @@ import {
   generateMeetingReport,
   askMeetingAI,
   MeetingHistoryDetail,
+  MeetingHistoryMessage,
   moveMeetingToFolderApi,
 } from "../lib/api";
 import { isExternalMeeting, meetingSourceLabel } from "../lib/meetingPlatforms";
@@ -65,6 +66,20 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
   const readOnly = Boolean(meeting.sharedView);
   const [folders, setFolders] = useState<FolderSummary[]>([]);
   const [folderId, setFolderId] = useState<string | null>(meeting.folderId);
+  // Video <-> transcript sync: the player's current time drives which line is
+  // highlighted, and clicking a line seeks the player.
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  // t=0 of the video in wall-clock ms: the recording's real start when we have
+  // it, else the meeting start (a reasonable fallback for older recordings).
+  const baseMs = new Date(meeting.recordingStartedAt ?? meeting.startedAt).getTime();
+
+  function seekTo(offsetSec: number) {
+    const v = videoRef.current;
+    if (!v) return;
+    v.currentTime = Math.max(0, offsetSec);
+    void v.play().catch(() => {});
+  }
 
   // Only owners get the move control -- a shared viewer can't refile someone
   // else's meeting.
@@ -154,7 +169,13 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
 
         {meeting.recordingUrl && (
           <div className={`${cardClass} mt-6`}>
-            <video controls src={meeting.recordingUrl} className="w-full rounded-lg" />
+            <video
+              ref={videoRef}
+              controls
+              src={meeting.recordingUrl}
+              className="w-full rounded-lg"
+              onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+            />
             <a
               href={meeting.recordingUrl}
               download
@@ -175,9 +196,21 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
         />
 
         <div className={`${cardClass} mt-6`}>
-          <h2 className="mb-3 text-lg font-semibold text-strong">Transcripción y chat</h2>
+          <h2 className="mb-3 flex items-center justify-between gap-2 text-lg font-semibold text-strong">
+            Transcripción y chat
+            {meeting.recordingUrl && meeting.messages.length > 0 && (
+              <span className="text-xs font-normal text-ink-400">Tocá una línea para saltar el video ahí</span>
+            )}
+          </h2>
           {meeting.messages.length === 0 ? (
             <p className="text-sm text-ink-400">No se guardó nada en esta reunión.</p>
+          ) : meeting.recordingUrl ? (
+            <SyncedTranscript
+              messages={meeting.messages}
+              baseMs={baseMs}
+              currentTime={currentTime}
+              onSeek={seekTo}
+            />
           ) : (
             <ul className="space-y-3">
               {/* Consecutive VOICE entries from the same person merge into one
@@ -221,6 +254,121 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function fmtOffset(sec: number): string {
+  const s = Math.max(0, Math.floor(sec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+// Bolds words up to (and including) the current one -- a karaoke-style fill so
+// you can see which word is being said as the video plays.
+function highlightWords(text: string, uptoIdx: number): ReactNode[] {
+  let word = -1;
+  return text.split(/(\s+)/).map((tok, i) => {
+    if (/^\s+$/.test(tok) || tok === "") return tok;
+    word += 1;
+    const cls =
+      word === uptoIdx
+        ? "font-bold text-strong"
+        : word < uptoIdx
+          ? "font-semibold text-ink-50"
+          : "text-ink-300";
+    return (
+      <span key={i} className={cls}>
+        {tok}
+      </span>
+    );
+  });
+}
+
+// Transcript that follows the recording: each line carries its offset into the
+// video (from real per-line timestamps); the line being spoken at the current
+// playback time is highlighted and its words fill in, and clicking any line
+// (or its timestamp) seeks the video there. Chat lines are placed on the same
+// timeline but aren't "spoken", so they don't get the word-fill.
+function SyncedTranscript({
+  messages,
+  baseMs,
+  currentTime,
+  onSeek,
+}: {
+  messages: MeetingHistoryMessage[];
+  baseMs: number;
+  currentTime: number;
+  onSeek: (offsetSec: number) => void;
+}) {
+  const entries = useMemo(
+    () => messages.map((m) => ({ ...m, offset: (new Date(m.createdAt).getTime() - baseMs) / 1000 })),
+    [messages, baseMs]
+  );
+  const voice = useMemo(() => entries.filter((e) => e.kind === "transcript"), [entries]);
+
+  const { activeId, wordIdx } = useMemo(() => {
+    for (let i = 0; i < voice.length; i++) {
+      const start = voice[i].offset;
+      const words = voice[i].text.split(/\s+/).filter(Boolean);
+      // Estimate the line's spoken length from its word count, but never run
+      // past the next line's start (+ a little grace).
+      const est = Math.max(1.5, words.length * 0.45);
+      const end = i + 1 < voice.length ? Math.min(voice[i + 1].offset, start + est + 3) : start + est;
+      if (currentTime >= start && currentTime < end) {
+        const prog = end > start ? (currentTime - start) / (end - start) : 1;
+        return { activeId: voice[i].id, wordIdx: Math.min(words.length - 1, Math.floor(prog * words.length)) };
+      }
+    }
+    return { activeId: null as number | null, wordIdx: -1 };
+  }, [voice, currentTime]);
+
+  const activeRef = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [activeId]);
+
+  return (
+    <ul className="max-h-[26rem] space-y-2 overflow-y-auto pr-1">
+      {entries.map((e) => {
+        const active = e.kind === "transcript" && e.id === activeId;
+        return (
+          <li
+            key={`${e.kind}-${e.id}`}
+            ref={active ? activeRef : undefined}
+            className={`rounded-xl border p-3 transition-colors ${
+              active ? "border-brand-400 bg-brand-500/10" : "border-ink-700 bg-ink-800/60"
+            }`}
+          >
+            <div className="flex flex-wrap items-center gap-1.5 text-xs text-ink-400">
+              <button
+                type="button"
+                onClick={() => onSeek(e.offset)}
+                title="Saltar a este momento del video"
+                className="rounded bg-ink-700 px-1.5 py-0.5 font-mono text-[11px] font-medium text-brand-300 hover:bg-ink-600"
+              >
+                {fmtOffset(e.offset)}
+              </button>
+              <span className="font-semibold text-strong">{e.senderName}</span>
+              {e.roleName && (
+                <span className="rounded-full bg-ink-700 px-2 py-0.5 text-[11px] text-ink-200">
+                  {e.roleName}
+                </span>
+              )}
+              {e.kind === "chat" && (
+                <span className="rounded-full bg-ink-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ink-400">
+                  chat
+                </span>
+              )}
+            </div>
+            <p
+              onClick={() => onSeek(e.offset)}
+              className="mt-1.5 cursor-pointer text-sm leading-relaxed text-ink-100"
+            >
+              {active ? highlightWords(e.text, wordIdx) : e.text}
+            </p>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

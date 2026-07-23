@@ -80,6 +80,9 @@ export interface MeetingHistoryDetail extends MeetingHistorySummary {
   messages: MeetingHistoryMessage[];
   report: string | null;
   reportGeneratedAt: string | null;
+  // When the recording started (ISO, server clock) -- t=0 of the video, used
+  // to line the transcript up with playback.
+  recordingStartedAt: string | null;
   sharedView?: boolean;
 }
 
@@ -320,13 +323,14 @@ export async function requestRecordingUploadUrl(
 
 export async function confirmRecordingComplete(
   meetingDbId: string,
-  publicUrl: string
+  publicUrl: string,
+  durationMs?: number
 ): Promise<void> {
   try {
     await fetchWithTimeout(`${SERVER_URL}/api/meetings/${meetingDbId}/recording-complete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ publicUrl }),
+      body: JSON.stringify({ publicUrl, durationMs }),
     });
   } catch {
     // best-effort -- the recording is still on the user's device either way
@@ -464,6 +468,18 @@ export async function moveMeetingToFolderApi(
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ folderId }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteMeetingApi(meetingId: string): Promise<boolean> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/meetings/${meetingId}`, {
+      method: "DELETE",
+      headers: authHeaders(),
     });
     return res.ok;
   } catch {

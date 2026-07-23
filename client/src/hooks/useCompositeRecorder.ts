@@ -253,7 +253,7 @@ export function useCompositeRecorder({ sceneRef, meetingDbId }: Options) {
   }, []);
 
   const uploadRecording = useCallback(
-    async (blob: Blob, contentType: string) => {
+    async (blob: Blob, contentType: string, durationMs: number) => {
       if (!meetingDbId) {
         setUploadStatus("unavailable");
         return;
@@ -271,7 +271,8 @@ export function useCompositeRecorder({ sceneRef, meetingDbId }: Options) {
           body: blob,
         });
         if (!put.ok) throw new Error("upload failed");
-        await confirmRecordingComplete(meetingDbId, target.publicUrl);
+        // durationMs lets the server anchor the transcript to the video.
+        await confirmRecordingComplete(meetingDbId, target.publicUrl, durationMs);
         setUploadStatus("uploaded");
       } catch {
         setUploadStatus("failed");
@@ -353,7 +354,8 @@ export function useCompositeRecorder({ sceneRef, meetingDbId }: Options) {
         setResultType(contentType);
         setResultUrl(URL.createObjectURL(blob));
         setStatus("done");
-        void uploadRecording(blob, contentType);
+        const durationMs = Date.now() - startedAtRef.current;
+        void uploadRecording(blob, contentType, durationMs);
       };
       recorder.onerror = () => {
         setError("Hubo un error grabando la reunión.");

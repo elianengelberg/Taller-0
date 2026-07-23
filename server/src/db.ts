@@ -130,6 +130,11 @@ function migrate(): Promise<void> {
       .then(() =>
         pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS report_generated_at TIMESTAMPTZ;`)
       )
+      // When the recording started (server clock), so the history player can
+      // line the transcript up with the video's timeline (t=0 = this moment).
+      .then(() =>
+        pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS recording_started_at TIMESTAMPTZ;`)
+      )
       .then(() => undefined)
       .catch((err) => {
         console.error("No se pudo preparar la base de datos:", err.message);
@@ -193,6 +198,7 @@ export interface MeetingDetail extends MeetingSummary {
   messages: PersistedMessage[];
   report: string | null;
   reportGeneratedAt: string | null;
+  recordingStartedAt: string | null;
   // True when the viewer is not the owner but reached this meeting through a
   // folder shared with them -- the UI uses it to present a read-only view.
   sharedView?: boolean;
@@ -644,10 +650,31 @@ export function finalizeMeeting(id: string): Promise<void> {
   }, undefined);
 }
 
-export function attachRecording(id: string, url: string): Promise<void> {
+// Stores the recording URL and, if the client reported how long the
+// recording lasted, back-computes when it started in SERVER time
+// (now - duration). Using the server clock for both this and the transcript
+// timestamps avoids any client/server clock skew when syncing them.
+export function attachRecording(id: string, url: string, durationMs?: number): Promise<void> {
   return safe(async () => {
-    await pool!.query(`UPDATE meetings SET recording_url = $2 WHERE id = $1`, [id, url]);
+    if (typeof durationMs === "number" && durationMs > 0 && durationMs < 24 * 3600_000) {
+      await pool!.query(
+        `UPDATE meetings SET recording_url = $2, recording_started_at = now() - ($3 || ' milliseconds')::interval WHERE id = $1`,
+        [id, url, String(Math.round(durationMs))]
+      );
+    } else {
+      await pool!.query(`UPDATE meetings SET recording_url = $2 WHERE id = $1`, [id, url]);
+    }
   }, undefined);
+}
+
+// Deletes a meeting the user owns (its messages cascade via the FK). Returns
+// false if the meeting isn't theirs, so a user can never delete someone
+// else's -- not even one shared with them read-only.
+export function deleteMeeting(id: string, ownerId: string): Promise<boolean> {
+  return safe(async () => {
+    const r = await pool!.query(`DELETE FROM meetings WHERE id = $1 AND owner_id = $2`, [id, ownerId]);
+    return (r.rowCount ?? 0) > 0;
+  }, false);
 }
 
 // Lets a guest who created/joined an ownerless meeting (owner_id NULL --
@@ -737,6 +764,7 @@ async function buildDetail(meeting: {
   folder_id: string | null;
   report: string | null;
   report_generated_at: string | null;
+  recording_started_at: string | null;
 }): Promise<MeetingDetail> {
   const { rows: messageRows } = await pool!.query(
     `SELECT id, kind, sender_name, role_name, text, source_lang, created_at
@@ -765,6 +793,7 @@ async function buildDetail(meeting: {
     hasReport: Boolean(meeting.report),
     report: meeting.report,
     reportGeneratedAt: meeting.report_generated_at,
+    recordingStartedAt: meeting.recording_started_at,
     messageCount: messages.length,
     messages,
   };

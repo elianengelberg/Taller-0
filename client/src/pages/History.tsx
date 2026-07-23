@@ -10,6 +10,7 @@ import {
   askAllMeetingsAI,
   createFolderApi,
   deleteFolderApi,
+  deleteMeetingApi,
   fetchFolderMeetings,
   fetchFolders,
   fetchMeetingsHistory,
@@ -125,6 +126,19 @@ export default function History() {
     );
     await moveMeetingToFolderApi(meetingId, folderId);
     reloadFolders(); // update counts
+  }
+
+  async function handleDeleteMeeting(meetingId: string) {
+    // Optimistic removal; put it back if the server rejects.
+    const prev = meetings;
+    setMeetings((ms) => (ms ? ms.filter((m) => m.id !== meetingId) : ms));
+    const ok = await deleteMeetingApi(meetingId);
+    if (!ok) {
+      setMeetings(prev);
+      window.alert("No se pudo eliminar la reunión.");
+    } else {
+      reloadFolders();
+    }
   }
 
   return (
@@ -247,8 +261,9 @@ export default function History() {
                   key={m.id}
                   meeting={m}
                   folders={folders}
-                  canMove={selection.kind !== "shared"}
+                  owned={selection.kind !== "shared"}
                   onMove={handleMove}
+                  onDelete={handleDeleteMeeting}
                 />
               ))}
           </div>
@@ -344,14 +359,22 @@ function FolderButton({
 function MeetingCard({
   meeting: m,
   folders,
-  canMove,
+  owned,
   onMove,
+  onDelete,
 }: {
   meeting: MeetingHistorySummary;
   folders: FolderSummary[];
-  canMove: boolean;
+  owned: boolean;
   onMove: (meetingId: string, folderId: string | null) => void;
+  onDelete: (meetingId: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const [movePane, setMovePane] = useState(false);
+  const close = () => {
+    setOpen(false);
+    setMovePane(false);
+  };
   return (
     <div className={`${cardClass} transition hover:border-brand-400`}>
       <div className="flex items-start justify-between gap-3">
@@ -379,20 +402,97 @@ function MeetingCard({
               Con video
             </span>
           )}
-          {canMove && (
-            <select
-              aria-label={`Mover la reunión de ${m.hostName} a una carpeta`}
-              value={m.folderId ?? ""}
-              onChange={(e) => onMove(m.id, e.target.value || null)}
-              className="max-w-[130px] rounded-lg border border-ink-600 bg-ink-800 px-2 py-1 text-xs text-strong focus:border-brand-400 focus:outline-none"
-            >
-              <option value="">Sin carpeta</option>
-              {folders.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name}
-                </option>
-              ))}
-            </select>
+          {owned && (
+            <div className="relative">
+              <button
+                type="button"
+                aria-label={`Opciones de la reunión de ${m.hostName}`}
+                aria-expanded={open}
+                onClick={() => (open ? close() : setOpen(true))}
+                className="rounded-full p-1.5 text-ink-400 transition-colors hover:bg-ink-700 hover:text-strong"
+              >
+                <MoreIcon className="h-4 w-4" />
+              </button>
+              {open && (
+                <>
+                  <div className="fixed inset-0 z-20" onClick={close} />
+                  <div className="absolute right-0 z-30 mt-1 w-56 overflow-hidden rounded-xl border border-ink-600 bg-ink-800 py-1 shadow-soft">
+                    {!movePane ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setMovePane(true)}
+                          className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-ink-100 hover:bg-ink-700"
+                        >
+                          Mover a carpeta
+                          <span className="text-ink-500">›</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                `¿Eliminar esta reunión de ${m.hostName}? Se borran su transcripción, chat, informe y grabación. No se puede deshacer.`
+                              )
+                            ) {
+                              close();
+                              onDelete(m.id);
+                            }
+                          }}
+                          className="block w-full px-3 py-2 text-left text-sm text-red-400 hover:bg-ink-700"
+                        >
+                          Eliminar
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setMovePane(false)}
+                          className="flex w-full items-center gap-1 px-3 py-2 text-left text-xs font-medium text-ink-400 hover:bg-ink-700"
+                        >
+                          ‹ Volver
+                        </button>
+                        <div className="max-h-56 overflow-y-auto">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onMove(m.id, null);
+                              close();
+                            }}
+                            className={`block w-full px-3 py-2 text-left text-sm hover:bg-ink-700 ${
+                              !m.folderId ? "text-brand-300" : "text-ink-100"
+                            }`}
+                          >
+                            Sin carpeta {!m.folderId && "✓"}
+                          </button>
+                          {folders.map((f) => (
+                            <button
+                              key={f.id}
+                              type="button"
+                              onClick={() => {
+                                onMove(m.id, f.id);
+                                close();
+                              }}
+                              className={`block w-full truncate px-3 py-2 text-left text-sm hover:bg-ink-700 ${
+                                m.folderId === f.id ? "text-brand-300" : "text-ink-100"
+                              }`}
+                            >
+                              {f.name} {m.folderId === f.id && "✓"}
+                            </button>
+                          ))}
+                          {folders.length === 0 && (
+                            <p className="px-3 py-2 text-xs text-ink-500">
+                              No tenés carpetas todavía. Creá una con "+ Nueva carpeta".
+                            </p>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           )}
         </div>
       </div>

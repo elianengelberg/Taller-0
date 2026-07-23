@@ -14,6 +14,7 @@ import {
   createUserWithGoogle,
   dbEnabled,
   deleteFolder,
+  deleteMeeting,
   getMeetingDetailForUser,
   getMsRefreshToken,
   getUserAuthById,
@@ -524,6 +525,16 @@ app.post("/api/meetings/:id/folder", requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// Delete one of the caller's own meetings (and its messages, via cascade).
+app.delete("/api/meetings/:id", requireAuth, async (req, res) => {
+  const ok = await deleteMeeting(req.params.id, (req as AuthedRequest).userId!);
+  if (!ok) {
+    res.status(404).json({ error: "No se pudo eliminar la reunión (revisá que sea tuya)." });
+    return;
+  }
+  res.json({ ok: true });
+});
+
 // AI report: generated once over the whole transcript and saved, then served
 // instantly on later opens. `?regenerate=1` forces a fresh one.
 app.post("/api/meetings/:id/report", requireAuth, async (req, res) => {
@@ -583,7 +594,12 @@ app.post("/api/meetings/:id/recording-complete", async (req, res) => {
     res.status(400).json({ error: "La URL de la grabación no es válida." });
     return;
   }
-  await attachRecording(req.params.id, publicUrl);
+  // Optional: how long the recording ran (ms). The server back-computes the
+  // start time from its own clock so the history player can align the
+  // transcript to the video without any client/server clock skew.
+  const rawDuration = Number(req.body?.durationMs);
+  const durationMs = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : undefined;
+  await attachRecording(req.params.id, publicUrl, durationMs);
   res.json({ ok: true });
 });
 
