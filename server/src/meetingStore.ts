@@ -9,6 +9,11 @@ const idAlphabet = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789", 12);
 
 const meetings = new Map<string, Meeting>();
 
+// Upper bound on the per-meeting historical roster (see addParticipant): high
+// enough that no legitimate meeting reaches it, low enough that churn can't
+// leak unbounded memory.
+const MAX_HISTORICAL_PARTICIPANTS = 250;
+
 function generateMeetingCode(): string {
   let code = nanoId();
   while (meetings.has(code)) {
@@ -148,6 +153,17 @@ export function addParticipant(
   // state) apply to both maps automatically, and this entry survives even
   // after the person leaves and is removed from `participants`.
   meeting.historicalParticipants.set(socketId, participant);
+  // Bound the historical roster: constant join/leave churn (flaky wifi, a tab
+  // reconnecting over and over -- each time a NEW socket id) would otherwise
+  // grow this map without limit for the meeting's whole life. Evict the oldest
+  // DEPARTED entries first; anyone still connected is always kept. A real
+  // meeting never has this many distinct people, so it never triggers normally.
+  if (meeting.historicalParticipants.size > MAX_HISTORICAL_PARTICIPANTS) {
+    for (const id of meeting.historicalParticipants.keys()) {
+      if (meeting.historicalParticipants.size <= MAX_HISTORICAL_PARTICIPANTS) break;
+      if (!meeting.participants.has(id)) meeting.historicalParticipants.delete(id);
+    }
+  }
   if (isHost) {
     meeting.hostId = socketId;
   }

@@ -1,7 +1,12 @@
 import SimplePeer from "simple-peer";
 import { useEffect, useRef, useState } from "react";
 import { Socket } from "socket.io-client";
+import { getIceServers } from "../lib/iceServers";
 import { boostOpusAudio } from "../lib/sdp";
+
+// Built once: the STUN/TURN list every peer connection uses so calls still
+// connect behind symmetric NATs / firewalls when a TURN relay is configured.
+const ICE_SERVERS = getIceServers();
 
 interface UseWebRTCOptions {
   socket: Socket;
@@ -50,6 +55,7 @@ export function useWebRTC({ socket, selfId, peerIds, localStream, enabled }: Use
       trickle: true,
       stream: stream ?? undefined,
       sdpTransform: boostOpusAudio,
+      config: { iceServers: ICE_SERVERS },
     });
 
     peer.on("signal", (data) => {

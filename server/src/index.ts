@@ -130,8 +130,50 @@ function corsDelegate(
 }
 
 const app = express();
+// Behind Render's proxy: trust the first hop so req.ip is the real client IP
+// (needed for the auth rate limiter below), not the proxy's address.
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
 app.use(cors(corsDelegate));
+// Baseline security headers on every API response. (The API serves JSON, not
+// the app HTML -- that's on Vercel -- so no CSP here; these are the ones that
+// matter for an API: no MIME sniffing, no framing, no referrer leakage, and
+// HSTS since Render terminates TLS.)
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Strict-Transport-Security", "max-age=15552000; includeSubDomains");
+  next();
+});
 app.use(express.json());
+
+// In-memory per-IP limiter to blunt credential brute-forcing on the auth
+// endpoints. Single-instance deploy, so a shared map is enough; the window is
+// short and the cap is far above what a real person logging in ever hits.
+const authAttempts = new Map<string, { count: number; windowStart: number }>();
+const AUTH_MAX_PER_WINDOW = 30;
+const AUTH_WINDOW_MS = 60_000;
+function authRateLimit(req: Request, res: Response, next: NextFunction): void {
+  const ip = req.ip || req.socket.remoteAddress || "unknown";
+  const now = Date.now();
+  // Occasional prune so the map can't grow unbounded across many distinct IPs.
+  if (authAttempts.size > 5000) {
+    for (const [k, v] of authAttempts) if (now - v.windowStart > AUTH_WINDOW_MS) authAttempts.delete(k);
+  }
+  const rec = authAttempts.get(ip);
+  if (!rec || now - rec.windowStart > AUTH_WINDOW_MS) {
+    authAttempts.set(ip, { count: 1, windowStart: now });
+    next();
+    return;
+  }
+  rec.count += 1;
+  if (rec.count > AUTH_MAX_PER_WINDOW) {
+    res.status(429).json({ error: "Demasiados intentos. Esperá un momento y probá de nuevo." });
+    return;
+  }
+  next();
+}
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
@@ -160,7 +202,7 @@ function requireAuth(req: Request, res: Response, next: NextFunction): void {
 
 const accountsUnavailable = "Las cuentas no están disponibles: falta configurar la base de datos.";
 
-app.post("/api/auth/register", async (req, res) => {
+app.post("/api/auth/register", authRateLimit, async (req, res) => {
   if (!dbEnabled) {
     res.status(503).json({ error: accountsUnavailable });
     return;
@@ -192,7 +234,7 @@ app.post("/api/auth/register", async (req, res) => {
   res.json({ token: signToken(result.user.id), user: result.user });
 });
 
-app.post("/api/auth/login", async (req, res) => {
+app.post("/api/auth/login", authRateLimit, async (req, res) => {
   if (!dbEnabled) {
     res.status(503).json({ error: accountsUnavailable });
     return;
@@ -234,7 +276,7 @@ app.patch("/api/auth/me", requireAuth, async (req, res) => {
   res.json({ user });
 });
 
-app.post("/api/auth/change-password", requireAuth, async (req, res) => {
+app.post("/api/auth/change-password", authRateLimit, requireAuth, async (req, res) => {
   const currentPassword = String(req.body?.currentPassword ?? "");
   const newPassword = String(req.body?.newPassword ?? "");
   if (newPassword.length < 8) {

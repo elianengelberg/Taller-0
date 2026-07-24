@@ -142,11 +142,11 @@ export default function History() {
   }
 
   return (
-    <div className="min-h-screen bg-ink-950 px-6 py-10">
+    <div className="min-h-screen bg-ink-950 px-4 py-10 sm:px-6">
       <div className="mx-auto max-w-5xl">
         <div className="mb-8 flex items-center justify-between gap-3">
           <Logo />
-          <div className="flex items-center gap-4 sm:gap-6">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-6">
             <Link to="/" className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-strong">
               Volver al inicio
             </Link>

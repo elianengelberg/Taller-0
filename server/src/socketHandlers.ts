@@ -159,6 +159,17 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
   let currentMeetingId: string | null = null;
   const allowTranscript = makeRateLimiter(30, 10_000);
   const allowChat = makeRateLimiter(20, 10_000);
+  // WebRTC setup for a large mesh is genuinely chatty (offer/answer + trickle
+  // ICE candidates per peer, plus renegotiation on track swaps), so this cap is
+  // high enough never to trip legitimate signalling while still stopping a
+  // socket from being used as a relay-flood amplifier.
+  const allowSignal = makeRateLimiter(1500, 10_000);
+  // Presence/state events (mute, camera, hand, language, quality, share) each
+  // BROADCAST to the whole room, so a flood is amplified by the participant
+  // count. Real clients emit these a handful of times per minute; this shared
+  // cap is far above that yet stops a hostile loop from hammering everyone.
+  const allowStateChange = makeRateLimiter(60, 10_000);
+  const allowModerate = makeRateLimiter(60, 10_000);
   // Tracks the most recently finalized transcript line from THIS socket, so
   // a fast follow-up fragment can be merged into it instead of appearing as
   // its own separate, easy-to-miss caption.
@@ -364,8 +375,16 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
   );
 
   socket.on("signal", (payload: { to: string; data: unknown }) => {
-    if (!payload?.to) return;
-    io.to(payload.to).emit("signal", { from: socket.id, data: payload.data });
+    if (!allowSignal()) return;
+    const to = typeof payload?.to === "string" ? payload.to : "";
+    if (!to) return;
+    // Only relay WebRTC signalling between two participants of the SAME
+    // meeting. Without this, any socket could fan signalling data out to
+    // arbitrary sockets (including ones in other meetings), which is both a
+    // cross-meeting isolation leak and a way to poke unrelated peers.
+    const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
+    if (!meeting || !meeting.participants.has(socket.id) || !meeting.participants.has(to)) return;
+    io.to(to).emit("signal", { from: socket.id, data: payload.data });
   });
 
   socket.on("add-role", (payload: { name: string }, ack) => {
@@ -632,6 +651,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
   });
 
   socket.on("set-language", (payload: { language?: string }) => {
+    if (!allowStateChange()) return;
     const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
     if (!meeting) return;
     const participant = meeting.participants.get(socket.id);
@@ -646,6 +666,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
   });
 
   socket.on("media-state", (payload: { muted?: boolean; cameraOff?: boolean }) => {
+    if (!allowStateChange()) return;
     const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
     if (!meeting) return;
     const participant = meeting.participants.get(socket.id);
@@ -660,6 +681,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
   });
 
   socket.on("screen-share", (payload: { sharing?: boolean }, ack) => {
+    if (!allowStateChange()) return ack?.({ ok: false });
     const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
     if (!meeting) return ack?.({ ok: false });
     const participant = meeting.participants.get(socket.id);
@@ -708,6 +730,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
   // Self-reported socket round trip, mapped to a coarse tier shown in the
   // participants panel. Only broadcast when the tier actually changes.
   socket.on("connection-quality", (payload: { rtt?: number }) => {
+    if (!allowStateChange()) return;
     const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
     if (!meeting) return;
     const participant = meeting.participants.get(socket.id);
@@ -724,6 +747,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
   });
 
   socket.on("raise-hand", (payload: { raised?: boolean }) => {
+    if (!allowStateChange()) return;
     const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
     if (!meeting) return;
     const participant = meeting.participants.get(socket.id);
@@ -776,6 +800,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
   socket.on(
     "moderate",
     (payload: { action?: ModerateAction; targetId?: string; value?: unknown }, ack) => {
+      if (!allowModerate()) return ack?.({ ok: false, error: "Demasiadas acciones seguidas." });
       const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
       if (!meeting) return ack?.({ ok: false, error: "Reunión no encontrada." });
       const actor = meeting.participants.get(socket.id);
