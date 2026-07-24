@@ -266,3 +266,15 @@ pages/{Meeting,ExternalJoin,ExternalMeeting,Home}.tsx}.
   3. `SyncedTranscript` reescrito: lee `video.currentTime` por rAF (play/pause/seeked/timeupdate), setState solo al cambiar línea/palabra, ítems memoizados. Antes cada timeupdate re-renderizaba toda la página+lista (tirones). Ahora recibe `videoRef` en vez de prop `currentTime`.
 - Verificado con Postgres real + navegador: DB 7/7 (línea en tiempo hablado Δ=0ms vs 6s simulados; orden; ping ancla; fallback), navegador 12/12 (línea correcta a 1.5/4.5/7.5s, karaoke monótono 2→3→5→6→8, seek preciso), regresión menú ⋮+sync 10/10.
 - **Residual honesto**: la línea se resalta cuando el reconocedor FINALIZA la frase (≈ al terminar de decirla), no cuando empieza — puede quedar ~1s de rezago vs el inicio del habla (antes eran varios seg). Si molesta, agregar un lead configurable / back-date por duración estimada.
+
+## 2026-07-24 — Auditoría de producción (seguridad/robustez/responsive)
+- Simulaciones REALES (Postgres local + navegador headless, sin mocks): carga 2/5/10/20/30 (27/27), seguridad REST (16/16), frontend/XSS/responsive (20/20). Scripts en scratchpad: sim_load_churn.js, sim_security_rest.js, sim_frontend.js.
+- **WebRTC sin TURN**: SimplePeer usaba solo STUN por defecto → falla detrás de NAT simétrica/firewall. Nuevo client/src/lib/iceServers.ts (STUN público + TURN por env VITE_TURN_URLS/USERNAME/CREDENTIAL o VITE_ICE_SERVERS), pasado como config.iceServers en useWebRTC.
+- **signal sin autorización**: reenviaba a cualquier socket. Ahora exige que emisor y destino estén en la MISMA reunión (aislamiento entre reuniones). Verificado.
+- **Flood**: rate-limiters por socket en signal (1500/10s), estado presencia (media-state/raise-hand/screen-share/set-language/connection-quality, 60/10s compartido) y moderate (60/10s). raise-hand flood 400→60.
+- **Fuerza bruta auth**: limiter por IP (trust proxy=1 para Render) en /api/auth/login|register|change-password → 429 tras 30/min.
+- **Headers**: nosniff, X-Frame-Options DENY, Referrer-Policy no-referrer, HSTS; x-powered-by off. (API JSON, sin CSP; el HTML está en Vercel.)
+- **Memory leak**: historicalParticipants crecía sin límite con churn → acotado a 250 (desaloja primero a los desconectados) en meetingStore.addParticipant.
+- **Responsive**: historial/detalle desbordaban ~12px a 320px (header) → px-4 sm:px-6 + grupo de header encogible.
+- SQLi: queries 100% parametrizadas (grep confirmó, y login con payload no autentica). XSS: React escapa + no hay dangerouslySetInnerHTML + react-markdown no renderiza HTML crudo → payload almacenado se muestra escapado, no ejecuta.
+- **Límite arquitectónico honesto**: topología MALLA (mesh). Con video escala ~10-15; tope duro 30 (MAX_PARTICIPANTS_NATIVE). 50 con video requiere un SFU (servidor de medios) = infra aparte, no cambio de código. Documentado al usuario, NO afirmado como soportado.
