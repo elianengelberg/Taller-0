@@ -27,6 +27,7 @@ import {
   listMeetings,
   listMeetingsInFolder,
   listSharedFolders,
+  markRecordingStarted,
   meetingExists,
   moveMeetingToFolder,
   renameFolder,
@@ -583,6 +584,17 @@ app.post("/api/meetings/:id/recording-upload-url", async (req, res) => {
     console.error("[storage] presign error:", err instanceof Error ? err.message : err);
     res.status(503).json({ error: "No se pudo preparar la subida de la grabación." });
   }
+});
+
+// Pinged the instant a recording starts, so we anchor the video's t=0 to a
+// real server-clock timestamp (skew-free, no upload delay) for transcript sync.
+app.post("/api/meetings/:id/recording-started", async (req, res) => {
+  if (dbEnabled && !(await meetingExists(req.params.id))) {
+    res.status(404).json({ error: "No encontramos esa reunión." });
+    return;
+  }
+  await markRecordingStarted(req.params.id);
+  res.json({ ok: true });
 });
 
 app.post("/api/meetings/:id/recording-complete", async (req, res) => {

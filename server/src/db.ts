@@ -618,13 +618,25 @@ export function recordMessage(params: {
   roleName: string | null;
   text: string;
   sourceLang: string | null;
+  // When the utterance was actually received (server clock), captured BEFORE
+  // the cleanup/translation pipeline runs. Stored as created_at so the
+  // video<->transcript sync reflects when a line was SPOKEN, not when the
+  // (often several seconds later) DB insert finally happened -- and so lines
+  // keep their spoken order even when cleanup latency varies between them.
+  spokenAt?: Date;
 }): Promise<number | null> {
   return safe(async () => {
-    const { rows } = await pool!.query(
-      `INSERT INTO messages (meeting_id, kind, sender_name, role_name, text, source_lang)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [params.meetingId, params.kind, params.senderName, params.roleName, params.text, params.sourceLang]
-    );
+    const { rows } = params.spokenAt
+      ? await pool!.query(
+          `INSERT INTO messages (meeting_id, kind, sender_name, role_name, text, source_lang, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+          [params.meetingId, params.kind, params.senderName, params.roleName, params.text, params.sourceLang, params.spokenAt]
+        )
+      : await pool!.query(
+          `INSERT INTO messages (meeting_id, kind, sender_name, role_name, text, source_lang)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+          [params.meetingId, params.kind, params.senderName, params.roleName, params.text, params.sourceLang]
+        );
     return (rows[0]?.id as number) ?? null;
   }, null);
 }
@@ -650,15 +662,30 @@ export function finalizeMeeting(id: string): Promise<void> {
   }, undefined);
 }
 
-// Stores the recording URL and, if the client reported how long the
-// recording lasted, back-computes when it started in SERVER time
-// (now - duration). Using the server clock for both this and the transcript
-// timestamps avoids any client/server clock skew when syncing them.
+// Records the real start of a recording in SERVER time the instant it begins
+// (called from a client ping on record start). This is the accurate anchor for
+// video<->transcript sync: it's the same clock as the transcript timestamps
+// (no client/server skew) and it isn't inflated by the later upload delay the
+// way back-computing from duration is. Overwrites on each start so re-recording
+// re-anchors correctly.
+export function markRecordingStarted(id: string): Promise<void> {
+  return safe(async () => {
+    await pool!.query(`UPDATE meetings SET recording_started_at = now() WHERE id = $1`, [id]);
+  }, undefined);
+}
+
+// Stores the recording URL. For the sync anchor it keeps a real start timestamp
+// pinged at record start (skew-free, no upload delay) when there is one, and
+// only falls back to back-computing now()-duration for clients/paths that
+// didn't ping.
 export function attachRecording(id: string, url: string, durationMs?: number): Promise<void> {
   return safe(async () => {
     if (typeof durationMs === "number" && durationMs > 0 && durationMs < 24 * 3600_000) {
       await pool!.query(
-        `UPDATE meetings SET recording_url = $2, recording_started_at = now() - ($3 || ' milliseconds')::interval WHERE id = $1`,
+        `UPDATE meetings
+           SET recording_url = $2,
+               recording_started_at = COALESCE(recording_started_at, now() - ($3 || ' milliseconds')::interval)
+         WHERE id = $1`,
         [id, url, String(Math.round(durationMs))]
       );
     } else {

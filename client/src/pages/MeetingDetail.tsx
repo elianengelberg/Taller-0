@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { memo, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import AiChatBox from "../components/AiChatBox";
 import Button from "../components/Button";
@@ -67,9 +67,9 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
   const [folders, setFolders] = useState<FolderSummary[]>([]);
   const [folderId, setFolderId] = useState<string | null>(meeting.folderId);
   // Video <-> transcript sync: the player's current time drives which line is
-  // highlighted, and clicking a line seeks the player.
+  // highlighted (read via rAF inside SyncedTranscript, so the whole page doesn't
+  // re-render on every timeupdate), and clicking a line seeks the player.
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [currentTime, setCurrentTime] = useState(0);
   // t=0 of the video in wall-clock ms: the recording's real start when we have
   // it, else the meeting start (a reasonable fallback for older recordings).
   const baseMs = new Date(meeting.recordingStartedAt ?? meeting.startedAt).getTime();
@@ -174,7 +174,6 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
               controls
               src={meeting.recordingUrl}
               className="w-full rounded-lg"
-              onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
             />
             <a
               href={meeting.recordingUrl}
@@ -208,7 +207,7 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
             <SyncedTranscript
               messages={meeting.messages}
               baseMs={baseMs}
-              currentTime={currentTime}
+              videoRef={videoRef}
               onSeek={seekTo}
             />
           ) : (
@@ -283,89 +282,172 @@ function highlightWords(text: string, uptoIdx: number): ReactNode[] {
   });
 }
 
+type SyncEntry = MeetingHistoryMessage & { offset: number };
+
+// One transcript/chat line. Memoized so that, as playback advances, only the
+// line whose active state actually changed re-renders -- not the whole list on
+// every animation frame (that full re-render was the source of the stutter).
+const TranscriptLineItem = memo(function TranscriptLineItem({
+  entry,
+  active,
+  wordIdx,
+  onSeek,
+  liRef,
+}: {
+  entry: SyncEntry;
+  active: boolean;
+  wordIdx: number;
+  onSeek: (offsetSec: number) => void;
+  liRef?: React.Ref<HTMLLIElement>;
+}) {
+  return (
+    <li
+      ref={liRef}
+      className={`rounded-xl border p-3 transition-colors ${
+        active ? "border-brand-400 bg-brand-500/10" : "border-ink-700 bg-ink-800/60"
+      }`}
+    >
+      <div className="flex flex-wrap items-center gap-1.5 text-xs text-ink-400">
+        <button
+          type="button"
+          onClick={() => onSeek(entry.offset)}
+          title="Saltar a este momento del video"
+          className="rounded bg-ink-700 px-1.5 py-0.5 font-mono text-[11px] font-medium text-brand-300 hover:bg-ink-600"
+        >
+          {fmtOffset(entry.offset)}
+        </button>
+        <span className="font-semibold text-strong">{entry.senderName}</span>
+        {entry.roleName && (
+          <span className="rounded-full bg-ink-700 px-2 py-0.5 text-[11px] text-ink-200">
+            {entry.roleName}
+          </span>
+        )}
+        {entry.kind === "chat" && (
+          <span className="rounded-full bg-ink-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ink-400">
+            chat
+          </span>
+        )}
+      </div>
+      <p
+        onClick={() => onSeek(entry.offset)}
+        className="mt-1.5 cursor-pointer text-sm leading-relaxed text-ink-100"
+      >
+        {active ? highlightWords(entry.text, wordIdx) : entry.text}
+      </p>
+    </li>
+  );
+});
+
 // Transcript that follows the recording: each line carries its offset into the
 // video (from real per-line timestamps); the line being spoken at the current
 // playback time is highlighted and its words fill in, and clicking any line
 // (or its timestamp) seeks the video there. Chat lines are placed on the same
 // timeline but aren't "spoken", so they don't get the word-fill.
+//
+// The playback position is read straight off the <video> via requestAnimation-
+// Frame while it plays (plus the seek/pause/timeupdate events), and we only
+// push new React state when the active line or word actually changes -- so the
+// follow-along stays smooth instead of stuttering, and paused/seeked positions
+// are tracked too.
 function SyncedTranscript({
   messages,
   baseMs,
-  currentTime,
+  videoRef,
   onSeek,
 }: {
   messages: MeetingHistoryMessage[];
   baseMs: number;
-  currentTime: number;
+  videoRef: React.RefObject<HTMLVideoElement>;
   onSeek: (offsetSec: number) => void;
 }) {
-  const entries = useMemo(
+  const entries = useMemo<SyncEntry[]>(
     () => messages.map((m) => ({ ...m, offset: (new Date(m.createdAt).getTime() - baseMs) / 1000 })),
     [messages, baseMs]
   );
   const voice = useMemo(() => entries.filter((e) => e.kind === "transcript"), [entries]);
 
-  const { activeId, wordIdx } = useMemo(() => {
-    for (let i = 0; i < voice.length; i++) {
-      const start = voice[i].offset;
-      const words = voice[i].text.split(/\s+/).filter(Boolean);
-      // Estimate the line's spoken length from its word count, but never run
-      // past the next line's start (+ a little grace).
-      const est = Math.max(1.5, words.length * 0.45);
-      const end = i + 1 < voice.length ? Math.min(voice[i + 1].offset, start + est + 3) : start + est;
-      if (currentTime >= start && currentTime < end) {
-        const prog = end > start ? (currentTime - start) / (end - start) : 1;
-        return { activeId: voice[i].id, wordIdx: Math.min(words.length - 1, Math.floor(prog * words.length)) };
-      }
-    }
-    return { activeId: null as number | null, wordIdx: -1 };
-  }, [voice, currentTime]);
+  const [active, setActive] = useState<{ id: number | null; wordIdx: number }>({ id: null, wordIdx: -1 });
+  const activeRef = useRef(active);
+  activeRef.current = active;
 
-  const activeRef = useRef<HTMLLIElement>(null);
+  // Which line is being spoken at time t, and how far into its words we are.
+  const computeAt = useCallback(
+    (t: number): { id: number | null; wordIdx: number } => {
+      for (let i = 0; i < voice.length; i++) {
+        const start = voice[i].offset;
+        const words = voice[i].text.split(/\s+/).filter(Boolean);
+        // Estimate the line's spoken length from its word count, but never run
+        // past the next line's start (+ a little grace).
+        const est = Math.max(1.5, words.length * 0.45);
+        const end = i + 1 < voice.length ? Math.min(voice[i + 1].offset, start + est + 3) : start + est;
+        if (t >= start && t < end) {
+          const prog = end > start ? (t - start) / (end - start) : 1;
+          return { id: voice[i].id, wordIdx: Math.min(words.length - 1, Math.floor(prog * words.length)) };
+        }
+      }
+      return { id: null, wordIdx: -1 };
+    },
+    [voice]
+  );
+
   useEffect(() => {
-    activeRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [activeId]);
+    const v = videoRef.current;
+    if (!v) return;
+    let raf = 0;
+    const sync = () => {
+      const next = computeAt(v.currentTime);
+      const cur = activeRef.current;
+      if (next.id !== cur.id || next.wordIdx !== cur.wordIdx) setActive(next);
+    };
+    const loop = () => {
+      sync();
+      raf = requestAnimationFrame(loop);
+    };
+    const startLoop = () => {
+      if (!raf) raf = requestAnimationFrame(loop);
+    };
+    const stopLoop = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      sync(); // settle on the exact paused/ended position
+    };
+    v.addEventListener("play", startLoop);
+    v.addEventListener("playing", startLoop);
+    v.addEventListener("pause", stopLoop);
+    v.addEventListener("ended", stopLoop);
+    v.addEventListener("seeked", sync);
+    v.addEventListener("timeupdate", sync); // covers programmatic seeks while paused
+    if (v.paused) sync();
+    else startLoop();
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      v.removeEventListener("play", startLoop);
+      v.removeEventListener("playing", startLoop);
+      v.removeEventListener("pause", stopLoop);
+      v.removeEventListener("ended", stopLoop);
+      v.removeEventListener("seeked", sync);
+      v.removeEventListener("timeupdate", sync);
+    };
+  }, [computeAt, videoRef]);
+
+  const activeLiRef = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    activeLiRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [active.id]);
 
   return (
     <ul className="max-h-[26rem] space-y-2 overflow-y-auto pr-1">
       {entries.map((e) => {
-        const active = e.kind === "transcript" && e.id === activeId;
+        const isActive = e.kind === "transcript" && e.id === active.id;
         return (
-          <li
+          <TranscriptLineItem
             key={`${e.kind}-${e.id}`}
-            ref={active ? activeRef : undefined}
-            className={`rounded-xl border p-3 transition-colors ${
-              active ? "border-brand-400 bg-brand-500/10" : "border-ink-700 bg-ink-800/60"
-            }`}
-          >
-            <div className="flex flex-wrap items-center gap-1.5 text-xs text-ink-400">
-              <button
-                type="button"
-                onClick={() => onSeek(e.offset)}
-                title="Saltar a este momento del video"
-                className="rounded bg-ink-700 px-1.5 py-0.5 font-mono text-[11px] font-medium text-brand-300 hover:bg-ink-600"
-              >
-                {fmtOffset(e.offset)}
-              </button>
-              <span className="font-semibold text-strong">{e.senderName}</span>
-              {e.roleName && (
-                <span className="rounded-full bg-ink-700 px-2 py-0.5 text-[11px] text-ink-200">
-                  {e.roleName}
-                </span>
-              )}
-              {e.kind === "chat" && (
-                <span className="rounded-full bg-ink-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ink-400">
-                  chat
-                </span>
-              )}
-            </div>
-            <p
-              onClick={() => onSeek(e.offset)}
-              className="mt-1.5 cursor-pointer text-sm leading-relaxed text-ink-100"
-            >
-              {active ? highlightWords(e.text, wordIdx) : e.text}
-            </p>
-          </li>
+            entry={e}
+            active={isActive}
+            wordIdx={isActive ? active.wordIdx : -1}
+            onSeek={onSeek}
+            liRef={isActive ? activeLiRef : undefined}
+          />
         );
       })}
     </ul>

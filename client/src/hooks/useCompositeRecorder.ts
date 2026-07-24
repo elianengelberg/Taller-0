@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   confirmRecordingComplete,
+  markRecordingStarted,
   requestRecordingUploadUrl,
   uploadRecordingViaServer,
 } from "../lib/api";
@@ -398,6 +399,9 @@ export function useCompositeRecorder({ sceneRef, meetingDbId }: Options) {
       dbIdRef.current = meetingDbId; // snapshot for the eventual upload
       recorder.start(1000);
       setStatus("recording");
+      // Anchor the video's t=0 on the server right now, so the saved transcript
+      // lines up with the recording (see markRecordingStarted).
+      if (meetingDbId) void markRecordingStarted(meetingDbId);
     } catch {
       setError("No se pudo iniciar la grabación de la reunión.");
       setStatus("error");

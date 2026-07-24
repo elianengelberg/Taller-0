@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   confirmRecordingComplete,
+  markRecordingStarted,
   requestRecordingUploadUrl,
   uploadRecordingViaServer,
 } from "../lib/api";
@@ -222,12 +223,14 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
       mediaRecorderRef.current = recorder;
       recorder.start(1000);
       setStatus("recording");
+      // Anchor the video's t=0 on the server so the saved transcript lines up.
+      if (meetingDbId) void markRecordingStarted(meetingDbId);
     } catch (err) {
       setError(displayMediaErrorMessage(err, "iniciar la grabación"));
       setStatus("error");
       cleanupStreams();
     }
-  }, [micStream, cleanupStreams, stop, uploadRecording]);
+  }, [micStream, cleanupStreams, stop, uploadRecording, meetingDbId]);
 
   const reset = useCallback(() => {
     if (resultUrl) URL.revokeObjectURL(resultUrl);

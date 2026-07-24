@@ -321,6 +321,21 @@ export async function requestRecordingUploadUrl(
   }
 }
 
+// Pinged the instant recording begins so the server anchors the video's t=0 to
+// a real timestamp -- keeps the history transcript lined up with the video
+// without the drift that back-computing from the upload would introduce.
+export async function markRecordingStarted(meetingDbId: string): Promise<void> {
+  try {
+    await fetchWithTimeout(`${SERVER_URL}/api/meetings/${meetingDbId}/recording-started`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+  } catch {
+    // best-effort -- attachRecording still back-computes a start from duration
+  }
+}
+
 export async function confirmRecordingComplete(
   meetingDbId: string,
   publicUrl: string,

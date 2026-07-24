@@ -453,6 +453,11 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
   socket.on("transcript-line", async (payload: { alternatives?: string[]; text?: string; lang?: string }) => {
     try {
       if (!allowTranscript()) return;
+      // Stamp the utterance NOW, before the cleanup/translation awaits below --
+      // this is when it was spoken (server clock), which is what the history
+      // player uses to line the transcript up with the video. Using the insert
+      // time instead would fold in several seconds of pipeline latency.
+      const spokenAt = new Date();
       const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
       if (!meeting) return;
       const speaker = meeting.participants.get(socket.id);
@@ -570,6 +575,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
             roleName: roleNameFor(meeting, speaker.roleId),
             text: line.text,
             sourceLang: line.sourceLang,
+            spokenAt,
           })
           .then((dbMessageId) => {
             // Only update if this is still the line we think it is -- a
