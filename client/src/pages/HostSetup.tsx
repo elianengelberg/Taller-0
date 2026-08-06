@@ -6,7 +6,7 @@ import { useAuth } from "../context/AuthContext";
 import { useMeeting } from "../context/MeetingContext";
 import { roleColorStyle } from "../lib/roleColors";
 import { LANGUAGES } from "../lib/languages";
-import { cardClass, inputClass, labelClass } from "../lib/ui";
+import { cardClass, inputClass, labelClass, nameInputProps, sentenceInputProps } from "../lib/ui";
 
 export default function HostSetup() {
   const navigate = useNavigate();
@@ -73,6 +73,7 @@ export default function HostSetup() {
                 id="name"
                 className={inputClass}
                 placeholder="Ej: Elian"
+                {...nameInputProps}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 maxLength={60}
@@ -111,6 +112,7 @@ export default function HostSetup() {
                   id="role-input"
                   className={inputClass}
                   placeholder="Ej: Ingeniero civil"
+                  {...sentenceInputProps}
                   value={roleInput}
                   onChange={(e) => setRoleInput(e.target.value)}
                   onKeyDown={handleRoleKeyDown}

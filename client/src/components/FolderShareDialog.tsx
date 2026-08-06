@@ -81,6 +81,10 @@ export default function FolderShareDialog({
             onChange={(e) => setEmail(e.target.value)}
             placeholder="email@ejemplo.com"
             aria-label="Email de la persona"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            inputMode="email"
             className="min-w-0 flex-1 rounded-lg border border-ink-600 bg-ink-800 px-3 py-2 text-sm text-strong focus:border-brand-400 focus:outline-none"
           />
           <button

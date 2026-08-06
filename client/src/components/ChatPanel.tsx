@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useMeeting } from "../context/MeetingContext";
 import { shortLang } from "../lib/languages";
 import { translate } from "../lib/translate";
-import { inputClass } from "../lib/ui";
+import { inputClass, sentenceInputProps } from "../lib/ui";
 import { GlobeIcon, SendIcon } from "./icons";
 import RoleBadge from "./RoleBadge";
 import SidePanel from "./SidePanel";
@@ -90,6 +90,7 @@ export default function ChatPanel({ onClose, side }: { onClose: () => void; side
         <form onSubmit={handleSubmit} className="flex items-center gap-2">
           <input
             className={`${inputClass} py-2.5 text-sm`}
+            {...sentenceInputProps}
             disabled={chatDisabledForMe}
             placeholder={
               chatDisabledForMe

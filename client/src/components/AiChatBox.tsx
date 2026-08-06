@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { cardClass, inputClass } from "../lib/ui";
+import { cardClass, inputClass, sentenceInputProps } from "../lib/ui";
 import Button from "./Button";
 import { SparklesIcon } from "./icons";
 import MarkdownText from "./MarkdownText";
@@ -72,6 +72,7 @@ export default function AiChatBox({ title, description, placeholder, emptyHint, 
       <form onSubmit={handleSubmit} className="flex items-center gap-2">
         <input
           className={`${inputClass} py-2.5 text-sm`}
+          {...sentenceInputProps}
           placeholder={placeholder}
           value={question}
           onChange={(e) => setQuestion(e.target.value)}

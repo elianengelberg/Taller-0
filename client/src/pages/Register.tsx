@@ -67,6 +67,9 @@ export default function Register() {
                 id="name"
                 type="text"
                 autoComplete="name"
+                autoCapitalize="words"
+                autoCorrect="off"
+                spellCheck={false}
                 className={inputClass}
                 placeholder="Tu nombre"
                 value={name}
@@ -82,6 +85,9 @@ export default function Register() {
                 id="email"
                 type="email"
                 autoComplete="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 className={inputClass}
                 placeholder="vos@ejemplo.com"
                 value={email}

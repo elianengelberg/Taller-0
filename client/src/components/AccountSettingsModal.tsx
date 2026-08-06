@@ -91,6 +91,9 @@ export default function AccountSettingsModal({ onClose }: { onClose: () => void 
             <input
               id="account-name"
               className={inputClass}
+              autoCapitalize="words"
+              autoCorrect="off"
+              spellCheck={false}
               value={name}
               onChange={(e) => setName(e.target.value)}
               maxLength={80}

@@ -71,6 +71,9 @@ export default function Login() {
                 id="email"
                 type="email"
                 autoComplete="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 className={inputClass}
                 placeholder="vos@ejemplo.com"
                 value={email}

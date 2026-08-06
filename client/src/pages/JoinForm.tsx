@@ -4,7 +4,7 @@ import Button from "../components/Button";
 import Logo from "../components/Logo";
 import { useMeeting } from "../context/MeetingContext";
 import { LANGUAGES } from "../lib/languages";
-import { cardClass, inputClass, labelClass } from "../lib/ui";
+import { cardClass, codeInputProps, inputClass, labelClass, nameInputProps, normalizeMeetingCode } from "../lib/ui";
 
 export default function JoinForm() {
   const navigate = useNavigate();
@@ -19,11 +19,11 @@ export default function JoinForm() {
   const [meetingCode, setMeetingCode] = useState("");
   const [language, setLanguage] = useState(LANGUAGES[0].code);
 
-  const fixedCode = codeFromUrl?.trim().toUpperCase() || null;
+  const fixedCode = codeFromUrl ? normalizeMeetingCode(codeFromUrl) || null : null;
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    const code = fixedCode ?? meetingCode.trim().toUpperCase();
+    const code = fixedCode ?? normalizeMeetingCode(meetingCode);
     if (!name.trim() || !code) return;
     startJoinDraft({ name, language, meetingCode: code });
     navigate("/reunion");
@@ -53,9 +53,11 @@ export default function JoinForm() {
                   id="meetingCode"
                   className={`${inputClass} text-center text-lg font-semibold uppercase tracking-[0.3em]`}
                   placeholder="ABC123"
-                  maxLength={6}
+                  {...codeInputProps}
                   value={meetingCode}
-                  onChange={(e) => setMeetingCode(e.target.value.toUpperCase())}
+                  // Normalize on every change: accepts a pasted invite link,
+                  // strips spaces/dashes and uppercases (see normalizeMeetingCode).
+                  onChange={(e) => setMeetingCode(normalizeMeetingCode(e.target.value))}
                   required
                 />
               </div>
@@ -69,6 +71,7 @@ export default function JoinForm() {
                 id="name"
                 className={inputClass}
                 placeholder="Ej: Diego"
+                {...nameInputProps}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 maxLength={60}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMeeting } from "../context/MeetingContext";
 import { showToast } from "../lib/toasts";
-import { inputClass } from "../lib/ui";
+import { inputClass, sentenceInputProps } from "../lib/ui";
 import { Participant } from "../types";
 import Button from "./Button";
 import { HandIcon, MoreIcon } from "./icons";
@@ -111,6 +111,7 @@ export default function ParticipantsPanel({
             <input
               className={`${inputClass} py-2 text-sm`}
               placeholder="Ej: Logística"
+              {...sentenceInputProps}
               value={newRole}
               onChange={(e) => setNewRole(e.target.value)}
               maxLength={40}

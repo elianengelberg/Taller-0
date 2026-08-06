@@ -5,7 +5,7 @@ import Logo from "../components/Logo";
 import { useMeeting } from "../context/MeetingContext";
 import { LANGUAGES } from "../lib/languages";
 import { DetectedMeeting, detectMeetingPlatform } from "../lib/meetingPlatforms";
-import { cardClass, inputClass, labelClass } from "../lib/ui";
+import { cardClass, inputClass, labelClass, nameInputProps, urlInputProps } from "../lib/ui";
 
 // Entry point for joining a meeting hosted on ANOTHER platform (Zoom, Meet,
 // Jitsi...). Paste a link -> we detect the platform and route it: Zoom and
@@ -143,6 +143,7 @@ export default function ExternalJoin() {
                 id="link"
                 className={inputClass}
                 placeholder="https://…"
+                {...urlInputProps}
                 value={link}
                 onChange={(e) => {
                   setLink(e.target.value);
@@ -161,6 +162,7 @@ export default function ExternalJoin() {
                 id="name"
                 className={inputClass}
                 placeholder="Ej: Diego"
+                {...nameInputProps}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 maxLength={60}
@@ -265,6 +267,9 @@ function DetectionResult({
                 id="zoom-passcode"
                 className={inputClass}
                 placeholder="Ej: 123456"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 value={passcode}
                 onChange={(e) => onPasscodeChange(e.target.value)}
                 maxLength={20}
