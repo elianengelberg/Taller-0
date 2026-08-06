@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import Button from "../components/Button";
 import Logo from "../components/Logo";
 import { useMeeting } from "../context/MeetingContext";
+import { fetchPlatformConfig, PlatformConfig } from "../lib/api";
 import { LANGUAGES } from "../lib/languages";
 import { DetectedMeeting, detectMeetingPlatform } from "../lib/meetingPlatforms";
 import { cardClass, inputClass, labelClass, nameInputProps, urlInputProps } from "../lib/ui";
@@ -25,6 +26,12 @@ export default function ExternalJoin() {
   const [language, setLanguage] = useState(LANGUAGES[0].code);
   const [passcode, setPasscode] = useState("");
   const [detected, setDetected] = useState<DetectedMeeting | null>(null);
+  // Which platforms the server can actually embed (Zoom/Teams need credentials),
+  // so we can be honest before the user tries instead of failing inside the embed.
+  const [platforms, setPlatforms] = useState<PlatformConfig | null>(null);
+  useEffect(() => {
+    fetchPlatformConfig().then(setPlatforms);
+  }, []);
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -204,6 +211,7 @@ export default function ExternalJoin() {
           {detected && (
             <DetectionResult
               detected={detected}
+              platforms={platforms}
               passcode={passcode}
               onPasscodeChange={setPasscode}
               onJoinEmbed={() => joinDetected(detected)}
@@ -217,16 +225,28 @@ export default function ExternalJoin() {
 
 function DetectionResult({
   detected,
+  platforms,
   passcode,
   onPasscodeChange,
   onJoinEmbed,
 }: {
   detected: DetectedMeeting;
+  platforms: PlatformConfig | null;
   passcode: string;
   onPasscodeChange: (value: string) => void;
   onJoinEmbed: () => void;
 }) {
   const { platform, info, url, meetingId } = detected;
+
+  // Zoom/Teams need server credentials; if the server says they're off, don't
+  // offer an in-app join that would just error -- point to opening it directly.
+  // (Unknown until the config loads = assume on, so a slow server never blocks.)
+  const serverReady =
+    platform === "zoom"
+      ? platforms?.zoom !== false
+      : platform === "microsoft-teams"
+        ? platforms?.teams !== false
+        : true;
 
   if (platform === "unknown") {
     return (
@@ -243,10 +263,17 @@ function DetectionResult({
   // yet have no number, in which case we can't join it.)
   const canEmbed =
     (info.joinMode === "embed" &&
+      serverReady &&
       (platform === "microsoft-teams" ? Boolean(url) : Boolean(meetingId))) ||
     // Meet can't be embedded, but with the Unify extension the call syncs
     // live into a companion room -- so it gets the in-app join too.
     (platform === "google-meet" && Boolean(meetingId) && Boolean(url));
+
+  // Embeddable in principle (right link) but the server isn't configured for it.
+  const embedNotConfigured =
+    info.joinMode === "embed" &&
+    !serverReady &&
+    (platform === "microsoft-teams" ? Boolean(url) : Boolean(meetingId));
 
   return (
     <div className="mt-5 rounded-xl border border-ink-700 bg-ink-900/60 p-4">
@@ -287,11 +314,13 @@ function DetectionResult({
       ) : (
         <>
           <p className="mt-2 text-xs text-ink-400">
-            {info.joinMode === "overlay-extension"
-              ? "No pudimos extraer el código de la reunión del enlace. Pegá el enlace completo de Meet (meet.google.com/xxx-xxxx-xxx)."
-              : info.joinMode === "embed"
-                ? "No pudimos extraer el número de la reunión del enlace. Pegá el enlace completo (con el número) para unirte acá dentro."
-                : "La conexión embebida a esta plataforma todavía no está disponible. Por ahora podés abrirla en su propia página."}
+            {embedNotConfigured
+              ? `Unify todavía no tiene configuradas las credenciales de ${info.label} en el servidor, así que no podemos abrirla acá dentro. Por ahora abrila en ${info.label} (los subtítulos y la IA de Unify no aplican hasta configurarla).`
+              : info.joinMode === "overlay-extension"
+                ? "No pudimos extraer el código de la reunión del enlace. Pegá el enlace completo de Meet (meet.google.com/xxx-xxxx-xxx)."
+                : info.joinMode === "embed"
+                  ? "No pudimos extraer el número de la reunión del enlace. Pegá el enlace completo (con el número) para unirte acá dentro."
+                  : "La conexión embebida a esta plataforma todavía no está disponible. Por ahora podés abrirla en su propia página."}
           </p>
           {url && (
             <a

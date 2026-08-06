@@ -308,6 +308,15 @@ app.get("/api/auth/config", (_req, res) => {
   res.json({ googleEnabled: googleAuthEnabled });
 });
 
+// Which external-meeting integrations are actually configured on this server,
+// so the join UI can tell the user UP FRONT whether an embed will really work
+// (Zoom/Teams need credentials) instead of only finding out after they try.
+// Jitsi needs no server config, and Google Meet always runs as a companion
+// (subtitles/AI over the mic + optional extension) -- so both are always on.
+app.get("/api/platforms", (_req, res) => {
+  res.json({ zoom: zoomEnabled, teams: teamsEnabled, jitsi: true, "google-meet": true });
+});
+
 // Google Sign-In (plain OAuth2, see googleAuth.ts). Step 1: send the browser
 // to Google's consent screen. A full page redirect, not a fetch -- the
 // frontend button just navigates here directly.

@@ -170,6 +170,29 @@ export async function fetchAuthConfig(): Promise<{ googleEnabled: boolean }> {
   }
 }
 
+export interface PlatformConfig {
+  zoom: boolean;
+  teams: boolean;
+  jitsi: boolean;
+  "google-meet": boolean;
+}
+
+// Which external-meeting integrations the server actually has configured, so
+// the join UI can be honest up front (offer the in-app join only when it will
+// really work, else point the user to open the meeting on its own platform).
+// Defaults to "available" on failure so a slow/cold server never blocks a join
+// that might actually work.
+export async function fetchPlatformConfig(): Promise<PlatformConfig> {
+  const fallback: PlatformConfig = { zoom: true, teams: true, jitsi: true, "google-meet": true };
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/platforms`);
+    if (!res.ok) return fallback;
+    return { ...fallback, ...(await res.json()) };
+  } catch {
+    return fallback;
+  }
+}
+
 // Full-page navigation (not fetch) -- OAuth needs an actual browser redirect
 // to Google's own consent screen.
 export function startGoogleLogin(): void {
