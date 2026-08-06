@@ -153,9 +153,21 @@ function safeDecode(value: string): string {
 function normalizeUrl(raw: string): URL | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
-  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  // People rarely paste a bare link: they paste the whole invitation
+  // ("Unite a mi llamada https://…", "Reunión: <https://…>", a WhatsApp message
+  // with the passcode after it). Pull the first http(s) URL out of the text
+  // instead of failing on everything around it; if there isn't one, fall back
+  // to the raw text with surrounding brackets/quotes stripped so a bare
+  // "zoom.us/j/123" still works.
+  const embedded = trimmed.match(/https?:\/\/[^\s<>"'«»()[\]]+/i)?.[0];
+  const candidate = embedded ?? trimmed.replace(/^[<"'«([]+/, "").replace(/[>"'»)\]]+$/, "");
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(candidate) ? candidate : `https://${candidate}`;
   try {
-    return new URL(withScheme);
+    const url = new URL(withScheme);
+    // Only ever treat real web links as meetings: anything else (javascript:,
+    // data:, custom schemes) is rejected outright rather than parsed further.
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url;
   } catch {
     return null;
   }
