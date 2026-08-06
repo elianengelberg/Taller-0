@@ -16,6 +16,7 @@ import {
   deleteFolder,
   deleteMeeting,
   getMeetingDetailForUser,
+  getMeetingDetailRaw,
   getMsRefreshToken,
   getUserAuthById,
   getUserByEmail,
@@ -49,6 +50,7 @@ import {
   microsoftEnabled,
   refreshAccessToken,
 } from "./microsoftAuth";
+import { isLiveParticipant } from "./meetingStore";
 import { registerSocketHandlers } from "./socketHandlers";
 import {
   createRecordingUploadUrl,
@@ -452,7 +454,15 @@ app.get("/api/meetings", requireAuth, async (req, res) => {
 });
 
 app.get("/api/meetings/:id", requireAuth, async (req, res) => {
-  const meeting = await getMeetingDetailForUser(req.params.id, (req as AuthedRequest).userId!);
+  const userId = (req as AuthedRequest).userId!;
+  let meeting = await getMeetingDetailForUser(req.params.id, userId);
+  // A logged-in participant of the LIVE meeting can read it while they're in
+  // it, even if they're not the owner (e.g. everyone in a shared external
+  // companion room). Read-only -- surfaced as a shared view.
+  if (!meeting && isLiveParticipant(req.params.id, userId)) {
+    const raw = await getMeetingDetailRaw(req.params.id);
+    if (raw) meeting = { ...raw, sharedView: true };
+  }
   if (!meeting) {
     res.status(404).json({ error: "No encontramos esa reunión." });
     return;
@@ -714,7 +724,11 @@ app.post("/api/meetings/:id/claim", requireAuth, async (req, res) => {
 
 app.post("/api/meetings/:id/ask", requireAuth, async (req, res) => {
   const question = typeof req.body?.question === "string" ? req.body.question : "";
-  const result = await answerFromMeeting(req.params.id, question, (req as AuthedRequest).userId!);
+  const userId = (req as AuthedRequest).userId!;
+  // Anyone currently in the live meeting (not just its owner) can ask the AI --
+  // this is what makes the in-meeting assistant work for every participant of a
+  // shared external companion room, not only whoever opened it first.
+  const result = await answerFromMeeting(req.params.id, question, userId, isLiveParticipant(req.params.id, userId));
   if (!result.ok) {
     res.status(400).json({ error: result.error });
     return;

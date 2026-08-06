@@ -38,6 +38,7 @@ export function createMeeting(): Meeting {
     presenterId: null,
     waiting: new Map(),
     bannedNames: new Set(),
+    authedUsers: new Map(),
     endedByHost: false,
   };
   meetings.set(meeting.id, meeting);
@@ -79,6 +80,7 @@ export function getOrCreateCompanionMeeting(externalKey: string): {
     presenterId: null,
     waiting: new Map(),
     bannedNames: new Set(),
+    authedUsers: new Map(),
     endedByHost: false,
   };
   meetings.set(id, meeting);
@@ -132,7 +134,8 @@ export function addParticipant(
   socketId: string,
   name: string,
   language: string,
-  isHost: boolean
+  isHost: boolean,
+  userId?: string | null
 ): Participant {
   const participant: Participant = {
     id: socketId,
@@ -167,13 +170,32 @@ export function addParticipant(
   if (isHost) {
     meeting.hostId = socketId;
   }
+  // Remember which account (if any) this socket authenticated as, so a
+  // logged-in participant of a live meeting can reach its transcript/AI even
+  // when they're not the meeting's owner (see isLiveParticipant).
+  if (userId) meeting.authedUsers.set(socketId, userId);
   return participant;
 }
 
 export function removeParticipant(meeting: Meeting, socketId: string): Participant | undefined {
   const participant = meeting.participants.get(socketId);
   meeting.participants.delete(socketId);
+  meeting.authedUsers.delete(socketId);
   return participant;
+}
+
+// True if `userId` is currently connected as a participant of the LIVE meeting
+// with this dbId. Lets the REST layer grant a logged-in participant read access
+// to that meeting's transcript/AI while they're in it, not only its owner.
+export function isLiveParticipant(dbId: string, userId: string): boolean {
+  for (const meeting of meetings.values()) {
+    if (meeting.dbId !== dbId) continue;
+    for (const uid of meeting.authedUsers.values()) {
+      if (uid === userId) return true;
+    }
+    return false;
+  }
+  return false;
 }
 
 export function promoteNextHost(meeting: Meeting): Participant | undefined {

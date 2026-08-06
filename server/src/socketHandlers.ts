@@ -197,7 +197,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
             addRole(meeting, name.slice(0, MAX_ROLE_NAME_LENGTH));
           }
         }
-        addParticipant(meeting, socket.id, hostName, hostLanguage, true);
+        addParticipant(meeting, socket.id, hostName, hostLanguage, true, ownerId);
 
         currentMeetingId = meeting.id;
         socket.join(roomName(meeting.id));
@@ -221,13 +221,16 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
   socket.on(
     "join-meeting",
     (
-      payload: { meetingId: string; name: string; language: string; resumeParticipantId?: string },
+      payload: { meetingId: string; name: string; language: string; resumeParticipantId?: string; token?: string },
       ack
     ) => {
       try {
         const meetingId = String(payload?.meetingId ?? "").trim().toUpperCase();
         const name = String(payload?.name ?? "").slice(0, MAX_NAME_LENGTH).trim();
         const language = String(payload?.language ?? "es-AR");
+        // Logged-in? Lets this participant reach the live meeting's transcript/AI
+        // (via REST) even if they're not its owner. Guests stay anonymous.
+        const userId = verifyToken(payload?.token);
         const resumeParticipantId =
           typeof payload?.resumeParticipantId === "string" ? payload.resumeParticipantId : null;
 
@@ -275,7 +278,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
         // period) the next person in gets to be host again, otherwise
         // role assignment would be permanently stuck with no host.
         const becomesHost = meeting.participants.size === 0;
-        const participant = addParticipant(meeting, socket.id, name, language, becomesHost);
+        const participant = addParticipant(meeting, socket.id, name, language, becomesHost, userId);
         currentMeetingId = meeting.id;
         socket.join(roomName(meeting.id));
 
@@ -349,7 +352,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
         cancelMeetingCleanup(meeting.id);
         // No host semantics here -- an external meeting has its own host on the
         // other platform; the companion layer is a flat group of note-takers.
-        const participant = addParticipant(meeting, socket.id, name, language, false);
+        const participant = addParticipant(meeting, socket.id, name, language, false, ownerId);
         currentMeetingId = meeting.id;
         socket.join(roomName(meeting.id));
 

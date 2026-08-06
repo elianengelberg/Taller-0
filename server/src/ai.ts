@@ -1,6 +1,7 @@
 import { anthropicClient } from "./anthropicClient";
 import {
   getMeetingDetailForUser,
+  getMeetingDetailRaw,
   MeetingDetail,
   PersistedMessage,
   saveMeetingReport,
@@ -158,7 +159,11 @@ export type AskResult = { ok: true; answer: string } | { ok: false; error: strin
 export async function answerFromMeeting(
   meetingId: string,
   question: string,
-  userId: string
+  userId: string,
+  // True when the caller has verified this user is a current participant of the
+  // live meeting -- then they can query it even if they're not its owner (e.g.
+  // everyone in a shared external/companion room, not just whoever opened it).
+  liveParticipant = false
 ): Promise<AskResult> {
   if (!anthropicClient) {
     return { ok: false, error: "La función de IA no está configurada en el servidor." };
@@ -169,7 +174,10 @@ export async function answerFromMeeting(
     return { ok: false, error: "Escribí una pregunta." };
   }
 
-  const meeting = await getMeetingDetailForUser(meetingId, userId);
+  let meeting = await getMeetingDetailForUser(meetingId, userId);
+  if (!meeting && liveParticipant) {
+    meeting = await getMeetingDetailRaw(meetingId);
+  }
   if (!meeting) {
     return { ok: false, error: "No encontramos esa reunión." };
   }

@@ -272,8 +272,9 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
         "join-meeting",
         // `resumeParticipantId` is our old socket id (from before the drop) --
         // it tells the server this is the same person resuming, so it can
-        // hand host status back if we were host when we got disconnected.
-        { meetingId: meetingRef.current.id, name: draft.name, language: draft.language, resumeParticipantId: selfIdRef.current },
+        // hand host status back if we were host when we got disconnected. The
+        // token (if logged in) lets us reach the meeting's transcript/AI.
+        { meetingId: meetingRef.current.id, name: draft.name, language: draft.language, resumeParticipantId: selfIdRef.current, token: getAuthToken() },
         onRejoin
       );
     });
@@ -491,7 +492,7 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     } else {
       socket.emit(
         "join-meeting",
-        { meetingId: draft.meetingCode, name: draft.name, language: draft.language },
+        { meetingId: draft.meetingCode, name: draft.name, language: draft.language, token: getAuthToken() },
         onResult("No se pudo unir a la reunión.")
       );
     }

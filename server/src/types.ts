@@ -109,6 +109,12 @@ export interface Meeting {
   // Kicked people can't immediately rejoin. Keyed by normalized display
   // name -- the only identity a guest has (see kick handler note).
   bannedNames: Set<string>;
+  // Maps a connected socket id -> the account user id that authenticated it
+  // (only for participants who joined while logged in). Kept OFF the broadcast
+  // snapshot on purpose -- it's used server-side to let any current logged-in
+  // participant of a live meeting reach that meeting's transcript/AI, not just
+  // its owner, without leaking user ids to other clients.
+  authedUsers: Map<string, string>;
   // True once a host explicitly ended the meeting for everyone.
   endedByHost: boolean;
 }

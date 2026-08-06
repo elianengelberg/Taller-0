@@ -841,6 +841,17 @@ export function getMeetingDetail(id: string, ownerId: string): Promise<MeetingDe
 // Owner OR a folder-share recipient may open the meeting. Recipients get
 // `sharedView: true` so the UI can hide owner-only actions (move, delete,
 // re-share). The meeting must be filed in a folder that's shared with them.
+// Builds a meeting's full detail WITHOUT any ownership check. The caller is
+// responsible for authorizing first (e.g. the requester is the owner, a
+// folder-share recipient, or -- for a live meeting -- a current participant).
+export function getMeetingDetailRaw(id: string): Promise<MeetingDetail | null> {
+  return safe(async () => {
+    const { rows } = await pool!.query(`SELECT * FROM meetings WHERE id = $1`, [id]);
+    if (!rows[0]) return null;
+    return buildDetail(rows[0]);
+  }, null);
+}
+
 export function getMeetingDetailForUser(
   id: string,
   userId: string
