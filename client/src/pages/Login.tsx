@@ -40,11 +40,18 @@ export default function Login() {
       return;
     }
     // Arrived here from the post-call "save this meeting?" prompt -- attach
-    // the guest meeting to this account now that we're logged in.
+    // the guest meeting to this account now that we're logged in. AWAIT it so
+    // the history we land on already contains it, and only forget the local
+    // pointer if it actually worked: a meeting that already has another owner
+    // (e.g. someone logged-in joined that external room first) can't be
+    // claimed, and silently clearing it would lose it with a false "saved".
     if (state?.claimMeetingId) {
-      void claimMeeting(state.claimMeetingId).then(() => clearUnsavedMeeting());
+      const claimed = await claimMeeting(state.claimMeetingId);
+      if (claimed) clearUnsavedMeeting();
+      navigate("/historial", { replace: true, state: claimed ? undefined : { claimFailed: true } });
+      return;
     }
-    navigate(state?.claimMeetingId ? "/historial" : from, { replace: true });
+    navigate(from, { replace: true });
   }
 
   return (

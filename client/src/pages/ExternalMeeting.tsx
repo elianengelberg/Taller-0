@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AiChatBox from "../components/AiChatBox";
 import IconButton from "../components/IconButton";
@@ -159,23 +159,80 @@ export default function ExternalMeeting() {
 
   // Same guest-save prompt as the native meeting -- see Meeting.tsx.
   const [pendingLeave, setPendingLeave] = useState<string | null>(null);
+  // While a recording is still being captured or uploaded, don't yank the user
+  // out -- finish saving it first, so it reliably lands in the history instead
+  // of the upload being abandoned mid-flight when they leave.
+  const [savingRecording, setSavingRecording] = useState(false);
+  const leftRef = useRef(false);
+  // What to run once the recording is safely stored (each exit path differs:
+  // plain leave, "save to an account", or "skip").
+  const pendingExitRef = useRef<(() => void) | null>(null);
+
+  // Runs `exit` now, or defers it until the recording finishes uploading.
+  function exitWhenSaved(exit: () => void) {
+    const busy =
+      recorder.status === "recording" ||
+      recorder.status === "processing" ||
+      recorder.uploadStatus === "uploading";
+    if (!busy) {
+      exit();
+      return;
+    }
+    if (recorder.status === "recording") recorder.stop();
+    pendingExitRef.current = exit;
+    setSavingRecording(true);
+  }
+
+  // Completes the deferred exit once the recording is uploaded (or after a 30s
+  // fallback, so a stuck upload can never trap someone in the meeting).
+  useEffect(() => {
+    if (!savingRecording || leftRef.current) return;
+    const finish = () => {
+      if (leftRef.current) return;
+      leftRef.current = true;
+      const exit = pendingExitRef.current;
+      pendingExitRef.current = null;
+      exit?.();
+    };
+    const busy =
+      recorder.status === "recording" ||
+      recorder.status === "processing" ||
+      recorder.uploadStatus === "uploading";
+    if (!busy) {
+      finish();
+      return;
+    }
+    const t = setTimeout(finish, 30000);
+    return () => clearTimeout(t);
+  }, [savingRecording, recorder.status, recorder.uploadStatus]);
+
   function handleLeave() {
     if (!user && meeting?.dbId) {
       setPendingLeave(meeting.dbId);
       return;
     }
-    leaveMeeting();
-    navigate("/", { replace: true });
+    exitWhenSaved(() => {
+      leaveMeeting();
+      navigate("/", { replace: true });
+    });
   }
   function confirmSaveMeeting() {
     const dbId = pendingLeave!;
-    leaveMeeting();
-    navigate("/ingresar", { state: { claimMeetingId: dbId }, replace: true });
+    setPendingLeave(null);
+    exitWhenSaved(() => {
+      leaveMeeting();
+      navigate("/ingresar", { state: { claimMeetingId: dbId }, replace: true });
+    });
   }
   function skipSaveMeeting() {
-    setUnsavedMeeting({ dbId: pendingLeave!, joinCode: meeting?.id ?? "", endedAt: Date.now() });
-    leaveMeeting();
-    navigate("/", { replace: true });
+    const dbId = pendingLeave!;
+    const joinCode = meeting?.id ?? "";
+    setPendingLeave(null);
+    exitWhenSaved(() => {
+      setUnsavedMeeting({ dbId, joinCode, endedAt: Date.now() });
+      leaveMeeting();
+      navigate("/", { replace: true });
+    });
   }
 
   if (!draft || draft.mode !== "companion") return null;
@@ -334,6 +391,19 @@ export default function ExternalMeeting() {
         </IconButton>
       </div>
       {pendingLeave && <SaveMeetingPrompt onSave={confirmSaveMeeting} onSkip={skipSaveMeeting} />}
+      {savingRecording && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-4 rounded-2xl border border-white/10 bg-ink-900/90 px-8 py-7 text-center shadow-2xl">
+            <div className="h-9 w-9 animate-spin rounded-full border-2 border-white/20 border-t-brand-400" />
+            <div>
+              <p className="text-sm font-semibold text-white">Guardando grabación…</p>
+              <p className="mt-1 text-xs text-white/60">
+                No cierres esta pestaña. Terminamos de subir el video y seguimos.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

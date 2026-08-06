@@ -216,7 +216,12 @@ export function detectMeetingPlatform(
   // Only the hosted meet.jit.si here; self-hosted Jitsi lives on arbitrary
   // domains we can't recognize generically.
   if (host === "meet.jit.si") {
-    const room = url.pathname.replace(/^\/+/, "").split("/")[0] || undefined;
+    // Decoded on purpose: a room with accents/ñ arrives percent-encoded in the
+    // pathname ("reuni%C3%B3n"), and Jitsi's embed API expects the PLAIN name
+    // (it encodes it again itself). Passing the encoded form would open a
+    // literally different room than the one the link points at.
+    const raw = url.pathname.replace(/^\/+/, "").split("/")[0];
+    const room = raw ? safeDecode(raw) : undefined;
     return build("jitsi", { meetingId: room });
   }
 

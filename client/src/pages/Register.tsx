@@ -37,10 +37,16 @@ export default function Register() {
       setError(err);
       return;
     }
+    // Attach the guest meeting to the brand-new account. Awaited so the history
+    // already has it, and the local pointer is only cleared on real success --
+    // never claim "saved" for a meeting that already belongs to someone else.
     if (state?.claimMeetingId) {
-      void claimMeeting(state.claimMeetingId).then(() => clearUnsavedMeeting());
+      const claimed = await claimMeeting(state.claimMeetingId);
+      if (claimed) clearUnsavedMeeting();
+      navigate("/historial", { replace: true, state: claimed ? undefined : { claimFailed: true } });
+      return;
     }
-    navigate(state?.claimMeetingId ? "/historial" : from, { replace: true });
+    navigate(from, { replace: true });
   }
 
   return (

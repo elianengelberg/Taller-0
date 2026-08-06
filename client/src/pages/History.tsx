@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import AccountMenu from "../components/AccountMenu";
 import AiChatBox from "../components/AiChatBox";
 import Button from "../components/Button";
@@ -31,6 +31,9 @@ type Selection =
   | { kind: "shared"; folder: FolderSummary };
 
 export default function History() {
+  // Set when we got here from a login/registration whose guest-meeting claim
+  // was rejected (see the notice below).
+  const claimFailed = Boolean((useLocation().state as { claimFailed?: boolean } | null)?.claimFailed);
   const [meetings, setMeetings] = useState<MeetingHistorySummary[] | null>(null);
   const [folders, setFolders] = useState<FolderSummary[]>([]);
   const [shared, setShared] = useState<FolderSummary[]>([]);
@@ -159,6 +162,16 @@ export default function History() {
           Reuniones guardadas con su chat, transcripción, grabación e informe. Organizalas en
           carpetas y compartilas.
         </p>
+
+        {/* Honest notice when a guest's meeting couldn't be attached to this
+            account (it already belongs to whoever opened that room logged in).
+            Saying nothing would look like the meeting silently disappeared. */}
+        {claimFailed && (
+          <div className="mt-4 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-3 text-sm text-brand-200">
+            Esa reunión ya está guardada en la cuenta de quien la abrió, así que no pudimos sumarla
+            a la tuya. Pedile que te comparta la carpeta donde la tenga y la vas a ver acá.
+          </div>
+        )}
 
         <CalendarPanel />
 
