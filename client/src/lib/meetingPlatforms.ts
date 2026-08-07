@@ -127,6 +127,17 @@ export function isExternalMeeting(joinCode: string): boolean {
   return /^[a-z-]+:/i.test(joinCode);
 }
 
+// Saca la contraseña del texto pegado. La gente copia la invitación entera
+// ("...ID: 123 456 789 / Código de acceso: 4821"), así que si está ahí, la
+// usamos en vez de hacérsela buscar y tipear de nuevo. Devuelve null cuando no
+// hay nada que se parezca a una clave.
+export function extractPasscode(raw: string): string | null {
+  const m = raw.match(
+    /(?:passcode|password|contrase[ñn]a|clave|c[óo]digo de acceso|access code)\s*[:\-]?\s*([A-Za-z0-9]{4,20})/i
+  );
+  return m ? m[1] : null;
+}
+
 export interface DetectedMeeting {
   platform: MeetingPlatform;
   info: PlatformInfo;

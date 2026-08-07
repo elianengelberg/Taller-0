@@ -237,6 +237,34 @@ export function addChatMessage(
   return message;
 }
 
+// A transcript line whose speaker is NOT one of our connected participants:
+// it comes from the meeting platform's own live captions (Google Meet),
+// relayed by the browser extension. That's what lets an external meeting show
+// EVERYONE who spoke -- not just the person running Unify, whose microphone is
+// the only thing our in-browser recognizer can hear.
+export function addNamedTranscriptLine(
+  meeting: Meeting,
+  speakerName: string,
+  text: string,
+  sourceLang: string
+): TranscriptLine {
+  const name = speakerName.trim().slice(0, 60) || "Participante";
+  const line: TranscriptLine = {
+    id: idAlphabet(),
+    // Stable per speaker name so the UI can colour/group them consistently,
+    // and clearly namespaced so it can never collide with a socket id.
+    speakerId: `caption:${name.toLowerCase()}`,
+    speakerName: name,
+    roleId: null,
+    text: text.slice(0, 2000),
+    sourceLang,
+    timestamp: Date.now(),
+  };
+  meeting.transcript.push(line);
+  if (meeting.transcript.length > 2000) meeting.transcript.shift();
+  return line;
+}
+
 export function addTranscriptLine(
   meeting: Meeting,
   speaker: Participant,

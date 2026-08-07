@@ -1,21 +1,37 @@
 {
   "manifest_version": 3,
   "name": "Unify para Google Meet",
-  "version": "1.0.0",
-  "description": "Sincroniza tu reunión de Google Meet con Unify: estado en vivo de la llamada junto a los subtítulos, traducción e IA de Unify.",
-  "permissions": ["storage"],
+  "version": "2.0.0",
+  "description": "Transcribe a TODOS los participantes, traduce, graba la reunión completa y respondé con IA — todo dentro de Google Meet, sin salir de la pestaña.",
+  "permissions": ["storage", "tabCapture", "offscreen"],
   "host_permissions": [
     "https://meet.google.com/*",
     "https://taller-0.onrender.com/*",
-    "http://localhost:4000/*"
+    "http://localhost:4000/*",
+    "http://localhost:4001/*"
   ],
   "background": { "service_worker": "background.js" },
   "content_scripts": [
     {
       "matches": ["https://meet.google.com/*"],
       "js": ["content.js"],
+      "css": ["panel.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.unify-meet.com/*",
+        "https://unify-meet.com/*",
+        "https://taller-0.vercel.app/*",
+        "http://localhost:4174/*",
+        "http://localhost:5173/*"
+      ],
+      "js": ["auth-sync.js"],
       "run_at": "document_idle"
     }
   ],
-  "action": { "default_title": "Unify para Google Meet" }
+  "action": { "default_popup": "popup.html", "default_title": "Unify para Google Meet" },
+  "web_accessible_resources": [
+    { "resources": ["offscreen.html"], "matches": ["https://meet.google.com/*"] }
+  ]
 }

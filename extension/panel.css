@@ -1,0 +1,144 @@
+/* Panel de Unify inyectado dentro de Google Meet.
+   Todo va prefijado con #unify-panel / #unify-subs y con valores explícitos:
+   Meet tiene sus propios estilos globales y no queremos ni heredar de ellos ni
+   pisarlos. */
+
+#unify-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 96px;
+  z-index: 2147483000;
+  width: 340px;
+  max-height: min(560px, calc(100vh - 140px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #11161f;
+  color: #e6ecf5;
+  border: 1px solid #2a3547;
+  border-radius: 14px;
+  box-shadow: 0 18px 48px -18px rgba(0, 0, 0, 0.75);
+  font-family: "Google Sans", Roboto, system-ui, -apple-system, Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+#unify-panel.is-min .uf-tabs,
+#unify-panel.is-min .uf-body {
+  display: none;
+}
+
+/* --- encabezado --- */
+#unify-panel .uf-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  background: #161d29;
+  border-bottom: 1px solid #2a3547;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+#unify-panel .uf-head:active { cursor: grabbing; }
+#unify-panel .uf-logo {
+  width: 9px; height: 18px; border-radius: 2px; flex: none;
+  background: linear-gradient(160deg, #38bdf8, #2563eb);
+}
+#unify-panel .uf-title { font-weight: 700; letter-spacing: -0.01em; flex: 1; }
+#unify-panel .uf-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #34d399; flex: none;
+}
+#unify-panel .uf-dot.is-bad { background: #fbbf24; }
+#unify-panel .uf-icon {
+  border: 0; background: transparent; color: #9fb0c7; cursor: pointer;
+  font-size: 13px; line-height: 1; padding: 5px 6px; border-radius: 6px;
+}
+#unify-panel .uf-icon:hover { background: #222d3e; color: #fff; }
+#unify-panel .uf-icon.is-rec { color: #f87171; background: rgba(248,113,113,.15); }
+
+/* --- pestañas --- */
+#unify-panel .uf-tabs { display: flex; border-bottom: 1px solid #2a3547; }
+#unify-panel .uf-tab {
+  flex: 1; border: 0; background: transparent; color: #9fb0c7; cursor: pointer;
+  font-size: 12px; font-weight: 600; padding: 9px 4px; font-family: inherit;
+  border-bottom: 2px solid transparent;
+}
+#unify-panel .uf-tab:hover { color: #e6ecf5; }
+#unify-panel .uf-tab.is-on { color: #7dc8ff; border-bottom-color: #2563eb; }
+
+/* --- cuerpo --- */
+#unify-panel .uf-body { flex: 1; min-height: 0; display: flex; }
+#unify-panel .uf-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 10px; gap: 8px; }
+#unify-panel .uf-hidden { display: none; }
+
+#unify-panel .uf-hint { font-size: 11.5px; color: #8fa1ba; }
+#unify-panel .uf-hint.uf-ok { color: #34d399; }
+#unify-panel .uf-hint a { color: #7dc8ff; }
+
+#unify-panel .uf-lines {
+  list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 0;
+  display: flex; flex-direction: column; gap: 7px;
+}
+#unify-panel .uf-lines li {
+  background: #182130; border: 1px solid #253145; border-radius: 9px; padding: 7px 9px;
+  word-break: break-word;
+}
+#unify-panel .uf-who { display: block; font-size: 11px; font-weight: 700; color: #7dc8ff; margin-bottom: 2px; }
+#unify-panel .uf-tr { margin-top: 4px; padding-top: 4px; border-top: 1px dashed #2f3b50; color: #a9bad2; font-size: 12.3px; }
+
+/* --- subtítulos --- */
+#unify-panel .uf-field { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #9fb0c7; }
+#unify-panel .uf-field select {
+  flex: 1; background: #182130; color: #e6ecf5; border: 1px solid #2f3b50;
+  border-radius: 7px; padding: 5px 7px; font-family: inherit; font-size: 12px;
+}
+#unify-panel .uf-check { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #9fb0c7; }
+#unify-panel .uf-live {
+  flex: 1; min-height: 90px; background: #182130; border: 1px solid #253145;
+  border-radius: 9px; padding: 10px; overflow-y: auto; font-size: 14px;
+}
+#unify-panel .uf-live-empty { color: #6f819b; font-size: 12px; }
+
+/* --- IA --- */
+#unify-panel .uf-ai { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 7px; }
+#unify-panel .uf-msg { background: #182130; border-radius: 9px; padding: 7px 9px; word-break: break-word; }
+#unify-panel .uf-msg.is-me { background: #1c2941; }
+#unify-panel .uf-msg b { color: #7dc8ff; font-size: 11px; display: block; margin-bottom: 2px; }
+#unify-panel .uf-ask { display: flex; gap: 6px; }
+#unify-panel .uf-ask input {
+  flex: 1; min-width: 0; background: #182130; color: #e6ecf5; border: 1px solid #2f3b50;
+  border-radius: 8px; padding: 7px 9px; font-family: inherit; font-size: 12.5px;
+}
+#unify-panel .uf-ask input:focus { outline: none; border-color: #2563eb; }
+#unify-panel .uf-ask button {
+  border: 0; background: #2563eb; color: #fff; font-weight: 600; font-size: 12.5px;
+  padding: 7px 11px; border-radius: 8px; cursor: pointer; font-family: inherit;
+}
+#unify-panel .uf-ask button:hover { background: #1d4ed8; }
+
+/* --- overlay de subtítulos sobre el video --- */
+#unify-subs {
+  position: fixed;
+  left: 50%;
+  bottom: 104px;
+  transform: translateX(-50%);
+  z-index: 2147482000;
+  max-width: min(880px, 82vw);
+  padding: 9px 16px;
+  background: rgba(8, 12, 20, 0.82);
+  color: #fff;
+  border-radius: 10px;
+  font-family: "Google Sans", Roboto, system-ui, Arial, sans-serif;
+  font-size: 17px;
+  line-height: 1.4;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+  pointer-events: none;
+}
+#unify-subs.is-on { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  #unify-subs { transition: none; }
+}

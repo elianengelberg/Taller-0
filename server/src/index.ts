@@ -8,6 +8,7 @@ import {
   attachRecording,
   canAccessFolder,
   claimMeeting,
+  createMeetingRecord,
   clearMsRefreshToken,
   createFolder,
   createUser,
@@ -31,6 +32,7 @@ import {
   markRecordingStarted,
   meetingExists,
   moveMeetingToFolder,
+  recordMessage,
   renameFolder,
   setMsRefreshToken,
   shareFolderWithEmail,
@@ -50,7 +52,7 @@ import {
   microsoftEnabled,
   refreshAccessToken,
 } from "./microsoftAuth";
-import { isLiveParticipant } from "./meetingStore";
+import { addNamedTranscriptLine, getOrCreateCompanionMeeting, isLiveParticipant } from "./meetingStore";
 import { registerSocketHandlers } from "./socketHandlers";
 import {
   createRecordingUploadUrl,
@@ -924,6 +926,107 @@ app.post("/api/meet-bridge/:meetId", (req, res) => {
   };
   io.to(`meeting:GOOGLE-MEET:${meetId.toUpperCase()}`).emit("meet-state", state);
   res.json({ ok: true });
+});
+
+// --- Extension transcript relay ---------------------------------------------
+// Google Meet's OWN live captions carry every speaker (with their name), which
+// is the only way to transcribe a whole external meeting: our in-browser
+// recognizer can only ever hear the local microphone, so it would capture just
+// the person running Unify. The extension reads those captions and posts each
+// finished line here; we persist it and broadcast it to the companion room so
+// the web app, the extension panel and the saved history all show EVERYONE.
+
+// Socket.io room for a meeting id -- must match socketHandlers' roomName().
+const roomFor = (meetingId: string) => `meeting:${meetingId}`;
+
+// Resolves (creating if needed) the companion meeting that backs a Meet code.
+function companionForMeet(meetId: string) {
+  const { meeting, created } = getOrCreateCompanionMeeting(`google-meet:${meetId}`);
+  if (created) {
+    void createMeetingRecord({
+      id: meeting.dbId,
+      joinCode: meeting.id,
+      hostName: "Google Meet",
+      roles: [],
+      ownerId: null,
+    });
+  }
+  return meeting;
+}
+
+app.post("/api/meet-bridge/:meetId/transcript", async (req, res) => {
+  const meetId = String(req.params.meetId).toLowerCase();
+  if (!MEET_CODE_RE.test(meetId)) {
+    res.status(400).json({ error: "Código de Meet inválido." });
+    return;
+  }
+  if (!allowMeetBridge(meetId)) {
+    res.status(429).json({ error: "Demasiadas líneas seguidas." });
+    return;
+  }
+  const speaker = String(req.body?.speaker ?? "").slice(0, 60);
+  const text = String(req.body?.text ?? "").trim().slice(0, 2000);
+  const lang = String(req.body?.lang ?? "es-AR").slice(0, 16);
+  if (!text) {
+    res.status(400).json({ error: "text es obligatorio." });
+    return;
+  }
+
+  const meeting = companionForMeet(meetId);
+  const line = addNamedTranscriptLine(meeting, speaker, text, lang);
+  io.to(roomFor(meeting.id)).emit("transcript-line", { line });
+  void recordMessage({
+    meetingId: meeting.dbId,
+    kind: "transcript",
+    senderName: line.speakerName,
+    roleName: null,
+    text: line.text,
+    sourceLang: lang,
+    spokenAt: new Date(),
+  });
+  res.json({ ok: true, dbId: meeting.dbId, lineId: line.id });
+});
+
+// Lets the extension panel bootstrap: which saved meeting backs this Meet code,
+// and what has been said so far (so re-opening the panel isn't a blank slate).
+app.get("/api/meet-bridge/:meetId/session", (req, res) => {
+  const meetId = String(req.params.meetId).toLowerCase();
+  if (!MEET_CODE_RE.test(meetId)) {
+    res.status(400).json({ error: "Código de Meet inválido." });
+    return;
+  }
+  const meeting = companionForMeet(meetId);
+  res.json({
+    dbId: meeting.dbId,
+    joinCode: meeting.id,
+    transcript: meeting.transcript.slice(-120),
+    participants: Array.from(meeting.participants.values()).map((p) => ({ id: p.id, name: p.name })),
+  });
+});
+
+// AI for the extension panel, scoped to this Meet's companion meeting. Requires
+// a signed-in account (the AI costs money per question, so it is never open to
+// anonymous callers), but knowing the Meet code is what grants access to THAT
+// meeting's content -- the same trust model as the rest of the bridge.
+app.post("/api/meet-bridge/:meetId/ask", requireAuth, async (req, res) => {
+  const meetId = String(req.params.meetId).toLowerCase();
+  if (!MEET_CODE_RE.test(meetId)) {
+    res.status(400).json({ error: "Código de Meet inválido." });
+    return;
+  }
+  const question = typeof req.body?.question === "string" ? req.body.question : "";
+  const meeting = companionForMeet(meetId);
+  const result = await answerFromMeeting(
+    meeting.dbId,
+    question,
+    (req as AuthedRequest).userId!,
+    true // authorized above: signed in + holds this meeting's code
+  );
+  if (!result.ok) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+  res.json({ answer: result.answer });
 });
 
 

@@ -1,68 +1,75 @@
-# Unify para Google Meet (extensión)
+# Unify para Google Meet
 
-Conecta tu Google Meet con Unify: mientras estás en la llamada de Meet, la
-extensión sincroniza en tiempo real lo que Meet expone (si estás en llamada,
-tu micrófono/cámara, cantidad de participantes, si alguien presenta y —
-cuando el panel de personas de Meet está abierto — la lista de nombres) con
-la sala companion de Unify, donde ya corren los subtítulos, la traducción y
-la IA.
+Extensión de Chrome/Edge que mete Unify **dentro** de Google Meet: transcribe a
+todos los participantes, traduce en vivo, graba la reunión completa y responde
+con IA — sin salir de la pestaña de Meet y sin pantallas divididas.
 
-## Instalación (modo desarrollador)
+## Qué hace
 
-1. Abrí `chrome://extensions` (o `edge://extensions`).
+| Función | Cómo funciona |
+|---|---|
+| **Transcribe a TODOS** | Lee los subtítulos propios de Google Meet, que ya traen a cada participante con su nombre. |
+| **Subtítulos traducidos** | Muestra lo que se dice sobre el video, traducido al idioma que elijas. |
+| **Graba la reunión completa** | Captura el audio y el video de la pestaña de Meet (todas las voces) y le suma tu micrófono. |
+| **Asistente de IA** | Preguntas sobre lo que se dijo, respondidas desde la transcripción de esa reunión. |
+| **Historial** | Todo queda guardado en tu cuenta de Unify: transcripción, grabación e informe. |
+
+## Por qué lee los subtítulos de Meet
+
+Un navegador solo puede escuchar **tu** micrófono. Por eso cualquier herramienta
+que transcriba "desde afuera" captura una sola voz: la tuya. Google Meet, en
+cambio, ya transcribe a todos con sus propios subtítulos y les pone el nombre de
+quien habla. Leer esos subtítulos es la única forma de tener la reunión completa.
+
+**Por eso la extensión necesita que los subtítulos de Meet estén activos.** Si
+están apagados, los prende sola la primera vez; si no puede, el panel te lo pide.
+
+## Instalar (modo desarrollador)
+
+1. Abrí `chrome://extensions`.
 2. Activá **Modo de desarrollador** (arriba a la derecha).
-3. **Cargar descomprimida** → seleccioná esta carpeta (`extension/`).
-4. Entrá a tu reunión de Meet, y en Unify pegá el mismo link
-   (Inicio → "Unirme a una externa"). La tarjeta de Meet muestra el estado
-   en vivo que reporta la extensión.
+3. **Cargar descomprimida** → elegí esta carpeta (`extension/`).
+4. Entrá a una reunión de Google Meet: el panel de Unify aparece abajo a la derecha.
 
-El badge del ícono muestra **ON** (verde) cuando el puente está conectado.
+Para que funcione la IA, iniciá sesión una vez en la web de Unify en ese mismo
+navegador. La extensión toma esa sesión sola — no hay que copiar ni pegar nada.
 
-## Botón "Grabar con Unify" dentro de Meet
+## Cómo se usa
 
-Al entrar a una llamada de Meet, la extensión muestra un botón flotante
-**⏺ Grabar con Unify** (abajo a la derecha). Un clic abre Unify con esa
-reunión ya detectada: si ya usaste Unify antes (nombre recordado), entrás
-directo a la sala companion con el aviso "Listo para grabar" — un solo tap
-en **Grabar** y elegís la pestaña de Meet (con la casilla de audio tildada).
+- El panel se **arrastra** desde su encabezado y se **minimiza** con `—`.
+- **Transcripción**: todo lo que se va diciendo, con el nombre de cada persona.
+- **Subtítulos**: elegí el idioma de traducción y si querés verlos sobre el video.
+- **IA**: preguntale lo que quieras sobre la reunión en curso.
+- **⏺**: graba la reunión completa. Volvé a tocarlo para detener; el video se
+  sube solo a tu historial de Unify.
 
-¿Por qué no graba directamente desde Meet? Los navegadores exigen que la
-captura de pantalla/pestaña la inicie un gesto del usuario en la app o en
-la UI de la extensión — ningún script inyectado puede arrancar una grabación
-solo. Este flujo de un clic es la integración más directa que la plataforma
-permite, y es honesta: siempre ves qué se está capturando.
+## Permisos y por qué
 
-El botón se puede ocultar con la ✕ (queda oculto en esa pestaña). Si tu
-Unify corre en otro dominio, configurá `appBase` en el storage de la
-extensión (por defecto `https://www.unify-meet.com`).
+| Permiso | Para qué |
+|---|---|
+| `storage` | Guardar tus preferencias (idioma, posición del panel) y la sesión de Unify. |
+| `tabCapture` | Grabar el audio y el video de la reunión de Meet. |
+| `offscreen` | Manifest V3 no deja grabar desde el service worker; la grabación corre en un documento invisible. |
+| Acceso a `meet.google.com` | Mostrar el panel y leer los subtítulos de la reunión. |
+| Acceso al servidor de Unify | Enviar la transcripción y subir la grabación. |
+| Acceso a la web de Unify | Tomar tu sesión iniciada para habilitar la IA. |
 
-## Qué puede y qué no puede hacer (limitaciones reales)
+La extensión **no** lee tu correo, tu historial ni ninguna otra pestaña.
 
-Google Meet **no tiene API pública** para apps de terceros dentro de la
-llamada, y bloquea embeberse en iframes. Lo único técnicamente posible es lo
-que hace esta extensión: **observar el DOM de Meet** desde adentro y
-sincronizarlo hacia afuera. Por eso:
+## Ajustes
 
-- **Posible**: detectar entrada/salida de la llamada, cambio de reunión en la
-  misma pestaña, tu mic/cámara, cantidad de participantes, presentación
-  activa, nombres del roster (con el panel de personas de Meet abierto) y
-  hablantes activos (best-effort).
-- **No posible**: controlar Meet desde afuera (mutear a otros, expulsar,
-  apagar cámaras ajenas). Ninguna extensión puede — Google no lo expone. La
-  moderación estilo Zoom de Unify aplica a las reuniones nativas de Unify;
-  sobre Meet, la capa de Unify aporta lo que Meet no tiene: subtítulos
-  multilenguaje, traducción, transcripción compartida e IA.
-- Los selectores del DOM de Meet pueden cambiar cuando Google actualiza su
-  interfaz; la extensión degrada campo por campo (envía `null`) en vez de
-  romperse, y loguea con prefijo `[unify-meet]` en la consola de la pestaña
-  de Meet para diagnosticar.
+Clic en el ícono de Unify en la barra del navegador: ahí se ve el estado de la
+sesión y se puede cambiar el servidor (útil para desarrollo local, por ejemplo
+`http://localhost:4001`).
 
-## Seguridad
+## Limitaciones honestas
 
-- Solo corre en `meet.google.com`.
-- Solo envía datos al servidor de Unify; el servidor valida, recorta y
-  limita (rate-limit) cada campo antes de retransmitirlo a la sala, y lo
-  trata como información de display, nunca como autoridad.
-- Reconexión automática con backoff exponencial (2s → 60s máx.) si el
-  servidor no responde, y aviso de salida (`inCall: false`) al cerrar la
-  pestaña o cambiar de reunión.
+- **Necesita los subtítulos de Meet activos.** Es la fuente de las voces de todos.
+- **Depende del idioma de los subtítulos de Meet**: si Meet está transcribiendo
+  en inglés y se habla español, los subtítulos van a salir mal. Se cambia desde
+  el propio Meet.
+- **Google cambia el HTML de Meet sin avisar.** Cada lectura degrada a "no
+  disponible" en vez de romper el panel, pero un cambio grande puede requerir
+  una actualización de la extensión.
+- **La grabación necesita que la pestaña de Meet siga abierta.** Si la cerrás,
+  la grabación se cierra y se sube lo grabado hasta ese momento.

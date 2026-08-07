@@ -5,7 +5,7 @@ import Logo from "../components/Logo";
 import { useMeeting } from "../context/MeetingContext";
 import { fetchPlatformConfig, PlatformConfig } from "../lib/api";
 import { LANGUAGES } from "../lib/languages";
-import { DetectedMeeting, detectMeetingPlatform } from "../lib/meetingPlatforms";
+import { DetectedMeeting, detectMeetingPlatform, extractPasscode } from "../lib/meetingPlatforms";
 import { cardClass, inputClass, labelClass, nameInputProps, urlInputProps } from "../lib/ui";
 
 // Entry point for joining a meeting hosted on ANOTHER platform (Zoom, Meet,
@@ -32,6 +32,18 @@ export default function ExternalJoin() {
   useEffect(() => {
     fetchPlatformConfig().then(setPlatforms);
   }, []);
+
+  // Reconoce el enlace apenas se pega o se escribe: apretar "Detectar" era un
+  // paso extra que no aportaba nada -- ya sabemos de qué plataforma es en
+  // cuanto el texto está completo. Si el pegado trae la contraseña, se carga
+  // sola. El botón sigue existiendo para quien lo busque.
+  function handleLink(raw: string) {
+    setLink(raw);
+    const result = detectMeetingPlatform(raw, { selfHosts: [window.location.hostname] });
+    setDetected(result.platform === "unknown" && raw.trim().length < 12 ? null : result);
+    const found = extractPasscode(raw);
+    if (found) setPasscode(found);
+  }
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -152,11 +164,7 @@ export default function ExternalJoin() {
                 placeholder="https://…"
                 {...urlInputProps}
                 value={link}
-                onChange={(e) => {
-                  setLink(e.target.value);
-                  setDetected(null);
-                  setPasscode("");
-                }}
+                onChange={(e) => handleLink(e.target.value)}
                 required
               />
             </div>
