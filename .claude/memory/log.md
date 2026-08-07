@@ -320,3 +320,15 @@ pages/{Meeting,ExternalJoin,ExternalMeeting,Home}.tsx}.
 - **Sesión sin copiar tokens**: content script `auth-sync.js` en los orígenes de la web de Unify lee `localStorage.encuentro_token` → `chrome.storage.local`. Evita el problema del ID de extensión desconocido (mejor que externally_connectable).
 - **Unión más fácil**: detección al pegar (sin botón) + `extractPasscode()` saca la clave del texto pegado.
 - Verificado 61/61 (captions 14/14 contra Meet simulado que reescribe filas en vivo, bridge 10/10, companion 15/15, UI externa 15/15, fixes 7/7). **tabCapture no se puede ejecutar en el sandbox** — construido y revisado, requiere navegador con la extensión instalada.
+
+## 2026-08-07 — Subtítulos visibles en companion + extensión probada DE VERDAD
+- **Contexto real del usuario**: iPad + Safari, entra al Meet DESDE Unify (companion). No hay extensiones en iPadOS → la única forma de sumar voces ajenas es que cada participante abra Unify (cada navegador solo oye su propio micrófono).
+- **3 causas de "no andan los subtítulos ni la traducción"**:
+  1. `useLineTranslations` descartaba el error de traducción con `.catch(()=>{})` → fallo SILENCIOSO. Ahora expone `translationFailed` y la UI lo explica. (Sin ANTHROPIC_API_KEY el server devuelve 502; el respaldo MyMemory está bloqueado por el proxy del sandbox.)
+  2. No había DÓNDE ver los subtítulos: `LiveCaption` es un overlay de 6s sobre el pane, inútil cuando mirás Meet en otra app. Nuevo `CompanionSubtitleStage`: texto grande, últimas 8 frases persistentes, traducción como lectura principal + original debajo, rol del hablante. `MeetCompanionPane` pasó a cabecera compacta + escenario.
+  3. El selector de idioma estaba enterrado en el panel de transcripción → con "automático" hablando español no hay nada que traducir y parecía roto. Movido a `CompanionDock` (arriba a la derecha).
+- **Extensión v3** (Shadow DOM, badge, drawer 3 pestañas, subs flotantes, roles, mic fallback, atajo Ctrl+Shift+U para grabar porque Chrome exige invocación desde la barra para tabCapture).
+- **PRUEBA REAL DE LA EXTENSIÓN** (nuevo, antes imposible): `sim_realext.js` copia la extensión a un temp dir, le agrega `http://localhost:4189/*` al manifest (el manifest publicado NO se toca), y la carga con `launchPersistentContext({headless:false, --load-extension})` bajo `xvfb-run`. Verifica service worker MV3 activo, Shadow DOM, badge, 3 pestañas, y transcripción de 3 hablantes. **11/11**.
+  - **Gotcha clave**: el content script corre en mundo AISLADO → pisar `window.fetch` de la página NO lo intercepta. Hay que usar `ctx.route()` a nivel navegador.
+- Roles en companion: `lib/companionRoles.ts` (locales por reunión en localStorage; una sala companion no tiene anfitrión que los reparta), badges en LiveCaption + stage + panel `CompanionRolesPanel`.
+- `CompanionDock`: estado, idioma, contador y —lo más útil— invitación en un toque (navigator.share o portapapeles) porque sumar gente a Unify es la ÚNICA forma de tener sus voces en iPad.
