@@ -4,6 +4,8 @@ import AiChatBox from "../components/AiChatBox";
 import IconButton from "../components/IconButton";
 import JitsiEmbed from "../components/JitsiEmbed";
 import LiveCaption from "../components/LiveCaption";
+import CompanionDock from "../components/CompanionDock";
+import CompanionRolesPanel from "../components/CompanionRolesPanel";
 import MeetCompanionPane from "../components/MeetCompanionPane";
 import Logo from "../components/Logo";
 import RecordingBanner from "../components/RecordingBanner";
@@ -15,6 +17,7 @@ import ZoomEmbed from "../components/ZoomEmbed";
 import {
   CaptionsIcon,
   PeopleIcon,
+  ShieldIcon,
   PhoneOffIcon,
   RecordIcon,
   SparklesIcon,
@@ -29,10 +32,11 @@ import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { askMeetingAI } from "../lib/api";
 import { recentCaptionEntries } from "../lib/captionLines";
 import { screenCaptureSupported } from "../lib/screenCapture";
+import { loadRoles, roleById, RoleMap, saveRoles } from "../lib/companionRoles";
 import { setUnsavedMeeting } from "../lib/unsavedMeeting";
 import { CompanionEmbed } from "../types";
 
-type PanelKey = "transcript" | "ai" | null;
+type PanelKey = "transcript" | "ai" | "roles" | null;
 
 // Renders the actual external-meeting pane for a companion session. One branch
 // per embeddable platform; adding a new platform means adding a case here.
@@ -91,6 +95,21 @@ export default function ExternalMeeting() {
   const [captionsOn, setCaptionsOn] = useState(true);
   const [interimCaption, setInterimCaption] = useState<string | null>(null);
   const [targetLangChoice, setTargetLangChoice] = useState<string>(AUTO_LANG);
+  // Etiquetas locales por persona (ver lib/companionRoles): una sala companion
+  // no tiene anfitrión que reparta roles, así que cada quien rotula como ve.
+  const roomKey = draft?.mode === "companion" ? draft.externalKey : "";
+  const [roles, setRoles] = useState<RoleMap>(() => (roomKey ? loadRoles(roomKey) : {}));
+  function setRole(name: string, roleId: string) {
+    setRoles((prev) => {
+      const next = { ...prev, [name]: roleId };
+      if (roomKey) saveRoles(roomKey, next);
+      return next;
+    });
+  }
+  const roleFor = (name: string) => {
+    const r = roleById(roles[name]);
+    return r.id ? { label: r.label, color: r.color } : null;
+  };
 
   const spokenLang = self?.language ?? (draft?.mode === "companion" ? draft.language : "es-AR");
   const targetLang = targetLangChoice === AUTO_LANG ? spokenLang : targetLangChoice;
@@ -241,6 +260,27 @@ export default function ExternalMeeting() {
     ? recentCaptionEntries(meeting?.transcript ?? [], getTranslation)
     : [];
   const participantCount = meeting?.participants.length ?? 0;
+  // Enlace para que los demás abran ESTA reunión en Unify. Es la única forma de
+  // sumar sus voces: cada navegador solo escucha su propio micrófono.
+  const inviteUrl = (() => {
+    if (draft?.mode !== "companion") return window.location.origin;
+    const link =
+      draft.embed.kind === "meet"
+        ? draft.embed.meetLink
+        : draft.embed.kind === "teams"
+          ? draft.embed.meetingLink
+          : draft.embed.kind === "jitsi"
+            ? `https://meet.jit.si/${draft.embed.roomName}`
+            : `https://zoom.us/j/${draft.embed.meetingNumber}`;
+    return `${window.location.origin}/externa?link=${encodeURIComponent(link)}`;
+  })();
+  // Gente a la que se le puede poner rol: quienes hablaron + quienes están en la sala.
+  const people = Array.from(
+    new Set([
+      ...(meeting?.transcript ?? []).map((l) => l.speakerName),
+      ...(meeting?.participants ?? []).map((p) => p.name),
+    ])
+  );
   const recording = recorder.status === "recording";
 
   return (
@@ -248,14 +288,13 @@ export default function ExternalMeeting() {
       {/* Minimal top bar: brand + which meeting we're on + who's here. All the
           actions live in the fixed toolbar at the bottom (like Zoom / our own
           meeting), so nothing floats around. */}
+      {/* Barra mínima: identidad y de qué reunión se trata. El estado, el idioma
+          y la invitación viven en el dock flotante sobre el video (ver el
+          diseño), no acá. */}
       <header className="flex items-center justify-between gap-2 border-b border-ink-800 bg-ink-900/95 px-4 py-2.5 shadow-soft backdrop-blur-md sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <Logo />
           <span className="hidden truncate text-xs text-ink-400 sm:inline">{draft.roomLabel}</span>
-        </div>
-        <div className="flex items-center gap-1.5 whitespace-nowrap rounded-full bg-ink-800 px-3 py-1.5 ring-1 ring-ink-700">
-          <PeopleIcon className="h-3.5 w-3.5 text-brand-300" />
-          <span className="text-xs font-medium text-ink-200">{participantCount} en Unify</span>
         </div>
       </header>
 
@@ -294,8 +333,18 @@ export default function ExternalMeeting() {
             />
           )}
 
+          <CompanionDock
+            participantCount={participantCount}
+            connected={connectionStatus === "connected"}
+            targetLangChoice={targetLangChoice}
+            onTargetLangChange={setTargetLangChoice}
+            inviteUrl={inviteUrl}
+            roomLabel={draft.roomLabel}
+          />
+
           <LiveCaption
             lines={captionLines}
+            roleFor={roleFor}
             localInterim={
               captionsOn && interimCaption ? { speakerName: draft.name || "Vos", text: interimCaption } : null
             }
@@ -322,6 +371,15 @@ export default function ExternalMeeting() {
             getTranslation={getTranslation}
             spokenLang={spokenLang}
             onSpokenLangChange={setSelfLanguage}
+          />
+        )}
+
+        {activePanel === "roles" && (
+          <CompanionRolesPanel
+            people={people}
+            roles={roles}
+            onChange={setRole}
+            onClose={() => setActivePanel(null)}
           />
         )}
 
@@ -361,6 +419,14 @@ export default function ExternalMeeting() {
           onClick={() => togglePanel("transcript")}
         >
           <TranscriptIcon className="h-5 w-5" />
+        </IconButton>
+        <IconButton
+          label="Asignar roles a los participantes"
+          caption="Roles"
+          active={activePanel === "roles"}
+          onClick={() => togglePanel("roles")}
+        >
+          <ShieldIcon className="h-5 w-5" />
         </IconButton>
         <IconButton
           label="Abrir el asistente de IA de la reunión"

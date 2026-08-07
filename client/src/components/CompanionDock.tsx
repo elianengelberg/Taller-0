@@ -1,0 +1,159 @@
+import { useEffect, useRef, useState } from "react";
+import { GlobeIcon, PeopleIcon, ShareIcon } from "./icons";
+import { LANGUAGES } from "../lib/languages";
+import { AUTO_LANG, ORIGINAL_LANG } from "../hooks/useLineTranslations";
+
+interface Props {
+  /** Cuántas personas están en la capa de Unify (no en la reunión externa). */
+  participantCount: number;
+  connected: boolean;
+  targetLangChoice: string;
+  onTargetLangChange: (value: string) => void;
+  /** Enlace para que los demás abran ESTA misma reunión en Unify. */
+  inviteUrl: string;
+  roomLabel: string;
+}
+
+// Dock de estado, arriba a la derecha, sobre la reunión externa.
+//
+// Concentra las dos cosas que la gente busca y no encontraba: en qué idioma ve
+// los subtítulos, y cómo hacer que los demás aparezcan. Lo segundo es lo más
+// importante de toda la pantalla: en una reunión externa, el navegador solo
+// puede escuchar TU micrófono, así que la única forma de tener las voces de los
+// demás es que ellos también abran Unify. Hasta que eso pase, el dock lo dice.
+export default function CompanionDock({
+  participantCount,
+  connected,
+  targetLangChoice,
+  onTargetLangChange,
+  inviteUrl,
+  roomLabel,
+}: Props) {
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const alone = participantCount <= 1;
+
+  useEffect(() => {
+    if (!inviteOpen) return;
+    function onPointer(e: MouseEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setInviteOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setInviteOpen(false);
+    }
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [inviteOpen]);
+
+  async function share() {
+    const text = `Sumate a la capa de Unify de esta reunión para que se transcriba también tu voz: ${inviteUrl}`;
+    // En celular/tablet el menú nativo es lo más rápido; en escritorio, copiar.
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "Unify", text, url: inviteUrl });
+        return;
+      } catch {
+        /* cancelado: seguimos con el copiado */
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* sin portapapeles: el enlace igual está a la vista para copiarlo a mano */
+    }
+  }
+
+  return (
+    <div ref={boxRef} className="pointer-events-auto absolute right-3 top-3 z-20 flex flex-col items-end gap-2">
+      <div className="flex items-center gap-2.5 rounded-full border border-white/10 bg-ink-900/80 px-3 py-1.5 shadow-soft backdrop-blur-md">
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${connected ? "bg-accent-green" : "bg-amber-400"}`}
+          aria-hidden
+        />
+        <span className="whitespace-nowrap text-xs font-medium text-ink-100">
+          <span className="font-bold text-strong">Unify</span>
+          <span className="hidden sm:inline">: {connected ? "Companion activo" : "Reconectando…"}</span>
+        </span>
+
+        <span className="hidden h-4 w-px bg-white/10 sm:block" aria-hidden />
+
+        <label className="hidden items-center gap-1.5 sm:flex">
+          <GlobeIcon className="h-3.5 w-3.5 text-brand-300" />
+          <span className="sr-only">Traducir los subtítulos a</span>
+          <select
+            value={targetLangChoice}
+            onChange={(e) => onTargetLangChange(e.target.value)}
+            className="max-w-[7.5rem] truncate rounded-md border border-ink-600 bg-ink-800 px-1.5 py-0.5 text-xs text-strong focus:border-brand-400 focus:outline-none"
+            title="Idioma en el que ves los subtítulos"
+          >
+            <option value={AUTO_LANG}>Automático</option>
+            <option value={ORIGINAL_LANG}>Sin traducir</option>
+            {LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <span className="hidden h-4 w-px bg-white/10 sm:block" aria-hidden />
+
+        <button
+          type="button"
+          onClick={() => setInviteOpen((v) => !v)}
+          aria-expanded={inviteOpen}
+          className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
+            alone ? "bg-brand-500 text-on-accent hover:bg-brand-600" : "text-ink-200 hover:bg-white/10"
+          }`}
+          title="Invitar a los demás a la capa de Unify"
+        >
+          <PeopleIcon className="h-3.5 w-3.5" />
+          {participantCount}
+        </button>
+      </div>
+
+      {/* Cuando estás solo, el aviso es la información más útil de la pantalla:
+          explica por qué solo se transcribe tu voz y cómo cambiarlo. */}
+      {alone && !inviteOpen && (
+        <button
+          type="button"
+          onClick={() => setInviteOpen(true)}
+          className="max-w-[17rem] rounded-xl border border-brand-500/40 bg-brand-500/15 px-3 py-2 text-left text-[11px] leading-snug text-brand-100 shadow-soft backdrop-blur-md hover:bg-brand-500/25"
+        >
+          Por ahora solo se transcribe <b>tu voz</b>. Para sumar la de los demás,
+          <span className="font-semibold"> invitalos a Unify</span>.
+        </button>
+      )}
+
+      {inviteOpen && (
+        <div className="w-[19rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border border-ink-700 bg-ink-900/95 p-3.5 shadow-soft backdrop-blur-md">
+          <p className="text-sm font-semibold text-strong">Sumá a los demás</p>
+          <p className="mt-1 text-xs leading-relaxed text-ink-300">
+            Cada navegador solo puede escuchar el micrófono de quien lo usa. Si tus compañeros
+            abren este enlace, sus voces entran a la misma transcripción y todos ven los subtítulos
+            traducidos.
+          </p>
+          <p className="mt-2 truncate rounded-lg bg-ink-800 px-2.5 py-1.5 font-mono text-[11px] text-ink-300">
+            {inviteUrl}
+          </p>
+          <button
+            type="button"
+            onClick={share}
+            className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl bg-brand-500 px-3 py-2 text-sm font-semibold text-on-accent hover:bg-brand-600"
+          >
+            <ShareIcon className="h-4 w-4" />
+            {copied ? "¡Enlace copiado!" : "Compartir el enlace"}
+          </button>
+          <p className="mt-2 text-[11px] text-ink-500">{roomLabel}</p>
+        </div>
+      )}
+    </div>
+  );
+}

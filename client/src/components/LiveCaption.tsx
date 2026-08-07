@@ -20,6 +20,9 @@ interface Props {
   // bottom before it even finishes -- always more current than any finalized
   // line, and never sent anywhere until it finalizes.
   localInterim?: { speakerName: string; text: string } | null;
+  // Devuelve el rol de quien habla (etiqueta + color) para mostrarlo junto al
+  // nombre. Opcional: en una reunión propia los roles ya viajan en la línea.
+  roleFor?: (speakerName: string) => { label: string; color: string } | null;
 }
 
 // How long a caption stays on screen after its speaker's last update. Matches
@@ -27,7 +30,7 @@ interface Props {
 // into the still-visible line instead of looking like it vanished.
 const HOLD_MS = 6000;
 
-export default function LiveCaption({ lines = [], localInterim }: Props) {
+export default function LiveCaption({ lines = [], localInterim, roleFor }: Props) {
   // Per-speaker visible captions, each with its own "last changed" time so
   // they expire independently. Kept in a ref (not state) because the pruning
   // timer and the incoming-lines effect both mutate it; a tick counter drives
@@ -99,12 +102,18 @@ export default function LiveCaption({ lines = [], localInterim }: Props) {
         <CaptionBubble
           key={entry.speakerId}
           speakerName={entry.speakerName}
+          role={roleFor?.(entry.speakerName) ?? null}
           text={entry.text}
           translatedText={entry.translatedText}
         />
       ))}
       {localInterim && (
-        <CaptionBubble key="__interim" speakerName={localInterim.speakerName} text={localInterim.text} />
+        <CaptionBubble
+          key="__interim"
+          speakerName={localInterim.speakerName}
+          role={roleFor?.(localInterim.speakerName) ?? null}
+          text={localInterim.text}
+        />
       )}
     </div>
   );
@@ -112,10 +121,12 @@ export default function LiveCaption({ lines = [], localInterim }: Props) {
 
 function CaptionBubble({
   speakerName,
+  role,
   text,
   translatedText,
 }: {
   speakerName: string;
+  role?: { label: string; color: string } | null;
   text: string;
   translatedText?: string;
 }) {
@@ -123,6 +134,14 @@ function CaptionBubble({
   return (
     <div className="caption-fade max-w-2xl rounded-2xl bg-black/75 px-4 py-2.5 text-center shadow-soft backdrop-blur-md ring-1 ring-white/10">
       <p className="text-sm leading-snug text-on-accent sm:text-base">
+        {role && (
+          <span
+            className="mr-1.5 rounded-md px-1.5 py-0.5 align-middle text-[10px] font-bold uppercase tracking-wide"
+            style={{ color: role.color, background: `${role.color}26`, border: `1px solid ${role.color}66` }}
+          >
+            {role.label}
+          </span>
+        )}
         <span className="font-semibold text-brand-300">{speakerName}: </span>
         {showingTranslation ? translatedText : text}
       </p>
