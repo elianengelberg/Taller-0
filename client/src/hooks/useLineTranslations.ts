@@ -26,6 +26,11 @@ export function useLineTranslations(lines: TranslatableLine[], targetLang: strin
   // so without this a line whose translation hasn't resolved yet would get
   // requested again on each re-run.
   const inFlightRef = useRef<Set<string>>(new Set());
+  // Si el traductor del servidor no responde (no está configurado, o se cayó),
+  // antes se descartaba el error en silencio: el usuario veía el texto original
+  // y creía que la traducción estaba rota sin ninguna explicación. Ahora el
+  // estado sale del hook para poder decirlo.
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     if (targetLang === ORIGINAL_LANG) return;
@@ -47,7 +52,12 @@ export function useLineTranslations(lines: TranslatableLine[], targetLang: strin
         .then((translated) => {
           if (!cancelled) setTranslations((prev) => ({ ...prev, [key]: translated }));
         })
-        .catch(() => {})
+        .then(() => {
+          if (!cancelled) setFailed(false);
+        })
+        .catch(() => {
+          if (!cancelled) setFailed(true);
+        })
         .finally(() => inFlightRef.current.delete(key));
     });
 
@@ -62,5 +72,5 @@ export function useLineTranslations(lines: TranslatableLine[], targetLang: strin
     return translations[`${lineId}:${targetLang}`];
   }
 
-  return { getTranslation };
+  return { getTranslation, translationFailed: failed };
 }

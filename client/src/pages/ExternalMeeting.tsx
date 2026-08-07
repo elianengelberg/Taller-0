@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AiChatBox from "../components/AiChatBox";
 import IconButton from "../components/IconButton";
@@ -6,6 +6,7 @@ import JitsiEmbed from "../components/JitsiEmbed";
 import LiveCaption from "../components/LiveCaption";
 import CompanionDock from "../components/CompanionDock";
 import CompanionRolesPanel from "../components/CompanionRolesPanel";
+import CompanionSubtitleStage from "../components/CompanionSubtitleStage";
 import MeetCompanionPane from "../components/MeetCompanionPane";
 import Logo from "../components/Logo";
 import RecordingBanner from "../components/RecordingBanner";
@@ -26,10 +27,11 @@ import {
 } from "../components/icons";
 import { useAuth } from "../context/AuthContext";
 import { useMeeting } from "../context/MeetingContext";
-import { AUTO_LANG, useLineTranslations } from "../hooks/useLineTranslations";
+import { AUTO_LANG, ORIGINAL_LANG, useLineTranslations } from "../hooks/useLineTranslations";
 import { useRecorder } from "../hooks/useRecorder";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { askMeetingAI } from "../lib/api";
+import { LANGUAGES, shortLang } from "../lib/languages";
 import { recentCaptionEntries } from "../lib/captionLines";
 import { screenCaptureSupported } from "../lib/screenCapture";
 import { loadRoles, roleById, RoleMap, saveRoles } from "../lib/companionRoles";
@@ -44,10 +46,12 @@ function CompanionEmbedPane({
   embed,
   displayName,
   onLeave,
+  subtitleStage,
 }: {
   embed: CompanionEmbed;
   displayName: string;
   onLeave: () => void;
+  subtitleStage?: ReactNode;
 }) {
   switch (embed.kind) {
     case "jitsi":
@@ -64,7 +68,13 @@ function CompanionEmbedPane({
     case "teams":
       return <TeamsEmbed meetingLink={embed.meetingLink} displayName={displayName} onLeave={onLeave} />;
     case "meet":
-      return <MeetCompanionPane meetLink={embed.meetLink} meetCode={embed.meetCode} />;
+      return (
+        <MeetCompanionPane
+          meetLink={embed.meetLink}
+          meetCode={embed.meetCode}
+          subtitleStage={subtitleStage}
+        />
+      );
   }
 }
 
@@ -153,7 +163,7 @@ export default function ExternalMeeting() {
     },
   });
 
-  const { getTranslation } = useLineTranslations(meeting?.transcript ?? [], targetLang);
+  const { getTranslation, translationFailed } = useLineTranslations(meeting?.transcript ?? [], targetLang);
 
   // Records the whole tab (the embedded meeting + captions) with its audio.
   // No local mic stream here -- the external platform owns the mic -- but
@@ -260,6 +270,17 @@ export default function ExternalMeeting() {
     ? recentCaptionEntries(meeting?.transcript ?? [], getTranslation)
     : [];
   const participantCount = meeting?.participants.length ?? 0;
+  // Últimas frases con su traducción, para la pantalla grande de subtítulos.
+  const stageLines = (meeting?.transcript ?? []).slice(-8).map((l) => ({
+    id: l.id,
+    speakerName: l.speakerName,
+    text: l.text,
+    translated: getTranslation(l.id),
+  }));
+  const targetLabel =
+    targetLangChoice === ORIGINAL_LANG
+      ? null
+      : (LANGUAGES.find((l) => shortLang(l.code) === shortLang(targetLang))?.label ?? null);
   // Enlace para que los demás abran ESTA reunión en Unify. Es la única forma de
   // sumar sus voces: cada navegador solo escucha su propio micrófono.
   const inviteUrl = (() => {
@@ -330,6 +351,18 @@ export default function ExternalMeeting() {
               embed={draft.embed}
               displayName={draft.name}
               onLeave={handleLeave}
+              subtitleStage={
+                <CompanionSubtitleStage
+                  lines={stageLines}
+                  roleFor={roleFor}
+                  interim={captionsOn ? interimCaption : null}
+                  interimSpeaker={draft.name || "Vos"}
+                  targetLabel={targetLabel}
+                  translationFailed={translationFailed}
+                  listening={connectionStatus === "connected" && captionsOn}
+                  participantCount={participantCount}
+                />
+              }
             />
           )}
 
