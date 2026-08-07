@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Unify para Google Meet",
-  "version": "2.0.0",
-  "description": "Transcribe a TODOS los participantes, traduce, graba la reunión completa y respondé con IA — todo dentro de Google Meet, sin salir de la pestaña.",
-  "permissions": ["storage", "tabCapture", "offscreen"],
+  "version": "3.0.0",
+  "description": "Transcribe a todos los participantes con roles, traduce en vivo, graba la reunión completa y respondé con IA — dentro de Google Meet.",
+  "permissions": ["activeTab", "scripting", "tabCapture", "storage", "offscreen"],
   "host_permissions": [
     "https://meet.google.com/*",
     "https://taller-0.onrender.com/*",
@@ -15,7 +15,6 @@
     {
       "matches": ["https://meet.google.com/*"],
       "js": ["content.js"],
-      "css": ["panel.css"],
       "run_at": "document_idle"
     },
     {
@@ -31,7 +30,16 @@
     }
   ],
   "action": { "default_popup": "popup.html", "default_title": "Unify para Google Meet" },
+  "commands": {
+    "toggle-recording": {
+      "suggested_key": { "default": "Ctrl+Shift+U", "mac": "Command+Shift+U" },
+      "description": "Empezar o detener la grabación de la reunión"
+    }
+  },
   "web_accessible_resources": [
-    { "resources": ["offscreen.html"], "matches": ["https://meet.google.com/*"] }
+    {
+      "resources": ["shadow.css", "offscreen.html"],
+      "matches": ["https://meet.google.com/*"]
+    }
   ]
 }

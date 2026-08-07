@@ -1,66 +1,136 @@
-// Unify para Google Meet -- content script.
+// Unify para Google Meet — content script.
 //
-// Esta extensión vive DENTRO de meet.google.com. No abre pestañas, no divide la
-// pantalla: inyecta un panel flotante con la transcripción de TODOS, los
-// subtítulos traducidos y el asistente de IA, más la grabación de la reunión
-// completa.
+// Toda la interfaz vive DENTRO de un Shadow DOM: Google Meet tiene estilos
+// globales agresivos y reescribe su árbol constantemente, así que aislar es la
+// única forma de que la extensión no se rompa ni rompa a Meet. La única pieza
+// que sí va en el DOM de Meet es el botón de su barra inferior (tiene que ser
+// hermano de los suyos para sentarse ahí), y va con estilos en línea.
 //
-// Las dos decisiones que hacen que esto funcione de verdad:
-//
-//  1. TRANSCRIBIR A TODOS. Un navegador solo puede escuchar TU micrófono
-//     (reconocimiento de voz local), por eso cualquier herramienta que grabe
-//     "desde afuera" captura una sola voz. Google Meet, en cambio, YA transcribe
-//     a todos con sus propios subtítulos y les pone el nombre de quien habla.
-//     Leemos ESOS subtítulos: es la única forma de tener a toda la reunión.
-//
-//  2. GRABAR A TODOS. La grabación no usa "compartir pantalla" (que depende de
-//     que el usuario elija bien la pestaña y tilde el audio): usa la captura de
-//     pestaña de la extensión, que toma el audio y el video de Meet tal como
-//     suenan y se ven, con todos los participantes.
-//
-// Todo lo que se lee del DOM de Meet es best-effort por naturaleza: Google
-// cambia su interfaz sin avisar, así que cada lectura degrada a "no disponible"
-// en vez de romper el panel.
+// De dónde salen las voces: un navegador solo puede escuchar TU micrófono, así
+// que transcribir "desde afuera" captura una sola persona. Meet, en cambio, ya
+// transcribe a todos con sus subtítulos y les pone nombre. Leemos ESOS
+// subtítulos; el micrófono queda como respaldo cuando Meet no los ofrece.
 
 (() => {
-  if (window.__unifyMeetLoaded) return;
-  window.__unifyMeetLoaded = true;
+  if (window.__unifyLoaded) return;
+  window.__unifyLoaded = true;
 
   const DEFAULT_SERVER = "https://taller-0.onrender.com";
   const DEFAULT_APP = "https://www.unify-meet.com";
   const MEET_CODE_RE = /^\/([a-z]{3}-[a-z]{4}-[a-z]{3})(?:$|[/?#])/;
+  const SETTLE_MS = 1600;
 
-  const cfg = { serverBase: DEFAULT_SERVER, appBase: DEFAULT_APP, token: null, targetLang: "" };
+  const cfg = { serverBase: DEFAULT_SERVER, appBase: DEFAULT_APP, token: null, lang: "" };
   const log = (...a) => console.debug("[unify]", ...a);
-
-  // Se invoca al final del archivo, cuando `ui` ya existe: el navegador puede
-  // resolver el almacenamiento en el acto, y leerlo antes de definir el panel
-  // dejaría la extensión sin arrancar.
-  function loadConfig() {
-    chrome.storage.local.get(
-      { serverBase: DEFAULT_SERVER, appBase: DEFAULT_APP, token: null, targetLang: "" },
-      (v) => {
-        if (v?.serverBase?.startsWith?.("http")) cfg.serverBase = v.serverBase.replace(/\/+$/, "");
-        if (v?.appBase?.startsWith?.("http")) cfg.appBase = v.appBase.replace(/\/+$/, "");
-        cfg.token = v?.token ?? null;
-        cfg.targetLang = v?.targetLang ?? "";
-        ui.refreshAccount();
-      }
-    );
-    chrome.storage.onChanged.addListener((changes, area) => {
-      if (area !== "local") return;
-      if (changes.token) {
-        cfg.token = changes.token.newValue ?? null;
-        ui.refreshAccount();
-      }
-      if (changes.targetLang) cfg.targetLang = changes.targetLang.newValue ?? "";
-    });
-  }
-
   const meetCode = () => location.pathname.match(MEET_CODE_RE)?.[1] ?? null;
 
+  const ROLES = [
+    { id: "", label: "Sin rol", color: "#94a3b8" },
+    { id: "anfitrion", label: "Anfitrión", color: "#34d399" },
+    { id: "cliente", label: "Cliente", color: "#60a5fa" },
+    { id: "equipo", label: "Equipo", color: "#a78bfa" },
+    { id: "invitado", label: "Invitado", color: "#f59e0b" },
+  ];
+  const roleOf = (id) => ROLES.find((r) => r.id === id) ?? ROLES[0];
+
+  const state = {
+    lines: [],            // { speaker, text, translated, lang, at }
+    roles: {},            // nombre -> id de rol
+    speakers: new Set(),
+    session: { code: null, dbId: null },
+    micDenied: false,
+    usingMic: false,
+    recording: false,
+  };
+
   // ===========================================================================
-  // Lecturas del DOM de Meet (cada una devuelve null si Meet no lo expone)
+  // Backend
+  // ===========================================================================
+  async function api(path, options = {}) {
+    const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+    if (cfg.token) headers.Authorization = `Bearer ${cfg.token}`;
+    const res = await fetch(`${cfg.serverBase}${path}`, { ...options, headers });
+    if (!res.ok) throw new Error(String(res.status));
+    return res.json();
+  }
+
+  async function ensureSession() {
+    const code = meetCode();
+    if (!code) return null;
+    if (state.session.code === code && state.session.dbId) return state.session.dbId;
+    try {
+      const s = await api(`/api/meet-bridge/${code}/session`);
+      state.session = { code, dbId: s.dbId };
+      // El popup y el atajo de teclado graban sin volver a preguntarle a la
+      // pestaña: les dejamos acá los datos de la reunión.
+      chrome.runtime.sendMessage({
+        kind: "unify-meet-info", dbId: s.dbId, serverBase: cfg.serverBase, token: cfg.token,
+      });
+      if (Array.isArray(s.transcript) && state.lines.length === 0) {
+        s.transcript.forEach((l) => pushLocal(l.speakerName, l.text, { translate: false, at: l.timestamp }));
+        ui.renderStream();
+        ui.renderRoles();
+      }
+      return s.dbId;
+    } catch {
+      return null;
+    }
+  }
+
+  function pushLocal(speaker, text, { translate = true, at = Date.now() } = {}) {
+    const name = speaker || "Participante";
+    state.speakers.add(name);
+    const last = state.lines[state.lines.length - 1];
+    if (last && last.speaker === name && at - last.at < 8000 && last.text.length < 400) {
+      last.text = `${last.text} ${text}`.trim();
+      last.at = at;
+      if (translate) void translateLine(last);
+      return last;
+    }
+    const line = { speaker: name, text, translated: null, at };
+    state.lines.push(line);
+    if (state.lines.length > 400) state.lines.shift();
+    if (translate) void translateLine(line);
+    return line;
+  }
+
+  async function translateLine(line) {
+    if (!cfg.lang) return;
+    try {
+      const r = await api("/api/translate", {
+        method: "POST",
+        body: JSON.stringify({ text: line.text, source: "auto", target: cfg.lang }),
+      });
+      if (r?.translatedText && r.translatedText !== line.text) {
+        line.translated = r.translatedText;
+        ui.renderStream();
+      }
+    } catch {
+      /* la traducción es un extra: si falla, queda el original */
+    }
+  }
+
+  async function emit(speaker, text) {
+    const code = meetCode();
+    if (!code || !text) return;
+    const line = pushLocal(speaker, text);
+    ui.renderStream();
+    ui.renderRoles();
+    ui.showSubtitle(line);
+    try {
+      const r = await api(`/api/meet-bridge/${code}/transcript`, {
+        method: "POST",
+        body: JSON.stringify({ speaker: line.speaker, text, lang: navigator.language || "es-AR" }),
+      });
+      if (r?.dbId) state.session.dbId = r.dbId;
+      ui.setStatus("live");
+    } catch {
+      ui.setStatus("offline");
+    }
+  }
+
+  // ===========================================================================
+  // Lecturas del DOM de Meet
   // ===========================================================================
   const inCall = () =>
     Boolean(
@@ -82,7 +152,8 @@
     const btn = document.querySelector(
       'button[aria-label*="Mostrar a todos"], button[aria-label*="Show everyone"], button[aria-label*="participante"], button[aria-label*="participant"]'
     );
-    const m = (btn?.getAttribute("aria-label") ?? "").match(/\((\d+)\)/) || (btn?.getAttribute("aria-label") ?? "").match(/(\d+)/);
+    const label = btn?.getAttribute("aria-label") ?? "";
+    const m = label.match(/\((\d+)\)/) || label.match(/(\d+)/);
     return m ? Number(m[1]) : null;
   }
 
@@ -96,67 +167,39 @@
         : null;
 
   // ===========================================================================
-  // MOTOR DE SUBTÍTULOS -- de acá sale la transcripción de TODOS
+  // Motor de subtítulos de Meet (la fuente de TODAS las voces)
   // ===========================================================================
-  //
-  // Meet va reescribiendo la MISMA fila mientras alguien habla (el texto crece),
-  // y la borra unos segundos después de que termina. Entonces no alcanza con
-  // "leer lo que hay": hay que seguir cada fila y decidir cuándo una frase
-  // quedó cerrada. La regla: si el texto nuevo empieza con el anterior, es la
-  // misma frase creciendo; si cambia de raíz, la anterior terminó. Y si una fila
-  // deja de cambiar por un rato, también se da por cerrada.
+  const caps = { region: null, entries: new Map(), observer: null, nudged: false };
 
-  const SETTLE_MS = 1600; // silencio tras el cual una frase se considera terminada
-  const captions = {
-    region: null,
-    entries: new Map(), // nodo -> { speaker, text, at, timer }
-    seq: 0,
-  };
+  const findCaptionRegion = () =>
+    document.querySelector('[role="region"][aria-label*="ubtítul"]') ||
+    document.querySelector('[role="region"][aria-label*="aption"]') ||
+    document.querySelector('div[jsname="dsyhDe"]') ||
+    document.querySelector("[data-use-tweaked-caption-styles]") ||
+    null;
 
-  function findCaptionRegion() {
-    return (
-      document.querySelector('[role="region"][aria-label*="ubtítul"]') ||
-      document.querySelector('[role="region"][aria-label*="aption"]') ||
-      document.querySelector('div[jsname="dsyhDe"]') ||
-      document.querySelector('[data-use-tweaked-caption-styles]') ||
-      null
-    );
-  }
-
-  // Botón CC de Meet. Lo prendemos solo si hace falta: sin subtítulos activos
-  // no hay nada que leer, y es el único requisito real de la extensión.
-  function captionsButton() {
-    return document.querySelector(
-      'button[aria-label*="ubtítulos"], button[aria-label*="aptions"], button[jsname="r8qRAd"]'
-    );
-  }
-
-  let captionsNudged = false;
   function ensureCaptionsOn() {
     if (findCaptionRegion()) return true;
-    const btn = captionsButton();
+    const btn = document.querySelector(
+      'button[aria-label*="ubtítulos"], button[aria-label*="aptions"], button[jsname="r8qRAd"]'
+    );
     if (!btn) return false;
     const label = (btn.getAttribute("aria-label") || "").toLowerCase();
     const isOff = /activar|turn on/.test(label) || btn.getAttribute("aria-pressed") === "false";
-    if (isOff && !captionsNudged) {
-      captionsNudged = true;
+    if (isOff && !caps.nudged) {
+      caps.nudged = true;
       btn.click();
-      log("subtítulos de Meet activados por Unify");
+      log("subtítulos de Meet activados");
       return true;
     }
     return false;
   }
 
-  // ¿Ese texto parece un nombre y no una frase? Meet pone el nombre de quien
-  // habla en su propio elemento, pero no siempre podemos distinguirlo por
-  // posición, así que lo validamos por forma.
-  const looksLikeName = (s) =>
-    s.length > 0 && s.length <= 60 && s.split(/\s+/).length <= 6 && !/[.?!,]$/.test(s);
+  // ¿Parece un nombre y no una frase? Sirve para separar el hablante del texto
+  // sin depender del largo (al empezar una frase el texto es más corto que el
+  // nombre, y cualquier regla de "el bloque más largo es el texto" se equivoca).
+  const looksLikeName = (s) => s.length > 0 && s.length <= 60 && s.split(/\s+/).length <= 6 && !/[.?!,]$/.test(s);
 
-  // Extrae { speaker, text } de una fila de subtítulo. Se apoya en la ESTRUCTURA
-  // (el nombre y el texto viven en elementos distintos) y no en el largo: al
-  // arrancar una frase el texto es más corto que el nombre, y cualquier
-  // heurística de "el bloque más largo es el texto" se equivoca justo ahí.
   function parseEntry(node) {
     const leaves = [];
     node.querySelectorAll("*").forEach((el) => {
@@ -181,35 +224,31 @@
     return body ? { speaker, text: body } : null;
   }
 
-  // Emite lo que todavía no se envió de esa fila. Meet reescribe la misma fila
-  // mientras la persona sigue hablando, así que guardamos qué parte ya salió y
-  // mandamos únicamente lo nuevo -- nunca la frase entera de nuevo.
+  // Meet reescribe la MISMA fila mientras la persona habla, así que guardamos
+  // qué parte ya se envió y mandamos únicamente lo nuevo.
   function finalizeEntry(node) {
-    const rec = captions.entries.get(node);
+    const rec = caps.entries.get(node);
     if (!rec) return;
     clearTimeout(rec.timer);
     rec.timer = null;
-    const pending = rec.text.startsWith(rec.emitted)
-      ? rec.text.slice(rec.emitted.length).trim()
-      : rec.text.trim();
+    const pending = rec.text.startsWith(rec.emitted) ? rec.text.slice(rec.emitted.length).trim() : rec.text.trim();
     if (pending) {
       rec.emitted = rec.text;
-      pushLine(rec.speaker || "Participante", pending);
+      void emit(rec.speaker || "Participante", pending);
     }
   }
 
   function touchEntry(node) {
     const parsed = parseEntry(node);
     if (!parsed) return;
-    let rec = captions.entries.get(node);
+    let rec = caps.entries.get(node);
     if (!rec) {
       rec = { speaker: parsed.speaker, text: parsed.text, emitted: "", timer: null };
-      captions.entries.set(node, rec);
+      caps.entries.set(node, rec);
     } else {
       if (parsed.speaker) rec.speaker = parsed.speaker;
-      if (parsed.text === rec.text) return; // nada cambió: no reprogramar nada
+      if (parsed.text === rec.text) return;
       if (!parsed.text.startsWith(rec.emitted)) {
-        // La fila se reusó para una frase nueva: cerramos lo anterior primero.
         finalizeEntry(node);
         rec.emitted = "";
       }
@@ -217,124 +256,495 @@
     }
     clearTimeout(rec.timer);
     rec.timer = setTimeout(() => finalizeEntry(node), SETTLE_MS);
-    ui.setLiveCaption(rec.speaker || "Participante", rec.text);
+    ui.showSubtitle({ speaker: rec.speaker || "Participante", text: rec.text, translated: null });
   }
 
-  let captionObserver = null;
   function scanCaptions(region) {
-    region.querySelectorAll(":scope > *").forEach((node) => touchEntry(node));
-    // Filas que Meet ya sacó del DOM: cerrarlas para no perder la última frase,
-    // y recién ahí olvidarlas (si se olvidaran antes, el próximo escaneo las
-    // tomaría como nuevas y reenviaría todo).
-    for (const node of Array.from(captions.entries.keys())) {
+    region.querySelectorAll(":scope > *").forEach(touchEntry);
+    for (const node of Array.from(caps.entries.keys())) {
       if (!region.contains(node)) {
         finalizeEntry(node);
-        clearTimeout(captions.entries.get(node)?.timer);
-        captions.entries.delete(node);
+        clearTimeout(caps.entries.get(node)?.timer);
+        caps.entries.delete(node);
       }
     }
   }
 
   function watchCaptions() {
     const region = findCaptionRegion();
-    if (!region || region === captions.region) return;
-    captions.region = region;
-    captionObserver?.disconnect();
-    captionObserver = new MutationObserver(() => scanCaptions(region));
-    captionObserver.observe(region, { childList: true, subtree: true, characterData: true });
-    ui.setCaptionsReady(true);
+    if (!region) {
+      caps.region = null;
+      return false;
+    }
+    if (region === caps.region) return true;
+    caps.region = region;
+    caps.observer?.disconnect();
+    caps.observer = new MutationObserver(() => scanCaptions(region));
+    caps.observer.observe(region, { childList: true, subtree: true, characterData: true });
     log("leyendo subtítulos de Meet");
+    return true;
   }
 
   // ===========================================================================
-  // Envío al backend de Unify
+  // Respaldo por micrófono (solo TU voz) cuando Meet no da subtítulos
   // ===========================================================================
-  const session = { dbId: null, code: null };
-  const lines = []; // transcripción local para el panel
+  const mic = { rec: null, running: false };
 
-  async function api(path, options = {}) {
-    const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
-    if (cfg.token) headers.Authorization = `Bearer ${cfg.token}`;
-    const res = await fetch(`${cfg.serverBase}${path}`, { ...options, headers });
-    if (!res.ok) throw new Error(String(res.status));
-    return res.json();
-  }
-
-  async function ensureSession() {
-    const code = meetCode();
-    if (!code) return null;
-    if (session.code === code && session.dbId) return session.dbId;
-    try {
-      const s = await api(`/api/meet-bridge/${code}/session`);
-      session.code = code;
-      session.dbId = s.dbId;
-      // Al abrir el panel, mostrar lo que ya se dijo (no arrancar en blanco).
-      if (Array.isArray(s.transcript) && lines.length === 0) {
-        s.transcript.forEach((l) => addLocalLine(l.speakerName, l.text, false));
-        ui.renderTranscript();
+  function startMicFallback() {
+    const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Ctor || mic.running) return;
+    const r = new Ctor();
+    r.lang = navigator.language || "es-AR";
+    r.continuous = true;
+    r.interimResults = true;
+    r.maxAlternatives = 1;
+    r.onresult = (ev) => {
+      state.micDenied = false;
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const res = ev.results[i];
+        const text = res[0]?.transcript?.trim();
+        if (!text) continue;
+        if (res.isFinal) void emit("Vos", text);
+        else ui.showSubtitle({ speaker: "Vos", text, translated: null });
       }
-      return session.dbId;
+    };
+    r.onerror = (ev) => {
+      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
+        state.micDenied = true;
+        mic.running = false;
+        ui.renderMicCard();
+      }
+    };
+    r.onend = () => {
+      if (mic.running) {
+        try { r.start(); } catch { /* ya arrancando */ }
+      }
+    };
+    try {
+      r.start();
+      mic.rec = r;
+      mic.running = true;
+      state.usingMic = true;
     } catch {
+      /* no se pudo: la tarjeta de permisos lo explica */
+    }
+  }
+
+  function stopMicFallback() {
+    mic.running = false;
+    state.usingMic = false;
+    try { mic.rec?.stop(); } catch { /* noop */ }
+    mic.rec = null;
+  }
+
+  // Vuelve a pedir el permiso sin recargar la página.
+  async function retryMic() {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      s.getTracks().forEach((t) => t.stop());
+      state.micDenied = false;
+      startMicFallback();
+    } catch {
+      state.micDenied = true;
+    }
+    ui.renderMicCard();
+  }
+
+  // ===========================================================================
+  // Interfaz (Shadow DOM)
+  // ===========================================================================
+  const ui = (() => {
+    let host = null, shadow = null, el = {}, tab = "stream", drawerOpen = false;
+    let subsTimer = null;
+
+    function mount() {
+      if (host && document.body.contains(host)) return;
+      host = document.createElement("div");
+      host.id = "unify-root";
+      // El host no debe interceptar clics: cada pieza reactiva su propio
+      // pointer-events. Si no, un contenedor a pantalla completa dejaría Meet
+      // inutilizable.
+      host.style.cssText = "position:fixed;inset:0;z-index:2147483000;pointer-events:none;";
+      shadow = host.attachShadow({ mode: "open" });
+
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = chrome.runtime.getURL("shadow.css");
+      shadow.appendChild(link);
+
+      const wrap = document.createElement("div");
+      wrap.innerHTML = `
+        <div class="badge glass" part="badge">
+          <span class="live"></span>
+          <span class="txt"><b>Unify</b>: <span data-el="statusTxt">Companion activo</span></span>
+          <select data-el="lang" title="Idioma de la traducción">
+            <option value="">—</option>
+            <option value="es">ES</option>
+            <option value="en">EN</option>
+            <option value="pt">PT</option>
+            <option value="de">DE</option>
+          </select>
+        </div>
+
+        <div class="subs glass" data-el="subs">
+          <div class="who">
+            <span class="role" data-el="subRole">Sin rol</span>
+            <span class="name" data-el="subName">—</span>
+            <span class="lang" data-el="subLang">es</span>
+          </div>
+          <div class="orig" data-el="subText"></div>
+          <div class="tr" data-el="subTr" hidden></div>
+        </div>
+
+        <aside class="drawer glass" data-el="drawer">
+          <div class="dhead">
+            <span class="mark"></span>
+            <span class="t">Unify</span>
+            <button class="iconbtn" data-el="rec" title="Grabar la reunión completa">⏺</button>
+            <button class="iconbtn" data-el="close" title="Cerrar">✕</button>
+          </div>
+          <div class="tabs">
+            <button class="tab is-on" data-tab="stream">Transcripción</button>
+            <button class="tab" data-tab="ai">Asistente IA</button>
+            <button class="tab" data-tab="roles">Roles</button>
+          </div>
+          <div class="panes">
+            <div class="pane" data-pane="stream">
+              <div class="hint" data-el="capHint">Buscando los subtítulos de Meet…</div>
+              <div data-el="micCard"></div>
+              <div data-el="recCard"></div>
+              <div class="stream" data-el="stream"></div>
+            </div>
+            <div class="pane" data-pane="ai" hidden>
+              <div class="chat" data-el="chat"></div>
+              <div class="hint" data-el="aiHint"></div>
+              <div class="ask">
+                <input type="text" data-el="aiInput" placeholder="Preguntá sobre la reunión…" />
+                <button data-el="aiSend">Enviar</button>
+              </div>
+            </div>
+            <div class="pane" data-pane="roles" hidden>
+              <div class="hint">Asigná un rol a cada persona: se muestra en los subtítulos y en la transcripción.</div>
+              <div class="roles" data-el="rolesList"></div>
+            </div>
+          </div>
+        </aside>`;
+      while (wrap.firstChild) shadow.appendChild(wrap.firstChild);
+
+      el = {};
+      shadow.querySelectorAll("[data-el]").forEach((n) => (el[n.dataset.el] = n));
+
+      shadow.querySelectorAll(".tab").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
+      el.close.addEventListener("click", () => toggleDrawer(false));
+      el.rec.addEventListener("click", toggleRecording);
+      el.lang.addEventListener("change", () => {
+        cfg.lang = el.lang.value;
+        chrome.storage.local.set({ lang: cfg.lang });
+        state.lines.forEach((l) => (l.translated = null));
+        renderStream();
+      });
+      el.aiSend.addEventListener("click", ask);
+      el.aiInput.addEventListener("keydown", (e) => e.key === "Enter" && ask());
+      el.lang.value = cfg.lang || "";
+
+      document.body.appendChild(host);
+      renderStream();
+      renderRoles();
+      renderMicCard();
+      refreshAccount();
+    }
+
+    function setTab(name) {
+      tab = name;
+      shadow.querySelectorAll(".tab").forEach((b) => b.classList.toggle("is-on", b.dataset.tab === name));
+      shadow.querySelectorAll(".pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
+      if (name === "ai") void ensureSession();
+      if (name === "roles") renderRoles();
+    }
+
+    function toggleDrawer(force) {
+      drawerOpen = force === undefined ? !drawerOpen : force;
+      el.drawer.classList.toggle("is-open", drawerOpen);
+      barButton.setActive(drawerOpen);
+    }
+
+    function setStatus(kind) {
+      const badge = shadow.querySelector(".badge");
+      badge.classList.toggle("is-off", kind === "off");
+      badge.classList.toggle("is-warn", kind === "offline");
+      el.statusTxt.textContent =
+        kind === "off" ? "Fuera de la llamada" : kind === "offline" ? "Sin conexión" : "Companion activo";
+    }
+
+    function setCaptionsReady(ok) {
+      el.capHint.textContent = ok
+        ? "Escuchando a todos los participantes desde los subtítulos de Meet."
+        : state.usingMic
+          ? "Meet no está dando subtítulos: por ahora solo se transcribe tu micrófono. Activá el botón CC de Meet para capturar a todos."
+          : "Activá los subtítulos de Meet (botón CC) para transcribir a todos.";
+      el.capHint.classList.toggle("ok", ok);
+    }
+
+    function renderMicCard() {
+      if (!el.micCard) return;
+      if (!state.micDenied) {
+        el.micCard.innerHTML = "";
+        return;
+      }
+      el.micCard.innerHTML = `
+        <div class="card">
+          <p>El navegador bloqueó el micrófono, así que no podemos transcribir tu voz.</p>
+          <button data-el="micRetry">Permitir micrófono</button>
+        </div>`;
+      el.micCard.querySelector("[data-el=micRetry]").addEventListener("click", retryMic);
+    }
+
+    function renderStream() {
+      if (!el.stream) return;
+      if (state.lines.length === 0) {
+        el.stream.innerHTML = `<div class="empty">Cuando alguien hable, lo vas a ver acá.</div>`;
+        return;
+      }
+      const atBottom = el.stream.scrollHeight - el.stream.scrollTop - el.stream.clientHeight < 48;
+      el.stream.innerHTML = state.lines
+        .slice(-150)
+        .map((l) => {
+          const r = roleOf(state.roles[l.speaker] ?? "");
+          const badge = r.id ? `<span class="role" style="--role:${r.color}">${esc(r.label)}</span>` : "";
+          const tr = l.translated ? `<div class="tr">${esc(l.translated)}</div>` : "";
+          return `<div class="entry">
+            <div class="meta">${badge}<span class="name">${esc(l.speaker)}</span><span class="time">${hhmm(l.at)}</span></div>
+            <div class="text">${esc(l.text)}</div>${tr}
+          </div>`;
+        })
+        .join("");
+      if (atBottom) el.stream.scrollTop = el.stream.scrollHeight;
+    }
+
+    function renderRoles() {
+      if (!el.rolesList) return;
+      const names = Array.from(state.speakers);
+      if (names.length === 0) {
+        el.rolesList.innerHTML = `<div class="empty">Los participantes aparecen acá en cuanto hablan.</div>`;
+        return;
+      }
+      el.rolesList.innerHTML = names
+        .map((n) => {
+          const cur = state.roles[n] ?? "";
+          const opts = ROLES.map(
+            (r) => `<option value="${r.id}"${r.id === cur ? " selected" : ""}>${esc(r.label)}</option>`
+          ).join("");
+          return `<div class="rrow"><span class="n">${esc(n)}</span><select data-name="${esc(n)}">${opts}</select></div>`;
+        })
+        .join("");
+      el.rolesList.querySelectorAll("select").forEach((s) =>
+        s.addEventListener("change", () => {
+          state.roles[s.dataset.name] = s.value;
+          const code = meetCode();
+          if (code) chrome.storage.local.set({ [`roles:${code}`]: state.roles });
+          renderStream();
+        })
+      );
+    }
+
+    function showSubtitle(line) {
+      if (!el.subs) return;
+      const r = roleOf(state.roles[line.speaker] ?? "");
+      el.subRole.textContent = r.label;
+      el.subRole.style.setProperty("--role", r.color);
+      el.subRole.hidden = !r.id;
+      el.subName.textContent = line.speaker;
+      el.subLang.textContent = (cfg.lang || navigator.language || "es").slice(0, 2).toUpperCase();
+      el.subText.textContent = line.text;
+      if (line.translated) {
+        el.subTr.textContent = line.translated;
+        el.subTr.hidden = false;
+      } else {
+        el.subTr.hidden = true;
+      }
+      el.subs.classList.add("is-on");
+      clearTimeout(subsTimer);
+      subsTimer = setTimeout(() => el.subs.classList.remove("is-on"), 6500);
+    }
+
+    function refreshAccount() {
+      if (!el.aiHint) return;
+      el.aiHint.innerHTML = cfg.token
+        ? ""
+        : `Para usar la IA, <a href="${cfg.appBase}/ingresar" target="_blank" rel="noreferrer">iniciá sesión en Unify</a> y volvé a esta pestaña.`;
+    }
+
+    async function toggleRecording() {
+      const code = meetCode();
+      if (!code) return;
+      if (state.recording) {
+        chrome.runtime.sendMessage({ kind: "unify-record-stop" });
+        setRecording(false);
+        return;
+      }
+      const dbId = await ensureSession();
+      chrome.runtime.sendMessage(
+        { kind: "unify-record-start", dbId, serverBase: cfg.serverBase, token: cfg.token },
+        (r) => {
+          if (r?.ok) {
+            setRecording(true);
+            el.recCard.innerHTML = "";
+          } else if (r?.needsInvoke) {
+            // Chrome no deja capturar la pestaña desde un clic dentro de la
+            // página: hace falta el atajo o el ícono de la barra. Se explica
+            // en el lugar, con la tecla a la vista.
+            showInvokeCard();
+          } else {
+            addMsg("Unify", r?.error || "No pudimos empezar a grabar.");
+          }
+        }
+      );
+    }
+
+    function showInvokeCard() {
+      if (!el.recCard) return;
+      const mac = /Mac/i.test(navigator.platform);
+      el.recCard.innerHTML = `
+        <div class="card">
+          <p>Para grabar, Chrome pide que la orden venga del navegador y no de la página.
+          Apretá <b>${mac ? "⌘ + ⇧ + U" : "Ctrl + Shift + U"}</b> ahora mismo — o tocá el ícono de Unify
+          en la barra y después <b>Grabar la reunión</b>.</p>
+          <button data-el="invokeOk">Entendido</button>
+        </div>`;
+      el.recCard.querySelector("[data-el=invokeOk]").addEventListener("click", () => {
+        el.recCard.innerHTML = "";
+      });
+    }
+
+    function setRecording(on) {
+      state.recording = on;
+      el.rec.classList.toggle("is-rec", on);
+      el.rec.title = on ? "Detener la grabación" : "Grabar la reunión completa";
+    }
+
+    function addMsg(who, text) {
+      const d = document.createElement("div");
+      d.className = `msg${who === "Vos" ? " me" : ""}`;
+      const b = document.createElement("b");
+      b.textContent = who;
+      const s = document.createElement("span");
+      s.textContent = text;
+      d.append(b, s);
+      el.chat.appendChild(d);
+      el.chat.scrollTop = el.chat.scrollHeight;
+      return s;
+    }
+
+    async function ask() {
+      const q = el.aiInput.value.trim();
+      if (!q) return;
+      if (!cfg.token) return refreshAccount();
+      el.aiInput.value = "";
+      addMsg("Vos", q);
+      const pending = addMsg("Unify", "Pensando…");
+      try {
+        const r = await api(`/api/meet-bridge/${meetCode()}/ask`, {
+          method: "POST",
+          body: JSON.stringify({ question: q }),
+        });
+        pending.textContent = r.answer || "Sin respuesta.";
+      } catch (e) {
+        pending.textContent =
+          String(e.message) === "401"
+            ? "Tu sesión de Unify venció. Volvé a iniciar sesión."
+            : "No pudimos consultar a la IA en este momento.";
+      }
+      el.chat.scrollTop = el.chat.scrollHeight;
+    }
+
+    const esc = (s) =>
+      String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+    const hhmm = (ts) =>
+      new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+    return {
+      mount,
+      unmount() { host?.remove(); host = null; shadow = null; el = {}; },
+      get mounted() { return Boolean(host && document.body.contains(host)); },
+      toggleDrawer, setStatus, setCaptionsReady, setRecording,
+      renderStream, renderRoles, renderMicCard, showSubtitle, refreshAccount,
+    };
+  })();
+
+  // ===========================================================================
+  // Botón en la barra inferior de Meet (va en el DOM de Meet, no en el shadow)
+  // ===========================================================================
+  const barButton = (() => {
+    const ID = "unify-bar-btn";
+    let node = null;
+
+    // La barra es el ancestro del botón de micrófono que ya contiene varios
+    // botones: buscarla así sobrevive a los cambios de clases de Meet.
+    function findBar() {
+      const micBtn =
+        document.querySelector('[data-is-muted][aria-label*="icróf"], [data-is-muted][aria-label*="icrophone"]') ||
+        document.querySelector("[data-is-muted]");
+      if (!micBtn) return null;
+      let cur = micBtn;
+      for (let i = 0; i < 6 && cur.parentElement; i++) {
+        cur = cur.parentElement;
+        if (cur.querySelectorAll('button, [role="button"]').length >= 3) return cur;
+      }
       return null;
     }
-  }
 
-  function addLocalLine(speaker, text, translate = true) {
-    // Une frases cortas seguidas del mismo hablante para que se lea como habla
-    // real y no como fragmentos sueltos.
-    const last = lines[lines.length - 1];
-    if (last && last.speaker === speaker && Date.now() - last.at < 8000 && last.text.length < 400) {
-      last.text = `${last.text} ${text}`.trim();
-      last.at = Date.now();
-      if (translate) void translateLine(last);
-      return last;
-    }
-    const line = { speaker, text, at: Date.now(), translated: null };
-    lines.push(line);
-    if (lines.length > 400) lines.shift();
-    if (translate) void translateLine(line);
-    return line;
-  }
-
-  async function translateLine(line) {
-    if (!cfg.targetLang) return;
-    try {
-      const r = await api("/api/translate", {
-        method: "POST",
-        body: JSON.stringify({ text: line.text, source: "auto", target: cfg.targetLang }),
-      });
-      if (r?.translatedText) {
-        line.translated = r.translatedText;
-        ui.renderTranscript();
+    function ensure() {
+      const existing = document.getElementById(ID);
+      if (existing && existing.isConnected) {
+        node = existing;
+        return;
       }
-    } catch {
-      /* traducción best-effort */
-    }
-  }
-
-  async function pushLine(speaker, text) {
-    const code = meetCode();
-    if (!code || !text) return;
-    addLocalLine(speaker, text);
-    ui.renderTranscript();
-    try {
-      const r = await api(`/api/meet-bridge/${code}/transcript`, {
-        method: "POST",
-        body: JSON.stringify({ speaker, text, lang: navigator.language || "es-AR" }),
+      const bar = findBar();
+      if (!bar) return;
+      node = document.createElement("button");
+      node.id = ID;
+      node.type = "button";
+      node.setAttribute("aria-label", "Abrir el panel de Unify");
+      node.title = "Unify: transcripción, IA y grabación";
+      node.style.cssText = [
+        "width:48px", "height:48px", "border-radius:50%", "border:0", "cursor:pointer",
+        "margin:0 4px", "display:inline-flex", "align-items:center", "justify-content:center",
+        "background:linear-gradient(160deg,#a78bfa,#8b5cf6)", "color:#fff",
+        "box-shadow:0 4px 14px rgba(139,92,246,.45)", "flex:none",
+        "font-family:'Google Sans',Roboto,Arial,sans-serif", "font-size:17px", "font-weight:700",
+        "transition:filter .15s ease",
+      ].join(";");
+      node.textContent = "U";
+      node.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        ui.toggleDrawer();
       });
-      if (r?.dbId) session.dbId = r.dbId;
-      ui.setSync(true);
-    } catch (e) {
-      ui.setSync(false);
+      node.addEventListener("mouseenter", () => (node.style.filter = "brightness(1.1)"));
+      node.addEventListener("mouseleave", () => (node.style.filter = ""));
+      bar.appendChild(node);
     }
-  }
 
-  // Estado de la llamada (lo que ya hacía la versión anterior).
+    return {
+      ensure,
+      setActive(on) {
+        if (node) node.style.outline = on ? "2px solid rgba(255,255,255,.85)" : "";
+      },
+      remove() {
+        document.getElementById(ID)?.remove();
+        node = null;
+      },
+    };
+  })();
+
+  // ===========================================================================
+  // Estado de la llamada hacia Unify
+  // ===========================================================================
   let lastState = "";
   async function syncState(force = false) {
     const code = meetCode();
     if (!code) return;
-    const state = {
+    const body = JSON.stringify({
       inCall: inCall(),
       micMuted: ownToggle("mic"),
       cameraOff: ownToggle("cam"),
@@ -342,8 +752,7 @@
       presenting: presenting(),
       activeSpeakers: [],
       participants: null,
-    };
-    const body = JSON.stringify(state);
+    });
     if (!force && body === lastState) return;
     lastState = body;
     try {
@@ -353,312 +762,69 @@
         body,
       });
     } catch {
-      /* el panel ya muestra el estado de conexión */
+      /* el badge ya refleja el estado de conexión */
     }
   }
 
   // ===========================================================================
-  // PANEL dentro de Meet
+  // Resiliencia: Meet re-renderiza su árbol entero sin avisar, así que en vez
+  // de confiar en que lo inyectado sobreviva, se reafirma todo periódicamente
+  // (y ante cada mutación, con freno). Reponer algo que ya está es gratis.
   // ===========================================================================
-  const ui = (() => {
-    let root = null;
-    let els = {};
-    let tab = "transcript";
-    let recording = false;
-
-    function build() {
-      if (root) return;
-      root = document.createElement("div");
-      root.id = "unify-panel";
-      root.innerHTML = `
-        <div class="uf-head" data-drag>
-          <span class="uf-logo"></span>
-          <span class="uf-title">Unify</span>
-          <span class="uf-dot" data-el="sync" title="Conexión con Unify"></span>
-          <button class="uf-icon" data-el="rec" title="Grabar la reunión completa (todos los participantes)">⏺</button>
-          <button class="uf-icon" data-el="min" title="Minimizar">—</button>
-        </div>
-        <div class="uf-tabs">
-          <button class="uf-tab is-on" data-tab="transcript">Transcripción</button>
-          <button class="uf-tab" data-tab="subs">Subtítulos</button>
-          <button class="uf-tab" data-tab="ai">IA</button>
-        </div>
-        <div class="uf-body">
-          <div class="uf-pane" data-pane="transcript">
-            <div class="uf-hint" data-el="capHint">Activando los subtítulos de Meet…</div>
-            <ul class="uf-lines" data-el="lines"></ul>
-          </div>
-          <div class="uf-pane uf-hidden" data-pane="subs">
-            <label class="uf-field">
-              <span>Traducir a</span>
-              <select data-el="lang">
-                <option value="">Sin traducir</option>
-                <option value="es">Español</option>
-                <option value="en">Inglés</option>
-                <option value="pt">Portugués</option>
-                <option value="fr">Francés</option>
-                <option value="de">Alemán</option>
-                <option value="it">Italiano</option>
-                <option value="zh">Chino</option>
-              </select>
-            </label>
-            <label class="uf-check"><input type="checkbox" data-el="overlay" checked> Mostrar subtítulos sobre el video</label>
-            <div class="uf-live" data-el="live"><span class="uf-live-empty">Cuando alguien hable, lo vas a ver acá.</span></div>
-          </div>
-          <div class="uf-pane uf-hidden" data-pane="ai">
-            <div class="uf-ai" data-el="aiLog"></div>
-            <div class="uf-ask">
-              <input type="text" data-el="aiInput" placeholder="Ej: resumime lo que se dijo" />
-              <button data-el="aiSend">Preguntar</button>
-            </div>
-            <div class="uf-hint" data-el="aiHint"></div>
-          </div>
-        </div>`;
-      document.body.appendChild(root);
-      els = {};
-      root.querySelectorAll("[data-el]").forEach((n) => (els[n.dataset.el] = n));
-
-      root.querySelectorAll(".uf-tab").forEach((b) =>
-        b.addEventListener("click", () => setTab(b.dataset.tab))
-      );
-      els.min.addEventListener("click", toggleMin);
-      els.rec.addEventListener("click", toggleRecording);
-      els.lang.addEventListener("change", () => {
-        cfg.targetLang = els.lang.value;
-        chrome.storage.local.set({ targetLang: cfg.targetLang });
-        renderTranscript();
-      });
-      els.overlay.addEventListener("change", () => {
-        overlayEl.style.display = els.overlay.checked ? "" : "none";
-      });
-      els.aiSend.addEventListener("click", ask);
-      els.aiInput.addEventListener("keydown", (e) => e.key === "Enter" && ask());
-      makeDraggable(root, root.querySelector("[data-drag]"));
-      restorePosition();
-      els.lang.value = cfg.targetLang || "";
-    }
-
-    // --- overlay de subtítulos sobre el video de Meet ---
-    const overlayEl = document.createElement("div");
-    overlayEl.id = "unify-subs";
-    function ensureOverlay() {
-      if (!overlayEl.isConnected) document.body.appendChild(overlayEl);
-    }
-
-    function setTab(name) {
-      tab = name;
-      root.querySelectorAll(".uf-tab").forEach((b) => b.classList.toggle("is-on", b.dataset.tab === name));
-      root.querySelectorAll(".uf-pane").forEach((p) => p.classList.toggle("uf-hidden", p.dataset.pane !== name));
-      if (name === "ai") void ensureSession();
-    }
-
-    function toggleMin() {
-      root.classList.toggle("is-min");
-      els.min.textContent = root.classList.contains("is-min") ? "▢" : "—";
-      chrome.storage.local.set({ minimized: root.classList.contains("is-min") });
-    }
-
-    function makeDraggable(box, handle) {
-      let sx = 0, sy = 0, ox = 0, oy = 0, dragging = false;
-      handle.addEventListener("pointerdown", (e) => {
-        if (e.target.closest(".uf-icon")) return;
-        dragging = true;
-        sx = e.clientX; sy = e.clientY;
-        const r = box.getBoundingClientRect();
-        ox = r.left; oy = r.top;
-        handle.setPointerCapture(e.pointerId);
-      });
-      handle.addEventListener("pointermove", (e) => {
-        if (!dragging) return;
-        const x = Math.max(8, Math.min(window.innerWidth - 80, ox + e.clientX - sx));
-        const y = Math.max(8, Math.min(window.innerHeight - 60, oy + e.clientY - sy));
-        box.style.left = `${x}px`;
-        box.style.top = `${y}px`;
-        box.style.right = "auto";
-        box.style.bottom = "auto";
-      });
-      handle.addEventListener("pointerup", () => {
-        if (!dragging) return;
-        dragging = false;
-        chrome.storage.local.set({ pos: { left: box.style.left, top: box.style.top } });
-      });
-    }
-
-    function restorePosition() {
-      chrome.storage.local.get({ pos: null, minimized: false }, (v) => {
-        if (v?.pos?.left) {
-          root.style.left = v.pos.left;
-          root.style.top = v.pos.top;
-          root.style.right = "auto";
-          root.style.bottom = "auto";
-        }
-        if (v?.minimized) toggleMin();
-      });
-    }
-
-    // --- render ---
-    function renderTranscript() {
-      if (!els.lines) return;
-      const atBottom = els.lines.scrollHeight - els.lines.scrollTop - els.lines.clientHeight < 40;
-      els.lines.innerHTML = lines
-        .slice(-120)
-        .map((l) => {
-          const t = l.translated && l.translated !== l.text
-            ? `<div class="uf-tr">${esc(l.translated)}</div>`
-            : "";
-          return `<li><span class="uf-who">${esc(l.speaker)}</span>${esc(l.text)}${t}</li>`;
-        })
-        .join("");
-      if (atBottom) els.lines.scrollTop = els.lines.scrollHeight;
-    }
-
-    function setLiveCaption(speaker, text) {
-      if (!els.live) return;
-      els.live.innerHTML = `<span class="uf-who">${esc(speaker)}</span>${esc(text)}`;
-      ensureOverlay();
-      overlayEl.textContent = `${speaker}: ${text}`;
-      overlayEl.classList.add("is-on");
-      clearTimeout(overlayEl._t);
-      overlayEl._t = setTimeout(() => overlayEl.classList.remove("is-on"), 6000);
-    }
-
-    function setCaptionsReady(ok) {
-      if (!els.capHint) return;
-      els.capHint.textContent = ok
-        ? "Escuchando a todos los participantes desde los subtítulos de Meet."
-        : "Activá los subtítulos de Meet (botón CC) para transcribir a todos.";
-      els.capHint.classList.toggle("uf-ok", ok);
-    }
-
-    function setSync(ok) {
-      els.sync?.classList.toggle("is-bad", !ok);
-    }
-
-    function setRecording(on) {
-      recording = on;
-      els.rec?.classList.toggle("is-rec", on);
-      if (els.rec) els.rec.title = on ? "Detener la grabación" : "Grabar la reunión completa (todos los participantes)";
-    }
-
-    function refreshAccount() {
-      if (!els.aiHint) return;
-      els.aiHint.innerHTML = cfg.token
-        ? ""
-        : `Para usar la IA, <a href="${cfg.appBase}/ingresar" target="_blank" rel="noreferrer">iniciá sesión en Unify</a> y volvé a esta pestaña.`;
-    }
-
-    async function toggleRecording() {
-      const code = meetCode();
-      if (!code) return;
-      if (recording) {
-        chrome.runtime.sendMessage({ kind: "unify-record-stop" });
-        setRecording(false);
-        return;
+  function ensureAll() {
+    const code = meetCode();
+    if (!code || !inCall()) {
+      if (ui.mounted) {
+        ui.unmount();
+        barButton.remove();
+        stopMicFallback();
       }
-      const dbId = await ensureSession();
-      chrome.runtime.sendMessage(
-        { kind: "unify-record-start", dbId, serverBase: cfg.serverBase, token: cfg.token },
-        (r) => {
-          if (r?.ok) setRecording(true);
-          else alert(r?.error || "No pudimos empezar a grabar. Probá de nuevo.");
-        }
-      );
+      caps.region = null;
+      caps.observer?.disconnect();
+      return;
     }
+    ui.mount();
+    barButton.ensure();
 
-    async function ask() {
-      const q = els.aiInput.value.trim();
-      if (!q) return;
-      if (!cfg.token) {
-        refreshAccount();
-        return;
-      }
-      const code = meetCode();
-      els.aiInput.value = "";
-      addAi("vos", q);
-      const pending = addAi("Unify", "Pensando…");
+    const captionsOn = watchCaptions() || ensureCaptionsOn();
+    ui.setCaptionsReady(Boolean(caps.region));
+    // Sin subtítulos de Meet no hay forma de oír a los demás; al menos que
+    // quede la voz propia hasta que se activen.
+    if (!caps.region && !mic.running) startMicFallback();
+    if (caps.region && mic.running) stopMicFallback();
+    ui.setStatus("live");
+  }
+
+  let pending = null;
+  const globalObserver = new MutationObserver(() => {
+    if (pending) return;
+    pending = setTimeout(() => {
+      pending = null;
       try {
-        const r = await api(`/api/meet-bridge/${code}/ask`, {
-          method: "POST",
-          body: JSON.stringify({ question: q }),
-        });
-        pending.textContent = r.answer || "Sin respuesta.";
+        ensureAll();
+        void syncState();
       } catch (e) {
-        pending.textContent =
-          e?.message === "401"
-            ? "Tu sesión de Unify venció. Volvé a iniciar sesión."
-            : "No pudimos consultar a la IA en este momento.";
+        log("recuperando de un cambio de Meet:", e?.message);
       }
-      els.aiLog.scrollTop = els.aiLog.scrollHeight;
+    }, 700);
+  });
+  globalObserver.observe(document.documentElement, { childList: true, subtree: true });
+
+  setInterval(() => {
+    try {
+      ensureAll();
+    } catch (e) {
+      log("ensureAll falló, se reintenta:", e?.message);
     }
+  }, 2000);
+  setInterval(() => void syncState(true), 10000);
 
-    function addAi(who, text) {
-      const d = document.createElement("div");
-      d.className = `uf-msg ${who === "vos" ? "is-me" : ""}`;
-      d.innerHTML = `<b>${esc(who)}</b> `;
-      const span = document.createElement("span");
-      span.textContent = text;
-      d.appendChild(span);
-      els.aiLog.appendChild(d);
-      els.aiLog.scrollTop = els.aiLog.scrollHeight;
-      return span;
-    }
-
-    const esc = (s) =>
-      String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-
-    return {
-      build,
-      destroy() {
-        root?.remove();
-        root = null;
-        overlayEl.remove();
-      },
-      renderTranscript,
-      setLiveCaption,
-      setCaptionsReady,
-      setSync,
-      setRecording,
-      refreshAccount,
-      get mounted() {
-        return Boolean(root);
-      },
-    };
-  })();
-
-  // El servicio de fondo avisa cuando la grabación termina o falla.
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.kind === "unify-record-state") ui.setRecording(Boolean(msg.recording));
     if (msg?.kind === "unify-record-error") {
       ui.setRecording(false);
-      alert(msg.message || "Se cortó la grabación.");
+      log("grabación:", msg.message);
     }
-  });
-
-  // ===========================================================================
-  // Ciclo principal
-  // ===========================================================================
-  function tick() {
-    const code = meetCode();
-    if (!code || !inCall()) {
-      if (ui.mounted) ui.destroy();
-      return;
-    }
-    if (!ui.mounted) {
-      ui.build();
-      void ensureSession();
-    }
-    const ok = ensureCaptionsOn();
-    ui.setCaptionsReady(Boolean(findCaptionRegion()) || ok);
-    watchCaptions();
-  }
-
-  setInterval(tick, 1500);
-  setInterval(() => void syncState(true), 10000);
-  new MutationObserver(() => void syncState()).observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ["data-is-muted", "aria-label"],
   });
 
   window.addEventListener("pagehide", () => {
@@ -671,7 +837,33 @@
     }
   });
 
+  // Configuración al final: el navegador puede resolver el almacenamiento en el
+  // acto, y leerlo antes de definir la interfaz dejaría la extensión sin arrancar.
+  function loadConfig() {
+    const code = meetCode();
+    const keys = { serverBase: DEFAULT_SERVER, appBase: DEFAULT_APP, token: null, lang: "" };
+    if (code) keys[`roles:${code}`] = {};
+    chrome.storage.local.get(keys, (v) => {
+      if (v?.serverBase?.startsWith?.("http")) cfg.serverBase = v.serverBase.replace(/\/+$/, "");
+      if (v?.appBase?.startsWith?.("http")) cfg.appBase = v.appBase.replace(/\/+$/, "");
+      cfg.token = v?.token ?? null;
+      cfg.lang = v?.lang ?? "";
+      if (code && v?.[`roles:${code}`]) state.roles = v[`roles:${code}`];
+      ui.refreshAccount();
+      ui.renderRoles();
+    });
+    chrome.storage.onChanged.addListener((c, area) => {
+      if (area !== "local") return;
+      if (c.token) {
+        cfg.token = c.token.newValue ?? null;
+        ui.refreshAccount();
+      }
+      if (c.lang) cfg.lang = c.lang.newValue ?? "";
+    });
+  }
+
   loadConfig();
-  tick();
+  ensureAll();
+  void ensureSession();
   log("Unify activo en", location.pathname);
 })();

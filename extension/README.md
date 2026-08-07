@@ -11,6 +11,7 @@ con IA — sin salir de la pestaña de Meet y sin pantallas divididas.
 | **Transcribe a TODOS** | Lee los subtítulos propios de Google Meet, que ya traen a cada participante con su nombre. |
 | **Subtítulos traducidos** | Muestra lo que se dice sobre el video, traducido al idioma que elijas. |
 | **Graba la reunión completa** | Captura el audio y el video de la pestaña de Meet (todas las voces) y le suma tu micrófono. |
+| **Roles por participante** | Etiquetá a cada persona (Anfitrión, Cliente, Equipo, Invitado): el rol aparece en los subtítulos y en la transcripción. |
 | **Asistente de IA** | Preguntas sobre lo que se dijo, respondidas desde la transcripción de esa reunión. |
 | **Historial** | Todo queda guardado en tu cuenta de Unify: transcripción, grabación e informe. |
 
@@ -40,8 +41,15 @@ navegador. La extensión toma esa sesión sola — no hay que copiar ni pegar na
 - **Transcripción**: todo lo que se va diciendo, con el nombre de cada persona.
 - **Subtítulos**: elegí el idioma de traducción y si querés verlos sobre el video.
 - **IA**: preguntale lo que quieras sobre la reunión en curso.
-- **⏺**: graba la reunión completa. Volvé a tocarlo para detener; el video se
-  sube solo a tu historial de Unify.
+- **Roles**: asigná una etiqueta a cada participante; se ve en los subtítulos.
+- **Grabar**: hay tres caminos, y todos graban a todos los participantes:
+  1. **Atajo `Ctrl+Shift+U`** (`⌘⇧U` en Mac) — el más rápido.
+  2. **Ícono de Unify en la barra** → *Grabar la reunión*.
+  3. El botón **⏺** del panel. Si Chrome pide una acción desde la barra
+     (es un requisito suyo para capturar la pestaña), el panel te muestra el
+     atajo en el momento.
+
+  Volvé a hacer lo mismo para detener; el video se sube solo a tu historial.
 
 ## Permisos y por qué
 
@@ -49,6 +57,7 @@ navegador. La extensión toma esa sesión sola — no hay que copiar ni pegar na
 |---|---|
 | `storage` | Guardar tus preferencias (idioma, posición del panel) y la sesión de Unify. |
 | `tabCapture` | Grabar el audio y el video de la reunión de Meet. |
+| `activeTab` / `scripting` | Habilitar la captura de la pestaña cuando la invocás desde la barra o el atajo. |
 | `offscreen` | Manifest V3 no deja grabar desde el service worker; la grabación corre en un documento invisible. |
 | Acceso a `meet.google.com` | Mostrar el panel y leer los subtítulos de la reunión. |
 | Acceso al servidor de Unify | Enviar la transcripción y subir la grabación. |
@@ -73,3 +82,6 @@ sesión y se puede cambiar el servidor (útil para desarrollo local, por ejemplo
   una actualización de la extensión.
 - **La grabación necesita que la pestaña de Meet siga abierta.** Si la cerrás,
   la grabación se cierra y se sube lo grabado hasta ese momento.
+- **Chrome exige que la orden de grabar venga de la barra del navegador** (el
+  atajo o el ícono), no de un botón dentro de la página. Es una regla de Chrome
+  para que ninguna web pueda grabarte sola; por eso existen los tres caminos.

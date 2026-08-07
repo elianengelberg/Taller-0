@@ -22,6 +22,15 @@
         font-weight: 600; padding: 9px; border-radius: 9px; font-size: 12.5px;
       }
       a.btn:hover { background: #1d4ed8; }
+      button.btn {
+        width: 100%; border: 0; font: inherit; font-weight: 600; font-size: 12.5px;
+        background: linear-gradient(160deg, #a78bfa, #8b5cf6); color: #fff;
+        padding: 10px; border-radius: 9px; cursor: pointer;
+      }
+      button.btn:hover { filter: brightness(1.08); }
+      button.btn.is-rec { background: #dc2626; }
+      .tip { font-size: 11px; color: #6f819b; text-align: center; margin: -6px 0 0; }
+      .tip b { color: #9fb0c7; }
       label { font-size: 11.5px; color: #8fa1ba; display: block; margin-bottom: 4px; }
       input {
         width: 100%; box-sizing: border-box; background: #182130; color: #e6ecf5;
@@ -37,6 +46,8 @@
     <header><span class="logo"></span><h1>Unify para Google Meet</h1></header>
     <main>
       <div class="row"><span class="dot" id="dot"></span><p id="status">Comprobando…</p></div>
+      <button class="btn rec" id="rec" hidden>⏺ Grabar la reunión</button>
+      <p class="tip" id="recTip" hidden>Atajo: <b>Ctrl+Shift+U</b> (⌘⇧U en Mac)</p>
       <a class="btn" id="login" href="#" target="_blank" rel="noreferrer">Iniciar sesión en Unify</a>
       <div>
         <label for="server">Servidor de Unify</label>

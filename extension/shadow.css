@@ -1,0 +1,225 @@
+/* Estilos de Unify. Viven DENTRO de un Shadow DOM, así que ningún selector de
+   Google Meet puede alcanzarlos y ninguno de los nuestros se escapa hacia Meet.
+   Por eso los nombres de clase pueden ser cortos y legibles sin riesgo. */
+
+:host {
+  all: initial;
+  --violet: #8b5cf6;
+  --violet-2: #a78bfa;
+  --violet-dim: rgba(139, 92, 246, 0.16);
+  --glass: rgba(18, 20, 30, 0.72);
+  --glass-2: rgba(28, 31, 45, 0.72);
+  --line: rgba(255, 255, 255, 0.10);
+  --line-2: rgba(255, 255, 255, 0.18);
+  --tx: #e7ebf3;
+  --mut: #9aa5b8;
+  --dim: #6f7c92;
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --font: "Google Sans", Roboto, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+
+  font-family: var(--font);
+  color: var(--tx);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+button { font-family: inherit; cursor: pointer; border: 0; background: none; color: inherit; }
+input, select, textarea { font-family: inherit; }
+
+.glass {
+  background: var(--glass);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 48px -20px rgba(0, 0, 0, 0.75);
+}
+
+/* ===================== BADGE DE ESTADO (arriba a la derecha) ============== */
+.badge {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  pointer-events: auto;
+}
+.badge .live {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--ok); flex: none;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18);
+}
+.badge.is-off .live { background: var(--dim); box-shadow: none; }
+.badge.is-warn .live { background: var(--warn); box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.18); }
+.badge .txt { white-space: nowrap; font-weight: 500; }
+.badge .txt b { font-weight: 700; }
+.badge select {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--tx);
+  font-size: 11.5px;
+  padding: 3px 5px;
+  outline: none;
+}
+.badge select:focus-visible { border-color: var(--violet); }
+
+/* ===================== SUBTÍTULOS FLOTANTES (abajo, centrados) =========== */
+.subs {
+  position: fixed;
+  left: 50%;
+  bottom: 104px;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: min(860px, 78vw);
+  padding: 12px 16px;
+  border-radius: 14px;
+  opacity: 0;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  pointer-events: none;
+}
+.subs.is-on { opacity: 1; }
+.subs .who { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; flex-wrap: wrap; }
+.subs .name { font-weight: 700; font-size: 13px; }
+.subs .lang {
+  font-size: 10.5px; color: var(--dim); text-transform: uppercase;
+  letter-spacing: 0.07em; border: 1px solid var(--line); border-radius: 5px; padding: 2px 5px;
+}
+.subs .orig { font-size: 17px; line-height: 1.38; }
+.subs .tr {
+  margin-top: 7px; padding-top: 7px; border-top: 1px dashed var(--line-2);
+  font-size: 15px; color: var(--violet-2);
+}
+
+/* Badge de rol: el color lo pone el JS con --role */
+.role {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.03em;
+  padding: 2.5px 7px; border-radius: 6px;
+  color: var(--role, var(--violet-2));
+  background: color-mix(in srgb, var(--role, var(--violet)) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--role, var(--violet)) 45%, transparent);
+  white-space: nowrap;
+}
+
+/* ===================== PANEL LATERAL (drawer derecho, 360px) ============= */
+.drawer {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  z-index: 25;
+  width: 360px;
+  max-width: 92vw;
+  display: flex;
+  flex-direction: column;
+  border-radius: 0;
+  border-right: 0; border-top: 0; border-bottom: 0;
+  transform: translateX(100%);
+  transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+  pointer-events: auto;
+}
+.drawer.is-open { transform: translateX(0); }
+
+.dhead {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 15px; border-bottom: 1px solid var(--line); flex: none;
+}
+.dhead .mark {
+  width: 9px; height: 22px; border-radius: 3px; flex: none;
+  background: linear-gradient(160deg, var(--violet-2), var(--violet));
+}
+.dhead .t { font-weight: 700; font-size: 15px; flex: 1; letter-spacing: -0.01em; }
+.iconbtn {
+  width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
+  color: var(--mut); font-size: 15px; flex: none;
+}
+.iconbtn:hover { background: rgba(255, 255, 255, 0.08); color: var(--tx); }
+.iconbtn.is-rec { color: var(--bad); background: rgba(248, 113, 113, 0.15); }
+
+.tabs { display: flex; padding: 0 8px; gap: 2px; border-bottom: 1px solid var(--line); flex: none; }
+.tab {
+  flex: 1; padding: 10px 4px; font-size: 12.5px; font-weight: 600; color: var(--mut);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tab:hover { color: var(--tx); }
+.tab.is-on { color: var(--violet-2); border-bottom-color: var(--violet); }
+
+.panes { flex: 1; min-height: 0; display: flex; }
+.pane { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 12px; gap: 10px; }
+.pane[hidden] { display: none; }
+
+.hint { font-size: 11.5px; color: var(--mut); }
+.hint.ok { color: var(--ok); }
+.hint a { color: var(--violet-2); }
+
+/* --- Transcripción --- */
+.stream { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.entry {
+  background: var(--glass-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px;
+}
+.entry .meta { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; flex-wrap: wrap; }
+.entry .name { font-size: 11.5px; font-weight: 700; }
+.entry .time { font-size: 10.5px; color: var(--dim); margin-left: auto; font-variant-numeric: tabular-nums; }
+.entry .text { font-size: 13px; word-break: break-word; }
+.entry .tr {
+  margin-top: 5px; padding-top: 5px; border-top: 1px dashed var(--line);
+  color: var(--violet-2); font-size: 12.4px;
+}
+.empty { color: var(--dim); font-size: 12px; text-align: center; padding: 22px 8px; }
+
+/* --- Asistente IA --- */
+.chat { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.msg { background: var(--glass-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 12.8px; word-break: break-word; }
+.msg.me { background: var(--violet-dim); border-color: color-mix(in srgb, var(--violet) 35%, transparent); }
+.msg b { display: block; font-size: 10.5px; color: var(--violet-2); margin-bottom: 3px; letter-spacing: 0.04em; text-transform: uppercase; }
+.ask { display: flex; gap: 7px; flex: none; }
+.ask input {
+  flex: 1; min-width: 0; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line);
+  border-radius: 9px; padding: 9px 11px; color: var(--tx); font-size: 12.5px; outline: none;
+}
+.ask input:focus { border-color: var(--violet); }
+.ask button {
+  background: linear-gradient(160deg, var(--violet-2), var(--violet)); color: #fff;
+  font-weight: 600; font-size: 12.5px; padding: 9px 13px; border-radius: 9px;
+}
+.ask button:hover { filter: brightness(1.08); }
+
+/* --- Roles --- */
+.roles { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.rrow {
+  display: flex; align-items: center; gap: 9px;
+  background: var(--glass-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px;
+}
+.rrow .n { flex: 1; min-width: 0; font-size: 12.8px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rrow select {
+  background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); border-radius: 8px;
+  color: var(--tx); font-size: 11.8px; padding: 5px 7px; outline: none; max-width: 140px;
+}
+.rrow select:focus { border-color: var(--violet); }
+
+/* --- Tarjeta de permiso de micrófono --- */
+.card {
+  background: rgba(251, 191, 36, 0.10); border: 1px solid rgba(251, 191, 36, 0.34);
+  border-radius: 11px; padding: 11px 12px; flex: none;
+}
+.card p { margin: 0 0 9px; font-size: 12.3px; color: var(--tx); }
+.card button {
+  width: 100%; background: linear-gradient(160deg, var(--violet-2), var(--violet)); color: #fff;
+  font-weight: 600; font-size: 12.4px; padding: 8px; border-radius: 9px;
+}
+.card button:hover { filter: brightness(1.08); }
+
+/* Scrollbars discretas dentro del panel */
+.stream::-webkit-scrollbar, .chat::-webkit-scrollbar, .roles::-webkit-scrollbar { width: 8px; }
+.stream::-webkit-scrollbar-thumb, .chat::-webkit-scrollbar-thumb, .roles::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14); border-radius: 99px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer, .subs { transition: none; }
+}
