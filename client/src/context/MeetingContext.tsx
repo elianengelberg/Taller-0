@@ -227,6 +227,27 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
   const draftRef = useRef(draft);
   draftRef.current = draft;
 
+  // Lo que se dijo mientras la conexión estaba caída, esperando a que el
+  // servidor vuelva a tenernos DENTRO de la reunión.
+  //
+  // Por qué hace falta: socket.io ya guarda solo lo que se emite desconectado y
+  // lo manda al reconectar, pero lo manda ANTES de que corra nuestro listener
+  // de "connect" -- o sea, antes del join-companion que nos vuelve a meter en
+  // la sala. El servidor recibe esas líneas de un socket que todavía no está
+  // en ninguna reunión y las descarta (socketHandlers: `if (!meeting) return`).
+  // Resultado: cada corte de red se comía lo que se dijo justo ahí. Con esta
+  // cola, las líneas esperan al ack del rejoin y recién entonces salen.
+  const outboxRef = useRef<{ alternatives: string[]; lang: string }[]>([]);
+  const joinedRef = useRef(false);
+
+  const flushOutbox = useCallback(() => {
+    const socket = socketRef.current;
+    if (!joinedRef.current || !socket.connected) return;
+    const pending = outboxRef.current;
+    outboxRef.current = [];
+    for (const line of pending) socket.emit("transcript-line", line);
+  }, []);
+
   // Wake the backend as soon as the app loads (Render's free tier sleeps and
   // can take tens of seconds to come back). Doing it here -- not when the user
   // finally clicks "join" -- means the server is usually already awake by then.
@@ -253,6 +274,10 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
           setSelfId(res.selfId);
           dispatch({ type: "SNAPSHOT_LOADED", meeting: res.meeting });
           setConnectionStatus("connected");
+          // Recién ahora el servidor nos tiene otra vez adentro de la sala:
+          // lo que se dijo durante el corte puede salir sin que lo descarte.
+          joinedRef.current = true;
+          flushOutbox();
         } else {
           setConnectionStatus("error");
           setConnectionError(res.error ?? "Se perdió la conexión con la reunión.");
@@ -362,6 +387,8 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
       setSelfId(payload.selfId);
       dispatch({ type: "SNAPSHOT_LOADED", meeting: payload.meeting });
       setConnectionStatus("connected");
+      joinedRef.current = true;
+      flushOutbox();
     });
     socket.on("join-rejected", ({ reason }: { reason?: string }) => {
       setConnectionStatus("error");
@@ -370,6 +397,11 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     socket.on("meet-state", (state: MeetBridgeState) => {
       setMeetState(state);
     });
+    // Mientras estemos afuera, lo que se hable se encola en vez de perderse.
+    socket.on("disconnect", () => {
+      joinedRef.current = false;
+    });
+
     socket.on("connect_error", (err: Error) => {
       // Don't get stuck on "error" mid-reconnect after we already had a
       // working session -- the socket keeps retrying on its own and the
@@ -388,6 +420,7 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
 
     return () => {
       socket.off("connect");
+      socket.off("disconnect");
       socket.off("participant-joined");
       socket.off("participant-left");
       socket.off("role-added");
@@ -469,6 +502,8 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
           setSelfId(res.selfId);
           dispatch({ type: "SNAPSHOT_LOADED", meeting: res.meeting });
           setConnectionStatus("connected");
+          joinedRef.current = true;
+          flushOutbox();
         } else {
           setConnectionStatus("error");
           setConnectionError(res.error ?? fallbackError);
@@ -496,7 +531,7 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
         onResult("No se pudo unir a la reunión.")
       );
     }
-  }, [draft]);
+  }, [draft, flushOutbox]);
 
   const sendChatMessage = useCallback((text: string) => {
     if (!text.trim()) return;
@@ -519,11 +554,22 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const sendTranscriptLine = useCallback((alternatives: string[], lang: string) => {
-    const cleaned = alternatives.filter((a) => a.trim());
-    if (cleaned.length === 0) return;
-    socketRef.current.emit("transcript-line", { alternatives: cleaned, lang });
-  }, []);
+  const sendTranscriptLine = useCallback(
+    (alternatives: string[], lang: string) => {
+      const cleaned = alternatives.filter((a) => a.trim());
+      if (cleaned.length === 0) return;
+      const socket = socketRef.current;
+      if (!joinedRef.current || !socket.connected) {
+        // Tope para que una desconexión larga no crezca sin límite en memoria;
+        // se conserva lo más reciente, que es lo que se sigue hablando.
+        outboxRef.current.push({ alternatives: cleaned, lang });
+        if (outboxRef.current.length > 200) outboxRef.current.shift();
+        return;
+      }
+      socket.emit("transcript-line", { alternatives: cleaned, lang });
+    },
+    []
+  );
 
   const setMediaState = useCallback((muted: boolean, cameraOff: boolean) => {
     socketRef.current.emit("media-state", { muted, cameraOff });
@@ -558,6 +604,8 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
 
   const leaveMeeting = useCallback(() => {
     const socket = socketRef.current;
+    joinedRef.current = false;
+    outboxRef.current = [];
     socket.emit("leave-meeting");
     socket.disconnect();
     dispatch({ type: "RESET" });

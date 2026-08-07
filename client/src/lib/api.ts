@@ -175,6 +175,8 @@ export interface PlatformConfig {
   teams: boolean;
   jitsi: boolean;
   "google-meet": boolean;
+  /** El servidor puede guardar grabaciones (almacenamiento configurado). */
+  recording: boolean;
 }
 
 // Which external-meeting integrations the server actually has configured, so
@@ -183,7 +185,7 @@ export interface PlatformConfig {
 // Defaults to "available" on failure so a slow/cold server never blocks a join
 // that might actually work.
 export async function fetchPlatformConfig(): Promise<PlatformConfig> {
-  const fallback: PlatformConfig = { zoom: true, teams: true, jitsi: true, "google-meet": true };
+  const fallback: PlatformConfig = { zoom: true, teams: true, jitsi: true, "google-meet": true, recording: true };
   try {
     const res = await fetchWithTimeout(`${SERVER_URL}/api/platforms`);
     if (!res.ok) return fallback;

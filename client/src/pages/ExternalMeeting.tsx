@@ -7,6 +7,7 @@ import LiveCaption from "../components/LiveCaption";
 import CompanionDock from "../components/CompanionDock";
 import CompanionRolesPanel from "../components/CompanionRolesPanel";
 import CompanionSubtitleStage from "../components/CompanionSubtitleStage";
+import ExternalCompanionPane from "../components/ExternalCompanionPane";
 import MeetCompanionPane from "../components/MeetCompanionPane";
 import Logo from "../components/Logo";
 import RecordingBanner from "../components/RecordingBanner";
@@ -34,6 +35,7 @@ import { askMeetingAI } from "../lib/api";
 import { LANGUAGES, shortLang } from "../lib/languages";
 import { recentCaptionEntries } from "../lib/captionLines";
 import { screenCaptureSupported } from "../lib/screenCapture";
+import { autoRecordEnabled, discardStashedDisplayStream, takeDisplayStream } from "../lib/autoRecord";
 import { loadRoles, roleById, RoleMap, saveRoles } from "../lib/companionRoles";
 import { setUnsavedMeeting } from "../lib/unsavedMeeting";
 import { CompanionEmbed } from "../types";
@@ -46,16 +48,31 @@ function CompanionEmbedPane({
   embed,
   displayName,
   onLeave,
+  onDegrade,
   subtitleStage,
 }: {
   embed: CompanionEmbed;
   displayName: string;
   onLeave: () => void;
+  /**
+   * El SDK de la plataforma no pudo abrir la llamada acá dentro. Nunca es un
+   * callejón sin salida: la capa de Unify (subtítulos, traducción, IA,
+   * grabación) no depende de ese SDK, así que se sigue en modo companion con
+   * la llamada abierta en su propia pestaña.
+   */
+  onDegrade: (label: string, joinLink: string) => void;
   subtitleStage?: ReactNode;
 }) {
   switch (embed.kind) {
     case "jitsi":
-      return <JitsiEmbed roomName={embed.roomName} displayName={displayName} onLeave={onLeave} />;
+      return (
+        <JitsiEmbed
+          roomName={embed.roomName}
+          displayName={displayName}
+          onLeave={onLeave}
+          onFailure={() => onDegrade("Jitsi", `https://meet.jit.si/${embed.roomName}`)}
+        />
+      );
     case "zoom":
       return (
         <ZoomEmbed
@@ -63,15 +80,31 @@ function CompanionEmbedPane({
           passcode={embed.passcode}
           displayName={displayName}
           onLeave={onLeave}
+          onFailure={() => onDegrade("Zoom", `https://zoom.us/j/${embed.meetingNumber}`)}
         />
       );
     case "teams":
-      return <TeamsEmbed meetingLink={embed.meetingLink} displayName={displayName} onLeave={onLeave} />;
+      return (
+        <TeamsEmbed
+          meetingLink={embed.meetingLink}
+          displayName={displayName}
+          onLeave={onLeave}
+          onFailure={() => onDegrade("Teams", embed.meetingLink)}
+        />
+      );
     case "meet":
       return (
         <MeetCompanionPane
           meetLink={embed.meetLink}
           meetCode={embed.meetCode}
+          subtitleStage={subtitleStage}
+        />
+      );
+    case "external":
+      return (
+        <ExternalCompanionPane
+          label={embed.label}
+          joinLink={embed.joinLink}
           subtitleStage={subtitleStage}
         />
       );
@@ -102,6 +135,10 @@ export default function ExternalMeeting() {
   } = useMeeting();
 
   const [activePanel, setActivePanel] = useState<PanelKey>(null);
+  // Cuando el SDK de la plataforma no puede abrir la llamada acá dentro,
+  // caemos a companion en vez de dejar la pantalla muerta: los subtítulos, la
+  // traducción, la IA y la grabación no dependen de ese SDK.
+  const [degraded, setDegraded] = useState<CompanionEmbed | null>(null);
   const [captionsOn, setCaptionsOn] = useState(true);
   const [interimCaption, setInterimCaption] = useState<string | null>(null);
   const [targetLangChoice, setTargetLangChoice] = useState<string>(AUTO_LANG);
@@ -151,9 +188,24 @@ export default function ExternalMeeting() {
     if (!captionsOn) setInterimCaption(null);
   }, [captionsOn]);
 
+  // Puntero de rescate para invitados, escrito EN CUANTO la reunión existe --
+  // no al salir. Cerrar la pestaña por accidente (o que se muera la batería)
+  // dejaba la reunión sin dueño y sin forma de reclamarla: el id se perdía con
+  // la pestaña. Ahora, al crear una cuenta después, sigue estando.
+  useEffect(() => {
+    if (user || !meeting?.dbId) return;
+    setUnsavedMeeting({ dbId: meeting.dbId, joinCode: meeting.id ?? "", endedAt: Date.now() });
+  }, [user, meeting?.dbId, meeting?.id]);
+
   // Our own microphone, transcribed in the browser -- independent of the
   // external platform's own audio (which lives in an embed we can't touch).
-  useSpeechRecognition({
+  //
+  // `micAttempt` es el botón de reintento: cuando el navegador deniega el
+  // micrófono, el reconocimiento se apaga para siempre (ver el hook) y sin esto
+  // no había forma de volver a encenderlo salvo recargando la página.
+  const [micAttempt, setMicAttempt] = useState(0);
+  const { supported: captionsSupported, error: captionsError } = useSpeechRecognition({
+    key: micAttempt,
     lang: spokenLang,
     active: connectionStatus === "connected",
     onInterim: (text) => setInterimCaption(text),
@@ -162,6 +214,13 @@ export default function ExternalMeeting() {
       sendTranscriptLine(alternatives, spokenLang);
     },
   });
+  // Sin esto, un navegador sin reconocimiento de voz (Firefox, Safari de
+  // escritorio) o un micrófono denegado dejaban la pantalla diciendo
+  // "Escuchando tu micrófono" para siempre, sin una sola línea y sin explicar
+  // nada -- que es exactamente lo que se ve como "no andan los subtítulos".
+  const captionsProblem = !captionsSupported
+    ? "Este navegador no puede transcribir voz. Para ver subtítulos, entrá desde Chrome o Edge (en iPhone/iPad, desde la app de Chrome)."
+    : captionsError;
 
   const { getTranslation, translationFailed } = useLineTranslations(meeting?.transcript ?? [], targetLang);
 
@@ -173,6 +232,31 @@ export default function ExternalMeeting() {
     if (recorder.status === "recording") recorder.stop();
     else if (recorder.status === "idle" || recorder.status === "error") void recorder.start();
   }
+
+  // --- Grabación automática -------------------------------------------------
+  // En una reunión externa la grabación no se pide: arranca sola. Con la
+  // captura de pantalla que se consiguió durante el clic de "Unirme" graba
+  // video+audio; sin ella (URL directa, recarga, o cancelaron el selector)
+  // graba el audio, que no necesita ningún gesto del usuario. En los dos
+  // casos, sin que nadie apriete nada.
+  const autoStartedRef = useRef(false);
+  const startRef = useRef(recorder.start);
+  startRef.current = recorder.start;
+  useEffect(() => {
+    if (autoStartedRef.current) return;
+    if (connectionStatus !== "connected" || !meeting?.dbId) return;
+    autoStartedRef.current = true;
+    if (!autoRecordEnabled()) {
+      discardStashedDisplayStream();
+      return;
+    }
+    const stream = takeDisplayStream();
+    void startRef.current(stream ? { stream } : { audioOnly: true });
+  }, [connectionStatus, meeting?.dbId]);
+
+  // Si la persona apaga la grabación automática antes de entrar, la captura
+  // que hubiera quedado colgada no se deja abierta.
+  useEffect(() => () => discardStashedDisplayStream(), []);
 
   // One-shot flag left by the from-Meet deep link (extension button):
   // surface a "ready to record" hint until they start (or dismiss it).
@@ -285,14 +369,17 @@ export default function ExternalMeeting() {
   // sumar sus voces: cada navegador solo escucha su propio micrófono.
   const inviteUrl = (() => {
     if (draft?.mode !== "companion") return window.location.origin;
+    const e = draft.embed;
     const link =
-      draft.embed.kind === "meet"
-        ? draft.embed.meetLink
-        : draft.embed.kind === "teams"
-          ? draft.embed.meetingLink
-          : draft.embed.kind === "jitsi"
-            ? `https://meet.jit.si/${draft.embed.roomName}`
-            : `https://zoom.us/j/${draft.embed.meetingNumber}`;
+      e.kind === "meet"
+        ? e.meetLink
+        : e.kind === "teams"
+          ? e.meetingLink
+          : e.kind === "jitsi"
+            ? `https://meet.jit.si/${e.roomName}`
+            : e.kind === "external"
+              ? e.joinLink
+              : `https://zoom.us/j/${e.meetingNumber}`;
     return `${window.location.origin}/externa?link=${encodeURIComponent(link)}`;
   })();
   // Gente a la que se le puede poner rol: quienes hablaron + quienes están en la sala.
@@ -348,9 +435,10 @@ export default function ExternalMeeting() {
             </div>
           ) : (
             <CompanionEmbedPane
-              embed={draft.embed}
+              embed={degraded ?? draft.embed}
               displayName={draft.name}
               onLeave={handleLeave}
+              onDegrade={(label, joinLink) => setDegraded({ kind: "external", label, joinLink })}
               subtitleStage={
                 <CompanionSubtitleStage
                   lines={stageLines}
@@ -359,7 +447,9 @@ export default function ExternalMeeting() {
                   interimSpeaker={draft.name || "Vos"}
                   targetLabel={targetLabel}
                   translationFailed={translationFailed}
-                  listening={connectionStatus === "connected" && captionsOn}
+                  listening={connectionStatus === "connected" && captionsOn && !captionsProblem}
+                  problem={captionsProblem}
+                  onRetry={captionsSupported ? () => setMicAttempt((n) => n + 1) : undefined}
                   participantCount={participantCount}
                 />
               }
@@ -389,6 +479,14 @@ export default function ExternalMeeting() {
             error={recorder.error}
             resultUrl={recorder.resultUrl}
             resultType={recorder.resultType}
+            kind={recorder.kind}
+            selfCapture={recorder.selfCapture}
+            // Pasar de sólo audio a pantalla necesita un clic: getDisplayMedia
+            // exige un gesto del usuario, y este botón es ese gesto.
+            onAddScreen={() => {
+              recorder.stop();
+              void recorder.start();
+            }}
             onDismiss={recorder.reset}
           />
         </div>

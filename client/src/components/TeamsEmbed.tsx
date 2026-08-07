@@ -15,6 +15,9 @@ interface Props {
   meetingLink: string;
   displayName: string;
   onLeave?: () => void;
+  // ACS no pudo unirse (token, auth de Azure, reunión personal, red). El
+  // contenedor degrada a companion: la capa de Unify no depende de ACS.
+  onFailure?: () => void;
 }
 
 // Turns raw ACS/Teams errors into a clear Spanish message. The most common one
@@ -40,7 +43,7 @@ function friendlyTeamsError(raw: string): string {
 //
 // The ACS SDK is dynamically imported so its (large) bundle only loads when
 // someone actually joins a Teams meeting, keeping it out of the main chunk.
-export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props) {
+export default function TeamsEmbed({ meetingLink, displayName, onLeave, onFailure }: Props) {
   const gridRef = useRef<HTMLDivElement>(null);
   const localTileRef = useRef<HTMLDivElement>(null);
   // "companion" = personal/free Teams that can't be embedded: the real call
@@ -54,6 +57,8 @@ export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props)
 
   const onLeaveRef = useRef(onLeave);
   onLeaveRef.current = onLeave;
+  const onFailureRef = useRef(onFailure);
+  onFailureRef.current = onFailure;
 
   // Live objects kept in refs for the control handlers + cleanup.
   const callRef = useRef<Call | null>(null);
@@ -79,6 +84,12 @@ export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props)
       const { token, error: tokenError } = await fetchTeamsToken();
       if (disposed) return;
       if (!token) {
+        // Sin token no hay embed posible, pero sí reunión: se sigue al lado de
+        // Teams con subtítulos, traducción, IA y grabación.
+        if (onFailureRef.current) {
+          onFailureRef.current();
+          return;
+        }
         setError(tokenError ?? "No se pudo autorizar el ingreso a Teams.");
         setStatus("error");
         return;
@@ -205,6 +216,12 @@ export default function TeamsEmbed({ meetingLink, displayName, onLeave }: Props)
       // "companion mode": open the real call in its own tab, keep Unify here.
       if (raw.toLowerCase().includes("teams for life") || raw.toLowerCase().includes("teams for consumer")) {
         setStatus("companion");
+        return;
+      }
+      // Token vencido, auth de Azure rechazada, red caída: da igual la causa,
+      // el desenlace útil es el mismo -- Unify al lado de Teams.
+      if (onFailureRef.current) {
+        onFailureRef.current();
         return;
       }
       setError(friendlyTeamsError(raw));

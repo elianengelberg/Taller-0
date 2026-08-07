@@ -21,6 +21,15 @@ interface Props {
   translationFailed?: boolean;
   /** El reconocimiento de voz está escuchando. */
   listening: boolean;
+  /**
+   * Por qué NO se está transcribiendo, si es el caso: navegador sin soporte,
+   * micrófono denegado, servicio caído. Sin esto, la pantalla decía
+   * "Escuchando tu micrófono" para siempre sin una sola línea -- que es lo que
+   * se ve como "no andan los subtítulos".
+   */
+  problem?: string | null;
+  /** Vuelve a intentar el reconocimiento de voz (tras dar permiso, por ej.). */
+  onRetry?: () => void;
   /** Cuántas personas hay en la capa de Unify. */
   participantCount: number;
 }
@@ -40,6 +49,8 @@ export default function CompanionSubtitleStage({
   targetLabel,
   translationFailed,
   listening,
+  problem,
+  onRetry,
   participantCount,
 }: Props) {
   const endRef = useRef<HTMLDivElement>(null);
@@ -55,10 +66,12 @@ export default function CompanionSubtitleStage({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-ink-800 px-4 py-2 text-[11px] text-ink-400">
         <span className="flex items-center gap-1.5">
           <span
-            className={`h-1.5 w-1.5 rounded-full ${listening ? "animate-pulse bg-accent-green" : "bg-ink-500"}`}
+            className={`h-1.5 w-1.5 rounded-full ${
+              problem ? "bg-amber-400" : listening ? "animate-pulse bg-accent-green" : "bg-ink-500"
+            }`}
             aria-hidden
           />
-          {listening ? "Escuchando tu micrófono" : "Micrófono en pausa"}
+          {problem ? "Sin transcribir" : listening ? "Escuchando tu micrófono" : "Micrófono en pausa"}
         </span>
         <span className="flex items-center gap-1.5">
           <GlobeIcon className="h-3 w-3" />
@@ -66,6 +79,21 @@ export default function CompanionSubtitleStage({
         </span>
         {participantCount > 1 && <span>{participantCount} en Unify</span>}
       </div>
+
+      {problem && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-[11px] leading-snug text-amber-200">
+          <span className="min-w-0 flex-1">{problem}</span>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="shrink-0 rounded-lg border border-amber-400/50 px-2.5 py-1 font-semibold text-amber-100 hover:bg-amber-500/20"
+            >
+              Reintentar
+            </button>
+          )}
+        </div>
+      )}
 
       {translationFailed && targetLabel && (
         <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-[11px] leading-snug text-amber-200">

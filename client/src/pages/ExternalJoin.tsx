@@ -4,9 +4,21 @@ import Button from "../components/Button";
 import Logo from "../components/Logo";
 import { useMeeting } from "../context/MeetingContext";
 import { fetchPlatformConfig, PlatformConfig } from "../lib/api";
+import {
+  autoRecordEnabled,
+  requestDisplayStreamOnGesture,
+  setAutoRecordEnabled,
+  stashDisplayStream,
+} from "../lib/autoRecord";
 import { LANGUAGES } from "../lib/languages";
-import { DetectedMeeting, detectMeetingPlatform, extractPasscode } from "../lib/meetingPlatforms";
+import {
+  DetectedMeeting,
+  detectMeetingPlatform,
+  extractPasscode,
+  PLATFORM_REGISTRY,
+} from "../lib/meetingPlatforms";
 import { cardClass, inputClass, labelClass, nameInputProps, urlInputProps } from "../lib/ui";
+import { CompanionEmbed } from "../types";
 
 // Entry point for joining a meeting hosted on ANOTHER platform (Zoom, Meet,
 // Jitsi...). Paste a link -> we detect the platform and route it: Zoom and
@@ -14,6 +26,67 @@ import { cardClass, inputClass, labelClass, nameInputProps, urlInputProps } from
 // links jump to the native join flow, and everything else shows an honest
 // "recognized, here's how to open it" card (with the real join integration
 // filled in per-platform over the coming phases).
+// Traduce un enlace reconocido a "en qué sala de Unify entra y qué panel se
+// muestra". Una sola función para las dos entradas (el botón y el enlace
+// profundo de la extensión), así no pueden divergir.
+//
+// La clave de sala SIEMPRE sale de `roomKey` (la identidad de la reunión),
+// nunca de la URL completa: los parámetros de una invitación son distintos
+// para cada persona, y usarlos partiría en dos salas a gente que abrió la
+// misma reunión.
+function companionEmbedFor(
+  target: DetectedMeeting,
+  passcode: string
+): { key: string; label: string; embed: CompanionEmbed } | null {
+  const { platform, meetingId, url, roomKey } = target;
+
+  if (platform === "jitsi" && meetingId && roomKey) {
+    return {
+      key: roomKey,
+      label: `Jitsi · ${meetingId}`,
+      embed: { kind: "jitsi", roomName: meetingId },
+    };
+  }
+  if (platform === "zoom" && meetingId && roomKey) {
+    return {
+      key: roomKey,
+      label: `Zoom · ${meetingId}`,
+      // The plain passcode the user typed (if any). We deliberately ignore
+      // the link's `pwd`: it's an encrypted token the Meeting SDK rejects.
+      embed: { kind: "zoom", meetingNumber: meetingId, passcode: passcode.trim() || undefined },
+    };
+  }
+  if (platform === "google-meet" && meetingId && url && roomKey) {
+    return {
+      key: roomKey,
+      label: `Google Meet · ${meetingId}`,
+      embed: { kind: "meet", meetCode: meetingId, meetLink: url },
+    };
+  }
+  if (platform === "microsoft-teams" && url && roomKey) {
+    // Teams personal ("Teams for life") no se puede embeber nunca: Microsoft
+    // bloquea el interop de ACS. Va derecho a companion, sin intentar un SDK
+    // que va a fallar y sin necesitar credenciales en el servidor.
+    if (target.personal) {
+      return {
+        key: roomKey,
+        label: "Microsoft Teams",
+        embed: { kind: "external", label: "Teams", joinLink: url },
+      };
+    }
+    return { key: roomKey, label: "Microsoft Teams", embed: { kind: "teams", meetingLink: url } };
+  }
+  // Reconocida pero sin embed posible (Webex, Skype, Discord): companion.
+  if (url && roomKey) {
+    return {
+      key: roomKey,
+      label: PLATFORM_REGISTRY[platform].label,
+      embed: { kind: "external", label: PLATFORM_REGISTRY[platform].label, joinLink: url },
+    };
+  }
+  return null;
+}
+
 export default function ExternalJoin() {
   const navigate = useNavigate();
   const { startCompanionDraft, prewarm } = useMeeting();
@@ -58,65 +131,47 @@ export default function ExternalJoin() {
     setDetected(result);
   }
 
-  // Starts a companion session for a detected embeddable meeting: builds the
-  // shared backend room key (deterministic from the meeting's own id, so
-  // everyone who opens the same link lands together) and the per-platform
-  // embed descriptor, then jumps into the overlay page.
+  // Starts a companion session for a detected meeting: builds the shared
+  // backend room key (deterministic from the meeting's own id, so everyone who
+  // opens the same link lands together) and the per-platform embed descriptor,
+  // then jumps into the overlay page.
+  //
+  // `displayStream` es la captura de pantalla que pudimos pedir DURANTE el clic
+  // (ver joinWithAutoRecord): se la pasamos a la pantalla de reunión para que
+  // la grabación arranque sola. El navegador no deja pedirla más tarde.
   function joinDetected(target: DetectedMeeting) {
     if (name.trim()) localStorage.setItem("unify_external_name", name.trim());
     const base = { name: name.trim() || "Invitado", language };
+    const embed = companionEmbedFor(target, passcode);
+    if (!embed) return;
+    startCompanionDraft({
+      ...base,
+      externalKey: embed.key,
+      roomLabel: embed.label,
+      embed: embed.embed,
+    });
+    navigate("/externa/reunion");
+  }
 
-    if (target.platform === "jitsi" && target.meetingId) {
-      const room = target.meetingId;
-      startCompanionDraft({
-        ...base,
-        // Lowercased to match how Jitsi normalizes room names, so two people
-        // who paste slightly differently-cased links still share one room.
-        externalKey: `jitsi:${room.toLowerCase()}`,
-        roomLabel: `Jitsi · ${room}`,
-        embed: { kind: "jitsi", roomName: room },
-      });
-      navigate("/externa/reunion");
+  // Pide la captura de pantalla aprovechando ESTE clic (el navegador exige un
+  // gesto: fuera de él, getDisplayMedia se rechaza siempre) y recién después
+  // entra a la reunión, que la usa para empezar a grabar sola. Si la persona
+  // cancela el selector, no pasa nada: adentro la grabación arranca igual en
+  // modo sólo audio.
+  const [preparingRecording, setPreparingRecording] = useState(false);
+  async function joinWithAutoRecord(target: DetectedMeeting) {
+    if (!autoRecordEnabled()) {
+      joinDetected(target);
       return;
     }
-
-    if (target.platform === "zoom" && target.meetingId) {
-      const mn = target.meetingId;
-      startCompanionDraft({
-        ...base,
-        externalKey: `zoom:${mn}`,
-        roomLabel: `Zoom · ${mn}`,
-        // The plain passcode the user typed (if any). We deliberately ignore
-        // the link's `pwd`: it's an encrypted token the Meeting SDK rejects.
-        embed: { kind: "zoom", meetingNumber: mn, passcode: passcode.trim() || undefined },
-      });
-      navigate("/externa/reunion");
-      return;
+    setPreparingRecording(true);
+    try {
+      const stream = await requestDisplayStreamOnGesture();
+      if (stream) stashDisplayStream(stream);
+    } finally {
+      setPreparingRecording(false);
     }
-
-    if (target.platform === "google-meet" && target.meetingId && target.url) {
-      const code = target.meetingId;
-      startCompanionDraft({
-        ...base,
-        externalKey: `google-meet:${code}`,
-        roomLabel: `Google Meet · ${code}`,
-        embed: { kind: "meet", meetCode: code, meetLink: target.url },
-      });
-      navigate("/externa/reunion");
-      return;
-    }
-
-    if (target.platform === "microsoft-teams" && target.url) {
-      startCompanionDraft({
-        ...base,
-        // Prefer the stable meeting thread id for the shared room key; fall
-        // back to the full URL if we couldn't extract it.
-        externalKey: `teams:${target.meetingId ?? target.url.toLowerCase()}`,
-        roomLabel: "Microsoft Teams",
-        embed: { kind: "teams", meetingLink: target.url },
-      });
-      navigate("/externa/reunion");
-    }
+    joinDetected(target);
   }
 
   // Deep link from the browser extension's "Grabar con Unify" button inside
@@ -137,6 +192,9 @@ export default function ExternalJoin() {
     setDetected(result);
     const savedName = (localStorage.getItem("unify_external_name") ?? "").trim();
     if (savedName && result.platform === "google-meet" && result.meetingId && result.url) {
+      // Entrada de un clic desde la extensión. La grabación NO se pide acá:
+      // este `useEffect` no es un gesto del usuario, así que el navegador
+      // rechazaría getDisplayMedia; adentro arranca sola en modo audio.
       joinDetected(result);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -221,8 +279,9 @@ export default function ExternalJoin() {
               detected={detected}
               platforms={platforms}
               passcode={passcode}
+              preparing={preparingRecording}
               onPasscodeChange={setPasscode}
-              onJoinEmbed={() => joinDetected(detected)}
+              onJoinEmbed={() => void joinWithAutoRecord(detected)}
             />
           )}
         </div>
@@ -235,24 +294,27 @@ function DetectionResult({
   detected,
   platforms,
   passcode,
+  preparing,
   onPasscodeChange,
   onJoinEmbed,
 }: {
   detected: DetectedMeeting;
   platforms: PlatformConfig | null;
   passcode: string;
+  preparing: boolean;
   onPasscodeChange: (value: string) => void;
   onJoinEmbed: () => void;
 }) {
-  const { platform, info, url, meetingId } = detected;
+  const { platform, info, url, meetingId, roomKey } = detected;
 
   // Zoom/Teams need server credentials; if the server says they're off, don't
   // offer an in-app join that would just error -- point to opening it directly.
   // (Unknown until the config loads = assume on, so a slow server never blocks.)
+  // Teams personal nunca usa ACS, así que no depende de credenciales.
   const serverReady =
     platform === "zoom"
       ? platforms?.zoom !== false
-      : platform === "microsoft-teams"
+      : platform === "microsoft-teams" && !detected.personal
         ? platforms?.teams !== false
         : true;
 
@@ -276,6 +338,11 @@ function DetectionResult({
     // Meet can't be embedded, but with the Unify extension the call syncs
     // live into a companion room -- so it gets the in-app join too.
     (platform === "google-meet" && Boolean(meetingId) && Boolean(url));
+
+  // Ni embebible ni con credenciales, pero SÍ acompañable: la llamada se abre
+  // en su plataforma y Unify corre al lado con subtítulos, traducción, IA y
+  // grabación. Lo único que hace falta es poder identificar la sala.
+  const canCompanion = !canEmbed && Boolean(url) && Boolean(roomKey);
 
   // Embeddable in principle (right link) but the server isn't configured for it.
   const embedNotConfigured =
@@ -315,20 +382,46 @@ function DetectionResult({
               </p>
             </div>
           )}
-          <Button className="mt-4 w-full" onClick={onJoinEmbed}>
-            Unirme acá dentro
+          <Button className="mt-4 w-full" onClick={onJoinEmbed} disabled={preparing}>
+            {preparing ? "Preparando la grabación…" : "Unirme acá dentro"}
           </Button>
+          <RecordingNotice />
+        </>
+      ) : canCompanion ? (
+        // Reconocida pero no embebible: en vez de dejar a la persona sin nada,
+        // entra igual a la capa de Unify (subtítulos, traducción, IA,
+        // grabación) y abre la llamada en su plataforma desde adentro.
+        <>
+          <p className="mt-2 text-xs leading-relaxed text-ink-400">
+            {embedNotConfigured
+              ? `Unify no tiene configuradas las credenciales de ${info.label}, así que la llamada se abre en ${info.label}.`
+              : detected.personal
+                ? "Es una reunión de Teams personal y Microsoft no permite embeberlas, así que la llamada se abre en Teams."
+                : `${info.label} no permite abrir la llamada dentro de otra web, así que se abre en ${info.label}.`}{" "}
+            Los <span className="text-ink-200">subtítulos, la traducción, la transcripción y la IA</span>{" "}
+            de Unify funcionan igual, al lado.
+          </p>
+          <Button className="mt-4 w-full" onClick={onJoinEmbed} disabled={preparing}>
+            {preparing ? "Preparando la grabación…" : "Unirme con Unify al lado"}
+          </Button>
+          <RecordingNotice />
+          {url && (
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 flex w-full items-center justify-center rounded-xl border border-ink-600 px-4 py-2.5 text-sm font-semibold text-ink-200 hover:bg-ink-800"
+            >
+              Sólo abrir en {info.label}
+            </a>
+          )}
         </>
       ) : (
         <>
           <p className="mt-2 text-xs text-ink-400">
-            {embedNotConfigured
-              ? `Unify todavía no tiene configuradas las credenciales de ${info.label} en el servidor, así que no podemos abrirla acá dentro. Por ahora abrila en ${info.label} (los subtítulos y la IA de Unify no aplican hasta configurarla).`
-              : info.joinMode === "overlay-extension"
-                ? "No pudimos extraer el código de la reunión del enlace. Pegá el enlace completo de Meet (meet.google.com/xxx-xxxx-xxx)."
-                : info.joinMode === "embed"
-                  ? "No pudimos extraer el número de la reunión del enlace. Pegá el enlace completo (con el número) para unirte acá dentro."
-                  : "La conexión embebida a esta plataforma todavía no está disponible. Por ahora podés abrirla en su propia página."}
+            {info.joinMode === "overlay-extension"
+              ? "No pudimos extraer el código de la reunión del enlace. Pegá el enlace completo de Meet (meet.google.com/xxx-xxxx-xxx)."
+              : "No pudimos extraer el número de la reunión del enlace. Pegá el enlace completo (con el número) para unirte acá dentro."}
           </p>
           {url && (
             <a
@@ -343,5 +436,29 @@ function DetectionResult({
         </>
       )}
     </div>
+  );
+}
+
+// La grabación automática es lo bastante importante como para decirla antes,
+// no sorprender con ella. Se puede apagar acá mismo y la elección se recuerda.
+function RecordingNotice() {
+  const [on, setOn] = useState(() => autoRecordEnabled());
+  return (
+    <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-xs leading-relaxed text-ink-400">
+      <input
+        type="checkbox"
+        checked={on}
+        onChange={(e) => {
+          setOn(e.target.checked);
+          setAutoRecordEnabled(e.target.checked);
+        }}
+        className="mt-0.5 h-4 w-4 shrink-0 accent-brand-500"
+      />
+      <span>
+        <span className="font-medium text-ink-200">Grabar esta reunión automáticamente.</span> Al
+        entrar te vamos a pedir qué pantalla grabar; si cancelás, grabamos igual el audio. Podés
+        detenerla en cualquier momento desde el botón Grabar.
+      </span>
+    </label>
   );
 }

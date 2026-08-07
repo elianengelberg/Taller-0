@@ -39,13 +39,33 @@ export function isOwnRecordingUrl(url: string): boolean {
   return Boolean(PUBLIC_URL) && url.startsWith(`${PUBLIC_URL}/recordings/`);
 }
 
+// The only content types a recording may be stored as. Anything else would
+// turn the (deliberately unauthenticated) upload endpoints into a free file
+// host for arbitrary content served from our own domain.
+//
+// The audio types are what an auto-started recording produces: capturing the
+// screen needs a user gesture the browser will not grant on page load, so an
+// automatic recording is microphone-only (see client lib/autoRecord).
+const ALLOWED_TYPES = ["video/mp4", "video/webm", "audio/mp4", "audio/webm"] as const;
+
+export function normalizeRecordingType(raw: unknown): string {
+  const value = String(raw ?? "").split(";")[0].trim().toLowerCase();
+  return (ALLOWED_TYPES as readonly string[]).includes(value) ? value : "video/webm";
+}
+
+function extensionFor(contentType: string): string {
+  if (contentType === "audio/mp4") return "m4a";
+  if (contentType === "audio/webm") return "weba";
+  return contentType.includes("mp4") ? "mp4" : "webm";
+}
+
 export async function createRecordingUploadUrl(
   meetingId: string,
   contentType: string
 ): Promise<RecordingUploadTarget | null> {
   if (!client) return null;
 
-  const extension = contentType.includes("mp4") ? "mp4" : "webm";
+  const extension = extensionFor(contentType);
   const key = `recordings/${meetingId}/${randomUUID()}.${extension}`;
   const command = new PutObjectCommand({
     Bucket: BUCKET_NAME,
@@ -70,7 +90,7 @@ export async function uploadRecordingStream(
   body: Readable
 ): Promise<string | null> {
   if (!client || !BUCKET_NAME || !PUBLIC_URL) return null;
-  const extension = contentType.includes("mp4") ? "mp4" : "webm";
+  const extension = extensionFor(contentType);
   const key = `recordings/${meetingId}/${randomUUID()}.${extension}`;
   const upload = new Upload({
     client,

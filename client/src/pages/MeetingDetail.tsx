@@ -73,6 +73,10 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
   // t=0 of the video in wall-clock ms: the recording's real start when we have
   // it, else the meeting start (a reasonable fallback for older recordings).
   const baseMs = new Date(meeting.recordingStartedAt ?? meeting.startedAt).getTime();
+  // El servidor guarda las grabaciones sólo de audio con extensión .m4a/.weba
+  // (ver server/src/storage.ts), que es lo único que distingue una de otra
+  // desde acá.
+  const audioOnlyRecording = /\.(m4a|weba)(\?|$)/i.test(meeting.recordingUrl ?? "");
 
   function seekTo(offsetSec: number) {
     const v = videoRef.current;
@@ -169,19 +173,34 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
 
         {meeting.recordingUrl && (
           <div className={`${cardClass} mt-6`}>
-            <video
-              ref={videoRef}
-              controls
-              src={meeting.recordingUrl}
-              className="w-full rounded-lg"
-            />
+            {/* Una grabación automática puede ser sólo audio (capturar la
+                pantalla exige un gesto del usuario que no existe al entrar).
+                Un <video> con audio suelto se ve como un rectángulo negro
+                roto, así que mostramos el reproductor que corresponde -- el
+                mismo ref sirve para los dos, y la sincronización con la
+                transcripción funciona igual porque ambos son HTMLMediaElement. */}
+            {audioOnlyRecording ? (
+              <audio
+                ref={videoRef as React.RefObject<HTMLVideoElement> & React.RefObject<HTMLAudioElement>}
+                controls
+                src={meeting.recordingUrl}
+                className="w-full"
+              />
+            ) : (
+              <video
+                ref={videoRef}
+                controls
+                src={meeting.recordingUrl}
+                className="w-full rounded-lg"
+              />
+            )}
             <a
               href={meeting.recordingUrl}
               download
               className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-brand-300 transition-colors hover:text-brand-200"
             >
               <DownloadIcon className="h-4 w-4" />
-              Descargar video
+              {audioOnlyRecording ? "Descargar audio" : "Descargar video"}
             </a>
           </div>
         )}

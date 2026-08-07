@@ -1,4 +1,4 @@
-import { RecordingStatus, UploadStatus } from "../hooks/useRecorder";
+import { RecordingKind, RecordingStatus, UploadStatus } from "../hooks/useRecorder";
 import { CloseIcon, DownloadIcon, RecordIcon } from "./icons";
 
 interface Props {
@@ -8,6 +8,12 @@ interface Props {
   resultUrl: string | null;
   // Container of the finished file, e.g. "video/mp4" -- names the download.
   resultType?: string;
+  /** "audio" cuando la grabación arrancó sola sin captura de pantalla. */
+  kind?: RecordingKind;
+  /** La captura incluye esta misma pantalla (efecto túnel). */
+  selfCapture?: boolean;
+  /** Pasar de sólo audio a pantalla completa: necesita un clic (gesto). */
+  onAddScreen?: () => void;
   onDismiss: () => void;
 }
 
@@ -17,21 +23,44 @@ export default function RecordingBanner({
   error,
   resultUrl,
   resultType,
+  kind = "screen",
+  selfCapture,
+  onAddScreen,
   onDismiss,
 }: Props) {
   if (status === "idle") return null;
 
   if (status === "recording") {
     return (
-      <div className="pointer-events-none absolute left-1/2 top-4 flex -translate-x-1/2 flex-col items-center gap-1.5">
-        <div className="flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1.5 text-xs font-semibold text-on-accent shadow-soft">
+      <div className="absolute left-1/2 top-4 flex max-w-[92vw] -translate-x-1/2 flex-col items-center gap-1.5">
+        <div className="pointer-events-none flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1.5 text-xs font-semibold text-on-accent shadow-soft">
           <RecordIcon className="h-3 w-3 animate-pulse" />
-          Grabando
+          {kind === "audio" ? "Grabando audio" : "Grabando"}
         </div>
-        <div className="rounded-full bg-black/60 px-3 py-1 text-[11px] text-ink-200 shadow-soft">
-          Tu voz queda grabada siempre. Para grabar también lo que dicen los demás, compartí "esta
-          pestaña" con la casilla de audio tildada.
-        </div>
+        {kind === "audio" ? (
+          <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl bg-black/70 px-3 py-1.5 text-[11px] text-ink-200 shadow-soft">
+            <span>Estamos grabando el audio. ¿Querés que también quede el video?</span>
+            {onAddScreen && (
+              <button
+                type="button"
+                onClick={onAddScreen}
+                className="rounded-lg bg-brand-500 px-2.5 py-1 font-semibold text-on-accent hover:bg-brand-600"
+              >
+                Agregar pantalla
+              </button>
+            )}
+          </div>
+        ) : selfCapture ? (
+          <div className="pointer-events-none rounded-2xl bg-amber-500/90 px-3 py-1.5 text-[11px] font-medium text-ink-950 shadow-soft">
+            Estás grabando la pantalla entera, así que Unify se ve dentro del video. Para evitarlo,
+            detené y elegí sólo la ventana de la reunión.
+          </div>
+        ) : (
+          <div className="pointer-events-none rounded-full bg-black/60 px-3 py-1 text-[11px] text-ink-200 shadow-soft">
+            Tu voz queda grabada siempre. Para grabar también lo que dicen los demás, compartí "esta
+            pestaña" con la casilla de audio tildada.
+          </div>
+        )}
       </div>
     );
   }
@@ -82,16 +111,22 @@ export default function RecordingBanner({
         {resultUrl && (
           <a
             href={resultUrl}
-            download={`reunion-${Date.now()}.${resultType?.includes("mp4") ? "mp4" : "webm"}`}
+            download={`reunion-${Date.now()}.${downloadExtension(resultType)}`}
             className="mt-3 flex items-center justify-center gap-2 rounded-lg bg-brand-500 px-3 py-2 text-sm font-semibold text-on-accent hover:bg-brand-600"
           >
             <DownloadIcon className="h-4 w-4" />
-            Descargar video
+            {resultType?.startsWith("audio/") ? "Descargar audio" : "Descargar video"}
           </a>
         )}
       </div>
     </div>
   );
+}
+
+function downloadExtension(resultType?: string): string {
+  if (resultType === "audio/mp4") return "m4a";
+  if (resultType === "audio/webm") return "webm";
+  return resultType?.includes("mp4") ? "mp4" : "webm";
 }
 
 function uploadStatusLabel(status: UploadStatus): string {
@@ -103,7 +138,7 @@ function uploadStatusLabel(status: UploadStatus): string {
     case "unavailable":
       return "El guardado permanente no está configurado en este servidor; descargala para conservarla.";
     case "failed":
-      return "No se pudo subir al historial, pero la tenés lista para descargar.";
+      return "No se pudo subir al historial ahora, pero quedó guardada en este navegador y lo reintentamos solos la próxima vez que abras Unify. También podés descargarla.";
     default:
       return "";
   }

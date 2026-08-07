@@ -4,6 +4,14 @@ import { explainError } from "../lib/explainError";
 interface UseSpeechRecognitionOptions {
   lang: string;
   active: boolean;
+  /**
+   * Cambiar este valor fuerza una sesión de reconocimiento nueva. Hace falta
+   * porque un "not-allowed" (micrófono denegado) apaga el reintento
+   * automático a propósito -- si no, el navegador quedaría en un bucle
+   * infinito de errores. Con esto, un botón "Reintentar" puede volver a
+   * encenderlo sin recargar la página.
+   */
+  key?: number;
   // Called once an utterance is finalized, with every candidate reading the
   // recognizer considered (ranked best-first) -- more signal than a single
   // guess for fixing a mis-heard word server-side.
@@ -26,7 +34,13 @@ const ERROR_MESSAGES: Record<string, string> = {
   "audio-capture": "No encontramos un micrófono para captar los subtítulos.",
 };
 
-export function useSpeechRecognition({ lang, active, onResult, onInterim }: UseSpeechRecognitionOptions) {
+export function useSpeechRecognition({
+  lang,
+  active,
+  key = 0,
+  onResult,
+  onInterim,
+}: UseSpeechRecognitionOptions) {
   const [supported] = useState(() => Boolean(getRecognitionConstructor()));
   const [error, setError] = useState<string | null>(null);
   const onResultRef = useRef(onResult);
@@ -165,7 +179,7 @@ export function useSpeechRecognition({ lang, active, onResult, onInterim }: UseS
       recognition.onend = null;
       recognition.stop();
     };
-  }, [supported, active, lang]);
+  }, [supported, active, lang, key]);
 
   useEffect(() => {
     if (!active) setError(null);

@@ -99,7 +99,12 @@ export type CompanionEmbed =
   // Google Meet can't be embedded (no SDK, frame-blocked): the real call
   // opens in its own tab and the Unify extension feeds live state back
   // through the meet-bridge (see MeetBridgeState).
-  | { kind: "meet"; meetCode: string; meetLink: string };
+  | { kind: "meet"; meetCode: string; meetLink: string }
+  // Cualquier otra plataforma que reconocemos pero no podemos embeber (Teams
+  // personal, Webex, Skype, Discord, o un enlace suelto): la llamada vive en
+  // su propia pestaña y Unify corre al lado con subtítulos, traducción, IA y
+  // grabación. No necesita credenciales de nadie.
+  | { kind: "external"; label: string; joinLink: string };
 
 export type MeetingDraft =
   | { mode: "host"; name: string; language: string; roleNames: string[] }

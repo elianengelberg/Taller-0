@@ -27,6 +27,10 @@ interface Props {
   // the host page navigates away instead of leaving an empty frame -- mirrors
   // JitsiEmbed's onLeave.
   onLeave?: () => void;
+  // El SDK de Zoom no pudo abrir la llamada acá dentro (sin credenciales,
+  // firma rechazada, CORS, SDK bloqueado). El contenedor degrada a companion:
+  // subtítulos, traducción, IA y grabación no dependen del SDK de Zoom.
+  onFailure?: () => void;
 }
 
 const WATCHDOG_MS = 70_000;
@@ -52,7 +56,7 @@ function zoomErrorMessage(e: unknown, fallback: string): string {
 // a global PubSub that must not be double-loaded -- re-initing on a retry left
 // the UI black). A retry (e.g. after a wrong passcode) reuses the same client
 // and only calls join() again.
-export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeave }: Props) {
+export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeave, onFailure }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState("Autorizando el ingreso a Zoom…");
@@ -67,6 +71,8 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
 
   const onLeaveRef = useRef(onLeave);
   onLeaveRef.current = onLeave;
+  const onFailureRef = useRef(onFailure);
+  onFailureRef.current = onFailure;
 
   // The embedded client persists across retries so we init once and only
   // re-join on retry.
@@ -132,6 +138,13 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
       const { signature, error: sigError } = await fetchZoomSignature(meetingNumber, 0);
       if (disposed) return;
       if (!signature) {
+        // Esto es "Zoom no está configurado en el servidor" o "la firma fue
+        // rechazada": ninguna cantidad de reintentos lo arregla desde acá, así
+        // que se sigue con Unify al lado en vez de dejar la pantalla muerta.
+        if (onFailureRef.current) {
+          onFailureRef.current();
+          return;
+        }
         fail(sigError ?? "No se pudo autorizar el ingreso a Zoom.");
         return;
       }
@@ -266,8 +279,17 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
               autoFocus
             />
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-center gap-3">
             <Button onClick={retryNow}>Reintentar</Button>
+            {onFailure && (
+              <button
+                type="button"
+                onClick={() => onFailureRef.current?.()}
+                className="text-sm font-medium text-brand-300 hover:text-brand-200"
+              >
+                Seguir con Unify al lado
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onLeaveRef.current?.()}

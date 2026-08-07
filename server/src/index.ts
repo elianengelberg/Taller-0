@@ -57,6 +57,7 @@ import { registerSocketHandlers } from "./socketHandlers";
 import {
   createRecordingUploadUrl,
   isOwnRecordingUrl,
+  normalizeRecordingType,
   storageEnabled,
   uploadRecordingStream,
 } from "./storage";
@@ -316,7 +317,17 @@ app.get("/api/auth/config", (_req, res) => {
 // Jitsi needs no server config, and Google Meet always runs as a companion
 // (subtitles/AI over the mic + optional extension) -- so both are always on.
 app.get("/api/platforms", (_req, res) => {
-  res.json({ zoom: zoomEnabled, teams: teamsEnabled, jitsi: true, "google-meet": true });
+  res.json({
+    zoom: zoomEnabled,
+    teams: teamsEnabled,
+    jitsi: true,
+    "google-meet": true,
+    // Sin almacenamiento configurado, una grabación no puede llegar al
+    // historial. El cliente lo necesita saber ANTES de grabar: si no, guarda
+    // el archivo en el navegador para reintentar una subida que nunca va a
+    // poder funcionar, y le come el disco al usuario para nada.
+    recording: storageEnabled,
+  });
 });
 
 // Google Sign-In (plain OAuth2, see googleAuth.ts). Step 1: send the browser
@@ -625,11 +636,11 @@ app.post("/api/meetings/:id/recording-upload-url", async (req, res) => {
     res.status(503).json({ error: "El almacenamiento de grabaciones no está configurado." });
     return;
   }
-  // Only the two container types the recorder actually produces -- an
-  // arbitrary contentType would let anyone store arbitrary files under a
-  // presigned URL on our bucket.
-  const rawType = typeof req.body?.contentType === "string" ? req.body.contentType : "video/webm";
-  const contentType = rawType.startsWith("video/mp4") ? "video/mp4" : "video/webm";
+  // Only the container types the recorder actually produces -- an arbitrary
+  // contentType would let anyone store arbitrary files under a presigned URL
+  // on our bucket. Audio is included: an automatically started recording is
+  // microphone-only, because capturing the screen needs a user gesture.
+  const contentType = normalizeRecordingType(req.body?.contentType);
   // The meeting id is unauthenticated by design (guests record too), but it
   // must at least reference a real meeting -- not be a free upload endpoint.
   if (dbEnabled && !(await meetingExists(req.params.id))) {
@@ -696,8 +707,7 @@ app.post("/api/meetings/:id/recording-upload", async (req, res) => {
     res.status(503).json({ error: "El almacenamiento de grabaciones no está configurado." });
     return;
   }
-  const rawType = req.headers["content-type"] ?? "video/webm";
-  const contentType = String(rawType).startsWith("video/mp4") ? "video/mp4" : "video/webm";
+  const contentType = normalizeRecordingType(req.headers["content-type"]);
   // Reject an oversized/garbage body up front (this endpoint is unauthenticated
   // by design, like the presign one, so it must not become a free file host).
   const declaredLen = Number(req.headers["content-length"]);
