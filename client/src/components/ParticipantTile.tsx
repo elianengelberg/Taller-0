@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef } from "react";
+import Avatar from "./Avatar";
 import { Participant, Role } from "../types";
 import { HandIcon, ScreenShareIcon } from "./icons";
 import RoleBadge from "./RoleBadge";
@@ -74,9 +75,21 @@ function ParticipantTile({ participant, role, stream, isSelf, speakerId, speakin
       )}
       {!showVideo && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-ink-800 to-ink-900">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-brand-600 text-xl font-bold text-on-accent shadow-lg ring-4 ring-white/10">
-            {initials(participant.name)}
-          </div>
+          {/* Con foto de perfil se muestra la foto; sin ella, las iniciales
+              sobre el degradado de siempre. Es lo que se ve cuando alguien
+              tiene la cámara apagada, así que conviene que sea su cara. */}
+          {participant.avatarUrl ? (
+            <Avatar
+              name={participant.name}
+              src={participant.avatarUrl}
+              size={64}
+              className="shadow-lg ring-4 ring-white/10"
+            />
+          ) : (
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-brand-600 text-xl font-bold text-on-accent shadow-lg ring-4 ring-white/10">
+              {initials(participant.name)}
+            </div>
+          )}
         </div>
       )}
 

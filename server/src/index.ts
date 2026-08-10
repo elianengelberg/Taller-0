@@ -37,6 +37,8 @@ import {
   setMsRefreshToken,
   shareFolderWithEmail,
   unshareFolder,
+  setAvatarIfMissing,
+  updateUserAvatar,
   updateUserName,
   updateUserPasswordHash,
 } from "./db";
@@ -56,9 +58,12 @@ import { addNamedTranscriptLine, getOrCreateCompanionMeeting, isLiveParticipant 
 import { registerSocketHandlers } from "./socketHandlers";
 import {
   createRecordingUploadUrl,
+  isOwnAvatarUrl,
   isOwnRecordingUrl,
+  normalizeAvatarType,
   normalizeRecordingType,
   storageEnabled,
+  uploadAvatarStream,
   uploadRecordingStream,
 } from "./storage";
 import { createTeamsUserToken, teamsEnabled } from "./teams";
@@ -257,7 +262,10 @@ app.post("/api/auth/login", authRateLimit, async (req, res) => {
     res.status(401).json({ error: "Email o contraseña incorrectos." });
     return;
   }
-  res.json({ token: signToken(user.id), user: { id: user.id, email: user.email, name: user.name } });
+  res.json({
+    token: signToken(user.id),
+    user: { id: user.id, email: user.email, name: user.name, avatarUrl: user.avatarUrl },
+  });
 });
 
 app.get("/api/auth/me", requireAuth, async (req, res) => {
@@ -269,16 +277,74 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
   res.json({ user });
 });
 
-// Basic account settings: rename and change password.
+// Basic account settings: rename, profile photo and change password.
 app.patch("/api/auth/me", requireAuth, async (req, res) => {
+  const userId = (req as AuthedRequest).userId!;
   const name = String(req.body?.name ?? "").trim().slice(0, 80);
   if (!name) {
     res.status(400).json({ error: "Ingresá tu nombre." });
     return;
   }
-  await updateUserName((req as AuthedRequest).userId!, name);
-  const user = await getUserById((req as AuthedRequest).userId!);
+  await updateUserName(userId, name);
+
+  // La foto sólo se toca si vino en el pedido: `null` la saca, una URL la
+  // cambia, y omitirla la deja como estaba (guardar el nombre no debería
+  // borrar la foto sin querer).
+  if ("avatarUrl" in (req.body ?? {})) {
+    const raw = req.body.avatarUrl;
+    if (raw === null || raw === "") {
+      await updateUserAvatar(userId, null);
+    } else if (typeof raw === "string" && isAcceptableAvatarUrl(raw)) {
+      await updateUserAvatar(userId, raw);
+    } else {
+      res.status(400).json({ error: "Esa foto de perfil no es válida." });
+      return;
+    }
+  }
+  const user = await getUserById(userId);
   res.json({ user });
+});
+
+// Sólo se guarda una foto que salga de nuestro bucket o del CDN de Google:
+// cualquier otra URL convertiría el perfil en un enlace arbitrario que después
+// mostramos a todos los participantes de una reunión.
+function isAcceptableAvatarUrl(url: string): boolean {
+  return isOwnAvatarUrl(url) || /^https:\/\/[\w.-]*googleusercontent\.com\//.test(url);
+}
+
+// Subida de la foto de perfil. El cuerpo es la imagen cruda (el navegador ya
+// la recortó y comprimió a 256px), así que express.json() la deja pasar y la
+// mandamos derecho al bucket sin bufferearla entera.
+const MAX_AVATAR_BYTES = 3 * 1024 * 1024;
+app.post("/api/auth/me/avatar", requireAuth, async (req, res) => {
+  if (!storageEnabled) {
+    res.status(503).json({ error: "El servidor no tiene configurado dónde guardar las fotos." });
+    return;
+  }
+  const contentType = normalizeAvatarType(req.headers["content-type"]);
+  if (!contentType) {
+    res.status(400).json({ error: "La foto tiene que ser una imagen JPG, PNG o WEBP." });
+    return;
+  }
+  const declaredLen = Number(req.headers["content-length"]);
+  if (Number.isFinite(declaredLen) && declaredLen > MAX_AVATAR_BYTES) {
+    res.status(413).json({ error: "La foto es demasiado grande." });
+    return;
+  }
+  const userId = (req as AuthedRequest).userId!;
+  try {
+    const url = await uploadAvatarStream(userId, contentType, req);
+    if (!url) {
+      res.status(503).json({ error: "No se pudo guardar la foto." });
+      return;
+    }
+    await updateUserAvatar(userId, url);
+    const user = await getUserById(userId);
+    res.json({ user });
+  } catch (err) {
+    console.error("[storage] avatar upload error:", err instanceof Error ? err.message : err);
+    res.status(503).json({ error: "No se pudo guardar la foto." });
+  }
 });
 
 app.post("/api/auth/change-password", authRateLimit, requireAuth, async (req, res) => {
@@ -327,6 +393,9 @@ app.get("/api/platforms", (_req, res) => {
     // el archivo en el navegador para reintentar una subida que nunca va a
     // poder funcionar, y le come el disco al usuario para nada.
     recording: storageEnabled,
+    // Subir una foto propia necesita el mismo almacenamiento que las
+    // grabaciones; sin él la UI oculta el botón en vez de fallar al tocarlo.
+    avatars: storageEnabled,
   });
 });
 
@@ -364,9 +433,13 @@ app.get("/api/auth/google/callback", async (req, res) => {
         // Same email already has a password account -- link Google to it
         // instead of failing on the duplicate-email constraint.
         await linkGoogleId(byEmail.id, profile.googleId);
+        // Y si esa cuenta no tenía foto, se queda con la de Google.
+        if (profile.picture && !byEmail.avatarUrl) {
+          await setAvatarIfMissing(byEmail.id, profile.picture);
+        }
         user = byEmail;
       } else {
-        const created = await createUserWithGoogle(profile);
+        const created = await createUserWithGoogle({ ...profile, avatarUrl: profile.picture });
         user = { ...created, passwordHash: null, googleId: profile.googleId };
       }
     }

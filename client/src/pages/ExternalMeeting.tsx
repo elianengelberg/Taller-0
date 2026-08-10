@@ -153,6 +153,14 @@ export default function ExternalMeeting() {
       return next;
     });
   }
+  // Foto de quien habla. Primero por id de participante; si ya se fue de la
+  // sala, por nombre (la línea de transcripción sobrevive a quien la dijo).
+  const avatarFor = (speakerId: string, speakerName: string) => {
+    const people = meeting?.participants ?? [];
+    const byId = people.find((p) => p.id === speakerId);
+    if (byId) return byId.avatarUrl;
+    return people.find((p) => p.name === speakerName)?.avatarUrl ?? null;
+  };
   const roleFor = (name: string) => {
     const r = roleById(roles[name]);
     return r.id ? { label: r.label, color: r.color } : null;
@@ -357,6 +365,7 @@ export default function ExternalMeeting() {
   // Últimas frases con su traducción, para la pantalla grande de subtítulos.
   const stageLines = (meeting?.transcript ?? []).slice(-8).map((l) => ({
     id: l.id,
+    speakerId: l.speakerId,
     speakerName: l.speakerName,
     text: l.text,
     translated: getTranslation(l.id),
@@ -443,8 +452,10 @@ export default function ExternalMeeting() {
                 <CompanionSubtitleStage
                   lines={stageLines}
                   roleFor={roleFor}
+                  avatarFor={avatarFor}
                   interim={captionsOn ? interimCaption : null}
                   interimSpeaker={draft.name || "Vos"}
+                  interimAvatarUrl={user?.avatarUrl ?? null}
                   targetLabel={targetLabel}
                   translationFailed={translationFailed}
                   listening={connectionStatus === "connected" && captionsOn && !captionsProblem}
@@ -468,8 +479,15 @@ export default function ExternalMeeting() {
           <LiveCaption
             lines={captionLines}
             roleFor={roleFor}
+            avatarFor={avatarFor}
             localInterim={
-              captionsOn && interimCaption ? { speakerName: draft.name || "Vos", text: interimCaption } : null
+              captionsOn && interimCaption
+                ? {
+                    speakerName: draft.name || "Vos",
+                    text: interimCaption,
+                    avatarUrl: user?.avatarUrl ?? null,
+                  }
+                : null
             }
           />
 

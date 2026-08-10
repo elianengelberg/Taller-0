@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import Avatar from "./Avatar";
 import { useMeeting } from "../context/MeetingContext";
 import { showToast } from "../lib/toasts";
 import { inputClass, sentenceInputProps } from "../lib/ui";
@@ -142,8 +143,8 @@ export default function ParticipantsPanel({
               className="rounded-xl border border-ink-700 bg-ink-800/60 p-2.5"
             >
               <div className="flex items-center gap-2.5">
-                <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ink-700 text-xs font-bold text-strong">
-                  {participant.name.slice(0, 2).toUpperCase()}
+                <span className="relative flex shrink-0">
+                  <Avatar name={participant.name} src={participant.avatarUrl} size={36} />
                   {participant.connectionQuality && (
                     <span
                       title={`Conexión: ${participant.connectionQuality === "good" ? "buena" : participant.connectionQuality === "fair" ? "regular" : "mala"}`}

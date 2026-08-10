@@ -12,6 +12,8 @@ export interface AuthUser {
   id: string;
   email: string;
   name: string;
+  /** Foto de perfil, o null si no tiene. */
+  avatarUrl: string | null;
 }
 
 export interface HistoryParticipant {
@@ -177,6 +179,8 @@ export interface PlatformConfig {
   "google-meet": boolean;
   /** El servidor puede guardar grabaciones (almacenamiento configurado). */
   recording: boolean;
+  /** El servidor puede guardar fotos de perfil subidas por el usuario. */
+  avatars: boolean;
 }
 
 // Which external-meeting integrations the server actually has configured, so
@@ -185,7 +189,14 @@ export interface PlatformConfig {
 // Defaults to "available" on failure so a slow/cold server never blocks a join
 // that might actually work.
 export async function fetchPlatformConfig(): Promise<PlatformConfig> {
-  const fallback: PlatformConfig = { zoom: true, teams: true, jitsi: true, "google-meet": true, recording: true };
+  const fallback: PlatformConfig = {
+    zoom: true,
+    teams: true,
+    jitsi: true,
+    "google-meet": true,
+    recording: true,
+    avatars: true,
+  };
   try {
     const res = await fetchWithTimeout(`${SERVER_URL}/api/platforms`);
     if (!res.ok) return fallback;
@@ -201,15 +212,38 @@ export function startGoogleLogin(): void {
   window.location.href = `${SERVER_URL}/api/auth/google`;
 }
 
-export async function updateProfile(name: string): Promise<{ user?: AuthUser; error?: string }> {
+// `avatarUrl: null` saca la foto; omitirlo la deja como está (guardar el
+// nombre no tiene por qué borrar la foto).
+export async function updateProfile(
+  name: string,
+  options: { avatarUrl?: string | null } = {}
+): Promise<{ user?: AuthUser; error?: string }> {
   try {
     const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/me`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, ...("avatarUrl" in options ? { avatarUrl: options.avatarUrl } : {}) }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { error: data.error ?? "No se pudo actualizar el perfil." };
+    return { user: data.user };
+  } catch {
+    return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };
+  }
+}
+
+// Sube la foto de perfil ya recortada y comprimida por el navegador (ver
+// lib/avatar.ts). Se manda la imagen cruda como cuerpo, sin multipart: es un
+// solo archivo chico y así el servidor la puede pasar derecho al bucket.
+export async function uploadAvatar(blob: Blob): Promise<{ user?: AuthUser; error?: string }> {
+  try {
+    const res = await fetch(`${SERVER_URL}/api/auth/me/avatar`, {
+      method: "POST",
+      headers: { "Content-Type": blob.type || "image/jpeg", ...authHeaders() },
+      body: blob,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo guardar la foto." };
     return { user: data.user };
   } catch {
     return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };

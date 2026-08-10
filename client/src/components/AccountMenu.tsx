@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import Avatar from "./Avatar";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { ChevronDownIcon, LogoutIcon, SettingsIcon } from "./icons";
@@ -52,9 +53,13 @@ export default function AccountMenu() {
             aria-haspopup="menu"
             className="flex items-center gap-2 rounded-full border border-ink-600 py-1 pl-1 pr-3 text-sm font-medium text-strong transition-colors hover:border-brand-400"
           >
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-brand-600 text-xs font-bold text-on-accent">
-              {initial(user.name)}
-            </span>
+            {user.avatarUrl ? (
+              <Avatar name={user.name} src={user.avatarUrl} size={28} />
+            ) : (
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-brand-600 text-xs font-bold text-on-accent">
+                {initial(user.name)}
+              </span>
+            )}
             <span className="hidden sm:inline">
               Hola, <span className="font-semibold">{firstName(user.name)}</span>
             </span>

@@ -84,6 +84,11 @@ function migrate(): Promise<void> {
       // is how a returning Google login is matched back to its account.
       .then(() => pool.query(`ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;`))
       .then(() => pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT UNIQUE;`))
+      // Foto de perfil: la que trae la cuenta de Google al iniciar sesión, o
+      // una que la persona suba después. Guardamos la URL, no la imagen: las de
+      // Google ya viven en su CDN y las nuestras en el bucket (ver storage.ts),
+      // así la foto no engorda cada snapshot de la reunión.
+      .then(() => pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;`))
       // Outlook/Microsoft calendar: the long-lived refresh token so we can
       // fetch the person's upcoming meetings on their behalf. NULL until they
       // connect their calendar; cleared when they disconnect.
@@ -151,6 +156,8 @@ export interface PersistedUser {
   id: string;
   email: string;
   name: string;
+  /** URL de la foto de perfil, o null si no tiene. */
+  avatarUrl: string | null;
 }
 
 // passwordHash is null for accounts created via Google Sign-In that never
@@ -248,7 +255,7 @@ export async function createUser(params: {
       params.passwordHash,
       params.name,
     ]);
-    return { ok: true, user: { id, email: params.email, name: params.name } };
+    return { ok: true, user: { id, email: params.email, name: params.name, avatarUrl: null } };
   } catch (err) {
     // 23505 = unique_violation (email already registered).
     if ((err as { code?: string }).code === "23505") return { ok: false, reason: "duplicate" };
@@ -261,6 +268,7 @@ function toAuthRow(row: {
   id: string;
   email: string;
   name: string;
+  avatar_url: string | null;
   password_hash: string | null;
   google_id: string | null;
 }): UserAuthRow {
@@ -268,6 +276,7 @@ function toAuthRow(row: {
     id: row.id,
     email: row.email,
     name: row.name,
+    avatarUrl: row.avatar_url ?? null,
     passwordHash: row.password_hash,
     googleId: row.google_id,
   };
@@ -276,7 +285,7 @@ function toAuthRow(row: {
 export function getUserByEmail(email: string): Promise<UserAuthRow | null> {
   return safe(async () => {
     const { rows } = await pool!.query(
-      `SELECT id, email, name, password_hash, google_id FROM users WHERE email = $1`,
+      `SELECT id, email, name, avatar_url, password_hash, google_id FROM users WHERE email = $1`,
       [email]
     );
     return rows[0] ? toAuthRow(rows[0]) : null;
@@ -286,7 +295,7 @@ export function getUserByEmail(email: string): Promise<UserAuthRow | null> {
 export function getUserByGoogleId(googleId: string): Promise<UserAuthRow | null> {
   return safe(async () => {
     const { rows } = await pool!.query(
-      `SELECT id, email, name, password_hash, google_id FROM users WHERE google_id = $1`,
+      `SELECT id, email, name, avatar_url, password_hash, google_id FROM users WHERE google_id = $1`,
       [googleId]
     );
     return rows[0] ? toAuthRow(rows[0]) : null;
@@ -298,7 +307,7 @@ export function getUserByGoogleId(googleId: string): Promise<UserAuthRow | null>
 export function getUserAuthById(id: string): Promise<UserAuthRow | null> {
   return safe(async () => {
     const { rows } = await pool!.query(
-      `SELECT id, email, name, password_hash, google_id FROM users WHERE id = $1`,
+      `SELECT id, email, name, avatar_url, password_hash, google_id FROM users WHERE id = $1`,
       [id]
     );
     return rows[0] ? toAuthRow(rows[0]) : null;
@@ -307,9 +316,9 @@ export function getUserAuthById(id: string): Promise<UserAuthRow | null> {
 
 export function getUserById(id: string): Promise<PersistedUser | null> {
   return safe(async () => {
-    const { rows } = await pool!.query(`SELECT id, email, name FROM users WHERE id = $1`, [id]);
+    const { rows } = await pool!.query(`SELECT id, email, name, avatar_url FROM users WHERE id = $1`, [id]);
     const row = rows[0];
-    return row ? { id: row.id, email: row.email, name: row.name } : null;
+    return row ? { id: row.id, email: row.email, name: row.name, avatarUrl: row.avatar_url ?? null } : null;
   }, null);
 }
 
@@ -319,14 +328,28 @@ export async function createUserWithGoogle(params: {
   email: string;
   name: string;
   googleId: string;
+  /** Foto del perfil de Google, si la cuenta tiene una. */
+  avatarUrl?: string | null;
 }): Promise<PersistedUser> {
   if (!pool) throw new Error("La base de datos no está configurada.");
   const id = randomUUID();
+  const avatarUrl = params.avatarUrl ?? null;
   await pool!.query(
-    `INSERT INTO users (id, email, password_hash, name, google_id) VALUES ($1, $2, NULL, $3, $4)`,
-    [id, params.email, params.name, params.googleId]
+    `INSERT INTO users (id, email, password_hash, name, google_id, avatar_url) VALUES ($1, $2, NULL, $3, $4, $5)`,
+    [id, params.email, params.name, params.googleId, avatarUrl]
   );
-  return { id, email: params.email, name: params.name };
+  return { id, email: params.email, name: params.name, avatarUrl };
+}
+
+// La foto que Google ya tiene sólo se copia si la persona todavía no eligió
+// una: quien subió la suya no quiere que un login se la pise.
+export function setAvatarIfMissing(userId: string, avatarUrl: string): Promise<void> {
+  return safe(async () => {
+    await pool!.query(
+      `UPDATE users SET avatar_url = $2 WHERE id = $1 AND (avatar_url IS NULL OR avatar_url = '')`,
+      [userId, avatarUrl]
+    );
+  }, undefined);
 }
 
 // Attaches a Google account to an existing email/password account the first
@@ -341,6 +364,13 @@ export function linkGoogleId(userId: string, googleId: string): Promise<void> {
 export function updateUserName(id: string, name: string): Promise<void> {
   return safe(async () => {
     await pool!.query(`UPDATE users SET name = $2 WHERE id = $1`, [id, name]);
+  }, undefined);
+}
+
+/** `null` saca la foto; una URL la reemplaza. */
+export function updateUserAvatar(id: string, avatarUrl: string | null): Promise<void> {
+  return safe(async () => {
+    await pool!.query(`UPDATE users SET avatar_url = $2 WHERE id = $1`, [id, avatarUrl]);
   }, undefined);
 }
 

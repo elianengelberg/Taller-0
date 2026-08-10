@@ -66,6 +66,8 @@ export interface GoogleProfile {
   googleId: string;
   email: string;
   name: string;
+  /** Foto de la cuenta de Google (URL de su CDN), o null si no tiene. */
+  picture: string | null;
 }
 
 // Exchanges the one-time authorization code for the person's Google profile.
@@ -95,9 +97,26 @@ export async function exchangeGoogleCode(code: string): Promise<GoogleProfile> {
   if (!profileRes.ok) {
     throw new Error(`No se pudo obtener el perfil de Google (${profileRes.status}).`);
   }
-  const profile = (await profileRes.json()) as { sub?: string; email?: string; name?: string };
+  const profile = (await profileRes.json()) as {
+    sub?: string;
+    email?: string;
+    name?: string;
+    picture?: string;
+  };
   if (!profile.sub || !profile.email) {
     throw new Error("El perfil de Google no incluyó email.");
   }
-  return { googleId: profile.sub, email: profile.email.toLowerCase(), name: profile.name || profile.email };
+  // `picture` ya viene con el scope "profile" que pedimos: es la foto que la
+  // persona ya eligió en su cuenta, así que la usamos como foto de perfil en
+  // vez de hacérsela subir de nuevo. Sólo se acepta si es https de Google.
+  const picture =
+    typeof profile.picture === "string" && /^https:\/\/[\w.-]*googleusercontent\.com\//.test(profile.picture)
+      ? profile.picture
+      : null;
+  return {
+    googleId: profile.sub,
+    email: profile.email.toLowerCase(),
+    name: profile.name || profile.email,
+    picture,
+  };
 }

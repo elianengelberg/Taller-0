@@ -77,6 +77,53 @@ export async function createRecordingUploadUrl(
   return { uploadUrl, publicUrl: `${PUBLIC_URL}/${key}` };
 }
 
+// --- Fotos de perfil -------------------------------------------------------
+
+// Sólo estos formatos, y sólo los que el navegador realmente produce al
+// recortar la foto en un canvas. Sin esta lista, el endpoint (que recibe la
+// imagen cruda) sería un alojamiento de archivos gratis en nuestro dominio.
+const AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+
+export function normalizeAvatarType(raw: unknown): string | null {
+  const value = String(raw ?? "").split(";")[0].trim().toLowerCase();
+  return (AVATAR_TYPES as readonly string[]).includes(value) ? value : null;
+}
+
+export function isOwnAvatarUrl(url: string): boolean {
+  return Boolean(PUBLIC_URL) && url.startsWith(`${PUBLIC_URL}/avatars/`);
+}
+
+// Sube la foto de perfil y devuelve su URL pública. La clave incluye un UUID
+// nuevo cada vez: subir una foto distinta cambia la URL, así el navegador (y
+// cualquier caché intermedia) muestra la nueva al instante en vez de quedarse
+// con la vieja.
+export async function uploadAvatarStream(
+  userId: string,
+  contentType: string,
+  body: Readable
+): Promise<string | null> {
+  if (!client || !BUCKET_NAME || !PUBLIC_URL) return null;
+  const extension = contentType === "image/png" ? "png" : contentType === "image/webp" ? "webp" : "jpg";
+  const key = `avatars/${userId}/${randomUUID()}.${extension}`;
+  const upload = new Upload({
+    client,
+    params: {
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+      // Las fotos de perfil cambian poco y se piden en cada reunión: que el
+      // navegador las guarde. La URL cambia al cambiar la foto, así que un
+      // caché largo no deja a nadie con la imagen vieja.
+      CacheControl: "public, max-age=31536000, immutable",
+    },
+    partSize: 5 * 1024 * 1024,
+    queueSize: 1,
+  });
+  await upload.done();
+  return `${PUBLIC_URL}/${key}`;
+}
+
 // Server-side fallback: when the browser's direct-to-R2 PUT fails (most often
 // because the bucket's CORS isn't set up to allow PUT from the app origin), the
 // client re-sends the video through our server instead. The server has R2

@@ -135,7 +135,8 @@ export function addParticipant(
   name: string,
   language: string,
   isHost: boolean,
-  userId?: string | null
+  userId?: string | null,
+  avatarUrl?: string | null
 ): Participant {
   const participant: Participant = {
     id: socketId,
@@ -150,6 +151,7 @@ export function addParticipant(
     handRaised: false,
     joinedAt: Date.now(),
     connectionQuality: null,
+    avatarUrl: avatarUrl ?? null,
   };
   meeting.participants.set(socketId, participant);
   // Same object reference on purpose: later mutations (role changes, mute

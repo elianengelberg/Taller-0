@@ -32,6 +32,11 @@ export interface Participant {
   joinedAt: number;
   // Self-reported socket round-trip tier, for the host's participant list.
   connectionQuality: "good" | "fair" | "poor" | null;
+  // Foto de perfil de la cuenta, para mostrarla junto al nombre en los
+  // subtítulos y en la lista de participantes. Null para invitados sin cuenta
+  // o cuentas sin foto. La resuelve el SERVIDOR desde el token, nunca el
+  // cliente: si no, cualquiera podría entrar con la cara de otro.
+  avatarUrl: string | null;
 }
 
 export interface ChatMessage {

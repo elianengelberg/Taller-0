@@ -51,6 +51,9 @@ export interface Participant {
   handRaised: boolean;
   joinedAt: number;
   connectionQuality: "good" | "fair" | "poor" | null;
+  // Foto de perfil de la cuenta (la de Google al iniciar sesión, o una propia).
+  // Null para invitados sin cuenta: ahí se muestra la inicial.
+  avatarUrl: string | null;
 }
 
 export interface ChatMessage {

@@ -170,6 +170,16 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
   // cap is far above that yet stops a hostile loop from hammering everyone.
   const allowStateChange = makeRateLimiter(60, 10_000);
   const allowModerate = makeRateLimiter(60, 10_000);
+
+  // Foto de perfil de quien se une. Se resuelve en el SERVIDOR a partir del
+  // token: si la mandara el cliente, cualquiera podría entrar a una reunión
+  // con la cara de otra persona. Los invitados sin cuenta no tienen, y eso
+  // está bien -- la inicial alcanza.
+  async function avatarForUser(userId: string | null): Promise<string | null> {
+    if (!userId) return null;
+    const user = await db.getUserById(userId);
+    return user?.avatarUrl ?? null;
+  }
   // Tracks the most recently finalized transcript line from THIS socket, so
   // a fast follow-up fragment can be merged into it instead of appearing as
   // its own separate, easy-to-miss caption.
@@ -177,7 +187,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
 
   socket.on(
     "create-meeting",
-    (payload: { hostName: string; hostLanguage: string; roles: string[]; token?: string }, ack) => {
+    async (payload: { hostName: string; hostLanguage: string; roles: string[]; token?: string }, ack) => {
       try {
         const hostName = String(payload?.hostName ?? "").slice(0, MAX_NAME_LENGTH).trim();
         const hostLanguage = String(payload?.hostLanguage ?? "es-AR");
@@ -197,7 +207,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
             addRole(meeting, name.slice(0, MAX_ROLE_NAME_LENGTH));
           }
         }
-        addParticipant(meeting, socket.id, hostName, hostLanguage, true, ownerId);
+        addParticipant(meeting, socket.id, hostName, hostLanguage, true, ownerId, await avatarForUser(ownerId));
 
         currentMeetingId = meeting.id;
         socket.join(roomName(meeting.id));
@@ -220,7 +230,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
 
   socket.on(
     "join-meeting",
-    (
+    async (
       payload: { meetingId: string; name: string; language: string; resumeParticipantId?: string; token?: string },
       ack
     ) => {
@@ -278,7 +288,15 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
         // period) the next person in gets to be host again, otherwise
         // role assignment would be permanently stuck with no host.
         const becomesHost = meeting.participants.size === 0;
-        const participant = addParticipant(meeting, socket.id, name, language, becomesHost, userId);
+        const participant = addParticipant(
+          meeting,
+          socket.id,
+          name,
+          language,
+          becomesHost,
+          userId,
+          await avatarForUser(userId)
+        );
         currentMeetingId = meeting.id;
         socket.join(roomName(meeting.id));
 
@@ -328,7 +346,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
   // reuse the exact same handlers as a native meeting.
   socket.on(
     "join-companion",
-    (payload: { externalKey: string; name: string; language: string; token?: string }, ack) => {
+    async (payload: { externalKey: string; name: string; language: string; token?: string }, ack) => {
       try {
         const externalKey = String(payload?.externalKey ?? "").trim().slice(0, MAX_EXTERNAL_KEY_CHARS);
         const name = String(payload?.name ?? "").slice(0, MAX_NAME_LENGTH).trim();
@@ -352,7 +370,15 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
         cancelMeetingCleanup(meeting.id);
         // No host semantics here -- an external meeting has its own host on the
         // other platform; the companion layer is a flat group of note-takers.
-        const participant = addParticipant(meeting, socket.id, name, language, false, ownerId);
+        const participant = addParticipant(
+          meeting,
+          socket.id,
+          name,
+          language,
+          false,
+          ownerId,
+          await avatarForUser(ownerId)
+        );
         currentMeetingId = meeting.id;
         socket.join(roomName(meeting.id));
 

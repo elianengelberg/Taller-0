@@ -1,8 +1,10 @@
 import { useEffect, useRef } from "react";
+import Avatar from "./Avatar";
 import { GlobeIcon } from "./icons";
 
 export interface StageLine {
   id: string;
+  speakerId: string;
   speakerName: string;
   text: string;
   translated?: string;
@@ -12,9 +14,13 @@ interface Props {
   /** De más vieja a más nueva; la última se destaca. */
   lines: StageLine[];
   roleFor?: (speakerName: string) => { label: string; color: string } | null;
+  /** Foto de perfil de quien habla, para mostrarla junto al nombre. */
+  avatarFor?: (speakerId: string, speakerName: string) => string | null;
   /** Lo que se está diciendo ahora mismo (aún sin cerrar la frase). */
   interim?: string | null;
   interimSpeaker?: string;
+  /** Foto de quien está hablando ahora mismo (vos). */
+  interimAvatarUrl?: string | null;
   /** Nombre del idioma al que se traduce, o null si no se traduce. */
   targetLabel: string | null;
   /** El traductor del servidor no está respondiendo. */
@@ -44,8 +50,10 @@ interface Props {
 export default function CompanionSubtitleStage({
   lines,
   roleFor,
+  avatarFor,
   interim,
   interimSpeaker,
+  interimAvatarUrl,
   targetLabel,
   translationFailed,
   listening,
@@ -123,6 +131,7 @@ export default function CompanionSubtitleStage({
               return (
                 <div key={line.id} className={isLast ? "" : "opacity-60"}>
                   <p className="mb-1 flex flex-wrap items-center gap-1.5 text-xs">
+                    <Avatar name={line.speakerName} src={avatarFor?.(line.speakerId, line.speakerName)} size={22} />
                     {role && (
                       <span
                         className="rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide"
@@ -151,7 +160,10 @@ export default function CompanionSubtitleStage({
 
             {interim && (
               <div>
-                <p className="mb-1 text-xs font-semibold text-brand-300">{interimSpeaker || "Vos"}</p>
+                <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-brand-300">
+                  <Avatar name={interimSpeaker || "Vos"} src={interimAvatarUrl} size={22} />
+                  {interimSpeaker || "Vos"}
+                </p>
                 <p className="text-xl leading-snug text-ink-300 sm:text-2xl">
                   {interim}
                   <span className="ml-1 inline-block h-5 w-0.5 animate-pulse bg-brand-400 align-middle" />

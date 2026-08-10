@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import Avatar from "./Avatar";
 import { GlobeIcon } from "./icons";
 
 // One caption row: a speaker's most recent finalized line, optionally with a
@@ -19,10 +20,14 @@ interface Props {
   // The local speaker's own in-progress utterance, shown live at the very
   // bottom before it even finishes -- always more current than any finalized
   // line, and never sent anywhere until it finalizes.
-  localInterim?: { speakerName: string; text: string } | null;
+  localInterim?: { speakerName: string; text: string; avatarUrl?: string | null } | null;
   // Devuelve el rol de quien habla (etiqueta + color) para mostrarlo junto al
   // nombre. Opcional: en una reunión propia los roles ya viajan en la línea.
   roleFor?: (speakerName: string) => { label: string; color: string } | null;
+  // Foto de perfil de quien habla, para mostrarla junto al nombre como en
+  // Zoom. Se busca por id de participante y, si ya se fue de la reunión, por
+  // nombre. Devuelve null para invitados sin cuenta: ahí van las iniciales.
+  avatarFor?: (speakerId: string, speakerName: string) => string | null;
 }
 
 // How long a caption stays on screen after its speaker's last update. Matches
@@ -30,7 +35,7 @@ interface Props {
 // into the still-visible line instead of looking like it vanished.
 const HOLD_MS = 6000;
 
-export default function LiveCaption({ lines = [], localInterim, roleFor }: Props) {
+export default function LiveCaption({ lines = [], localInterim, roleFor, avatarFor }: Props) {
   // Per-speaker visible captions, each with its own "last changed" time so
   // they expire independently. Kept in a ref (not state) because the pruning
   // timer and the incoming-lines effect both mutate it; a tick counter drives
@@ -102,6 +107,7 @@ export default function LiveCaption({ lines = [], localInterim, roleFor }: Props
         <CaptionBubble
           key={entry.speakerId}
           speakerName={entry.speakerName}
+          avatarUrl={avatarFor?.(entry.speakerId, entry.speakerName) ?? null}
           role={roleFor?.(entry.speakerName) ?? null}
           text={entry.text}
           translatedText={entry.translatedText}
@@ -111,6 +117,7 @@ export default function LiveCaption({ lines = [], localInterim, roleFor }: Props
         <CaptionBubble
           key="__interim"
           speakerName={localInterim.speakerName}
+          avatarUrl={localInterim.avatarUrl ?? null}
           role={roleFor?.(localInterim.speakerName) ?? null}
           text={localInterim.text}
         />
@@ -121,11 +128,13 @@ export default function LiveCaption({ lines = [], localInterim, roleFor }: Props
 
 function CaptionBubble({
   speakerName,
+  avatarUrl,
   role,
   text,
   translatedText,
 }: {
   speakerName: string;
+  avatarUrl?: string | null;
   role?: { label: string; color: string } | null;
   text: string;
   translatedText?: string;
@@ -134,6 +143,9 @@ function CaptionBubble({
   return (
     <div className="caption-fade max-w-2xl rounded-2xl bg-black/75 px-4 py-2.5 text-center shadow-soft backdrop-blur-md ring-1 ring-white/10">
       <p className="text-sm leading-snug text-on-accent sm:text-base">
+        {/* La foto va inline dentro del párrafo para que el texto siga fluyendo
+            alrededor cuando la frase ocupa varias líneas, igual que en Zoom. */}
+        <Avatar name={speakerName} src={avatarUrl} size={20} className="mr-1.5 align-middle" ring />
         {role && (
           <span
             className="mr-1.5 rounded-md px-1.5 py-0.5 align-middle text-[10px] font-bold uppercase tracking-wide"

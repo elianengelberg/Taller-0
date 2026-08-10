@@ -387,6 +387,15 @@ export default function Meeting() {
     }
   }
 
+  // Foto de quien habla, para los subtítulos. Por id de participante y, si ya
+  // se fue, por nombre: la línea de transcripción sobrevive a quien la dijo.
+  const avatarFor = (speakerId: string, speakerName: string) => {
+    const people = meeting?.participants ?? [];
+    const byId = people.find((p) => p.id === speakerId);
+    if (byId) return byId.avatarUrl;
+    return people.find((p) => p.name === speakerName)?.avatarUrl ?? null;
+  };
+
   const maxPanels = isDesktop ? 2 : 1;
   function togglePanel(panel: Panel) {
     const willOpen = !openPanels.includes(panel);
@@ -632,8 +641,15 @@ export default function Meeting() {
           </div>
           <LiveCaption
             lines={captionLines}
+            avatarFor={avatarFor}
             localInterim={
-              captionsOn && interimCaption ? { speakerName: self?.name ?? "Vos", text: interimCaption } : null
+              captionsOn && interimCaption
+                ? {
+                    speakerName: self?.name ?? "Vos",
+                    text: interimCaption,
+                    avatarUrl: self?.avatarUrl ?? null,
+                  }
+                : null
             }
           />
           <RecordingBanner
