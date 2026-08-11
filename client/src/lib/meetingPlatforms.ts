@@ -12,9 +12,25 @@ export type MeetingPlatform =
   | "google-meet"
   | "microsoft-teams"
   | "jitsi"
+  | "whereby"
+  | "element-call"
   | "discord"
   | "webex"
   | "skype"
+  | "goto"
+  | "bluejeans"
+  | "chime"
+  | "slack"
+  | "whatsapp"
+  | "zoho"
+  | "dialpad"
+  | "ringcentral"
+  | "livestorm"
+  | "gather"
+  // Un enlace de videollamada que no reconocemos por nombre. No es lo mismo
+  // que "unknown": igual se puede acompañar con subtítulos, traducción, IA y
+  // grabación, porque nada de eso depende de la otra plataforma.
+  | "generica"
   | "unknown";
 
 // How a given platform can be brought into our app -- the honest, real-world
@@ -28,6 +44,114 @@ export type MeetingPlatform =
 //    platform's own page (no supported embed/overlay yet).
 export type JoinMode = "native" | "embed" | "overlay-extension" | "redirect";
 
+// Plataformas que sólo hace falta reconocer: no se pueden embeber, pero con el
+// modo companion igual tienen subtítulos, traducción, IA y grabación. Sumar
+// una es una línea acá -- por eso conviene que sea una tabla y no otro `if`.
+interface SimplePlatform {
+  platform: MeetingPlatform;
+  label: string;
+  /** Dominio exacto, o sufijo si empieza con punto. */
+  hosts: readonly string[];
+  /** Por qué no se puede embeber (va a `requires`). */
+  reason: string;
+  /**
+   * Parámetros del query que identifican la reunión, cuando el path solo no
+   * alcanza (Chime la lleva en `?pin=`, Zoho en `?key=`). Sin esto, TODAS las
+   * reuniones de esa plataforma comparten el mismo path y caerían en una única
+   * sala de Unify -- gente de reuniones distintas viéndose la transcripción.
+   * Se listan de a uno a propósito: el resto del query trae tokens por persona
+   * que partirían en dos a quienes abrieron la misma reunión.
+   */
+  idParams?: readonly string[];
+}
+
+const SIMPLE_PLATFORMS = [
+  {
+    platform: "webex",
+    label: "Webex",
+    hosts: [".webex.com", "webex.com", ".webex.com.cn"],
+    reason: "Webex exige una app registrada y su SDK no permite unirse por enlace desde un tercero",
+  },
+  {
+    platform: "skype",
+    label: "Skype",
+    hosts: ["join.skype.com", "skype.com", ".skype.com"],
+    reason: "Skype no ofrece forma de unirse a una llamada por enlace desde otra web",
+  },
+  {
+    platform: "discord",
+    label: "Discord",
+    hosts: ["discord.gg", "discord.com", ".discord.com"],
+    reason: "Discord no ofrece un SDK para embeber llamadas de voz por enlace",
+  },
+  {
+    platform: "goto",
+    label: "GoTo Meeting",
+    hosts: ["gotomeet.me", "goto.com", ".goto.com", "gotomeeting.com", ".gotomeeting.com", "global.gotomeeting.com"],
+    reason: "GoTo no publica un SDK web para unirse a una reunión desde otro sitio",
+  },
+  {
+    platform: "bluejeans",
+    label: "BlueJeans",
+    hosts: ["bluejeans.com", ".bluejeans.com"],
+    reason: "BlueJeans no permite embeber la llamada fuera de su propio cliente",
+  },
+  {
+    platform: "chime",
+    label: "Amazon Chime",
+    hosts: ["chime.aws", ".chime.aws", "app.chime.aws"],
+    reason: "Chime necesita credenciales de AWS por reunión; su SDK no se une por enlace público",
+    idParams: ["pin", "meetingId"],
+  },
+  {
+    platform: "slack",
+    label: "Slack",
+    hosts: ["app.slack.com", ".slack.com"],
+    reason: "Los huddles de Slack sólo funcionan dentro de Slack",
+  },
+  {
+    platform: "whatsapp",
+    label: "WhatsApp",
+    hosts: ["call.whatsapp.com"],
+    reason: "WhatsApp no permite unirse a una videollamada desde la web de un tercero",
+  },
+  {
+    platform: "zoho",
+    label: "Zoho Meeting",
+    hosts: ["meeting.zoho.com", ".zoho.com", ".zohomeeting.com"],
+    reason: "Zoho Meeting no ofrece un SDK web para unirse desde otro sitio",
+    idParams: ["key", "sessionKey"],
+  },
+  {
+    platform: "dialpad",
+    label: "Dialpad",
+    hosts: ["dialpad.com", ".dialpad.com", "meetings.dialpad.com"],
+    reason: "Dialpad no publica un SDK para embeber sus reuniones",
+  },
+  {
+    platform: "ringcentral",
+    label: "RingCentral",
+    hosts: ["v.ringcentral.com", ".ringcentral.com", "ringcentral.com"],
+    reason: "RingCentral Video no permite unirse embebido desde otro dominio",
+  },
+  {
+    platform: "livestorm",
+    label: "Livestorm",
+    hosts: ["app.livestorm.co", ".livestorm.co"],
+    reason: "Livestorm sólo permite asistir desde su propia página",
+  },
+  {
+    platform: "gather",
+    label: "Gather",
+    hosts: ["app.gather.town", ".gather.town", "gather.town"],
+    reason: "Gather corre su propio mundo virtual y no se puede embeber",
+  },
+] as const satisfies readonly SimplePlatform[];
+
+// Los ids de la tabla, derivados de ella misma: agregar una plataforma arriba
+// la hace obligatoria en el registro, sin poder olvidarse.
+type SimplePlatformId = (typeof SIMPLE_PLATFORMS)[number]["platform"];
+
 export interface PlatformInfo {
   platform: MeetingPlatform;
   /** Human-facing name (Spanish UI). */
@@ -37,6 +161,21 @@ export interface PlatformInfo {
   official: boolean;
   /** What still has to exist/be configured before this can actually connect. */
   requires: string[];
+}
+
+function simpleRegistryEntries(): Record<SimplePlatformId, PlatformInfo> {
+  return Object.fromEntries(
+    SIMPLE_PLATFORMS.map((p) => [
+      p.platform,
+      {
+        platform: p.platform,
+        label: p.label,
+        joinMode: "redirect" as JoinMode,
+        official: false,
+        requires: [p.reason],
+      },
+    ])
+  ) as Record<SimplePlatformId, PlatformInfo>;
 }
 
 // Single source of truth. Adding a new platform later = one entry here + one
@@ -89,26 +228,28 @@ export const PLATFORM_REGISTRY: Record<MeetingPlatform, PlatformInfo> = {
     official: true,
     requires: ["Jitsi external_api.js (embebido, sin credenciales)"],
   },
-  discord: {
-    platform: "discord",
-    label: "Discord",
-    joinMode: "redirect",
-    official: false,
-    requires: ["Discord no ofrece un SDK para embeber llamadas de voz por enlace"],
+  whereby: {
+    platform: "whereby",
+    label: "Whereby",
+    joinMode: "embed",
+    official: true,
+    requires: ["Nada: las salas de Whereby se embeben por iframe con ?embed"],
   },
-  webex: {
-    platform: "webex",
-    label: "Webex",
-    joinMode: "redirect",
-    official: false,
-    requires: ["Webex exige una app registrada y su SDK no permite unirse por enlace desde un tercero"],
+  "element-call": {
+    platform: "element-call",
+    label: "Element Call",
+    joinMode: "embed",
+    official: true,
+    requires: ["Nada: Element Call está pensado para embeberse por iframe"],
   },
-  skype: {
-    platform: "skype",
-    label: "Skype",
+  // Las que sólo se reconocen (ver SIMPLE_PLATFORMS) se arman solas más abajo.
+  ...simpleRegistryEntries(),
+  generica: {
+    platform: "generica",
+    label: "Reunión externa",
     joinMode: "redirect",
     official: false,
-    requires: ["Skype no ofrece forma de unirse a una llamada por enlace desde otra web"],
+    requires: [],
   },
   unknown: {
     platform: "unknown",
@@ -123,26 +264,22 @@ export const PLATFORM_REGISTRY: Record<MeetingPlatform, PlatformInfo> = {
 // external companion key ("ZOOM:123", "TEAMS:...", "JITSI:room"). For history
 // display we only want to show WHERE it happened -- never the raw (often long)
 // key/link, which just confuses people.
+// Prefijo de la clave de sala -> nombre para mostrar. Los que no coinciden con
+// el id de la plataforma se listan aparte; el resto sale del registro, así
+// sumar una plataforma no deja su historial diciendo "Unify".
+const SOURCE_LABEL_OVERRIDES: Record<string, string> = {
+  teams: "Microsoft Teams",
+  element: "Element Call",
+  externa: "Reunión externa",
+};
+
 export function meetingSourceLabel(joinCode: string): string {
   const prefix = joinCode.match(/^([a-z-]+):/i)?.[1]?.toLowerCase();
-  switch (prefix) {
-    case "zoom":
-      return "Zoom";
-    case "teams":
-      return "Microsoft Teams";
-    case "jitsi":
-      return "Jitsi";
-    case "google-meet":
-      return "Google Meet";
-    case "webex":
-      return "Webex";
-    case "skype":
-      return "Skype";
-    case "discord":
-      return "Discord";
-    default:
-      return "Unify";
-  }
+  if (!prefix) return "Unify";
+  const override = SOURCE_LABEL_OVERRIDES[prefix];
+  if (override) return override;
+  const known = PLATFORM_REGISTRY[prefix as MeetingPlatform];
+  return known && prefix !== "encuentro" && prefix !== "unknown" ? known.label : "Unify";
 }
 
 export function isExternalMeeting(joinCode: string): boolean {
@@ -182,6 +319,10 @@ export interface DetectedMeeting {
    * separate rooms (and persist those secrets as our join code).
    */
   roomKey?: string;
+  /** URL lista para poner como src de un iframe (Whereby, Element Call). */
+  embedUrl?: string;
+  /** Dominio del servidor de Jitsi: meet.jit.si, 8x8.vc o uno propio. */
+  jitsiDomain?: string;
 }
 
 // Un-wraps the redirector URLs corporate mail and chat apps rewrite links
@@ -308,6 +449,42 @@ function normalizeUrl(raw: string): URL | null {
   }
 }
 
+// Dominios de plataformas conocidas, para detectar imitaciones.
+const KNOWN_MEETING_DOMAINS = [
+  "zoom.us",
+  "meet.google.com",
+  "teams.microsoft.com",
+  "teams.live.com",
+  "meet.jit.si",
+  "whereby.com",
+  "webex.com",
+  "gotomeeting.com",
+  "bluejeans.com",
+  "chime.aws",
+  "slack.com",
+  "whatsapp.com",
+];
+
+/**
+ * ¿Este host IMITA a una plataforma conocida sin serlo?
+ * ("meet.google.com.evil.co" contiene "meet.google.com" pero no es Google.)
+ *
+ * Hace falta desde que aceptamos acompañar cualquier enlace: antes un dominio
+ * así simplemente no se reconocía y no se ofrecía nada, ahora se ofrece entrar
+ * -- y un enlace de phishing no debería recibir la misma cara de confianza que
+ * uno legítimo sólo porque nosotros mostramos un botón al lado.
+ */
+export function impersonatedDomain(host: string): string | null {
+  const h = host.toLowerCase();
+  for (const known of KNOWN_MEETING_DOMAINS) {
+    // Es el dominio de verdad (o un subdominio suyo): todo bien.
+    if (h === known || h.endsWith(`.${known}`)) return null;
+    // Lo contiene en cualquier otra posición: lo está imitando.
+    if (h.includes(known)) return known;
+  }
+  return null;
+}
+
 export function detectMeetingPlatform(
   input: string,
   options: { selfHosts?: string[] } = {}
@@ -406,31 +583,79 @@ export function detectMeetingPlatform(
 
   // Only the hosted meet.jit.si here; self-hosted Jitsi lives on arbitrary
   // domains we can't recognize generically.
-  if (host === "meet.jit.si") {
+  // Familia Jitsi. Además del meet.jit.si público:
+  //  - 8x8.vc es "Jitsi as a Service", el mismo external_api con otro dominio.
+  //  - una instalación propia suele vivir en jitsi.<empresa>.com.
+  // Todas usan el mismo embed, sólo cambia el dominio del script.
+  const jitsiDomain =
+    host === "meet.jit.si" || host === "8x8.vc" || host.endsWith(".8x8.vc") || /(^|\.)jitsi\./.test(host)
+      ? host
+      : null;
+  if (jitsiDomain) {
     // Decoded on purpose: a room with accents/ñ arrives percent-encoded in the
     // pathname ("reuni%C3%B3n"), and Jitsi's embed API expects the PLAIN name
     // (it encodes it again itself). Passing the encoded form would open a
     // literally different room than the one the link points at.
-    const raw = url.pathname.replace(/^\/+/, "").split("/")[0];
+    // En 8x8 la sala es "<inquilino>/<sala>": los dos tramos hacen falta.
+    const segments = url.pathname.replace(/^\/+/, "").split("/").filter(Boolean);
+    const take = host === "8x8.vc" || host.endsWith(".8x8.vc") ? 2 : 1;
+    const raw = segments.slice(0, take).join("/");
     const room = raw ? safeDecode(raw) : undefined;
     // Lowercased key only (Jitsi normalizes room names that way), so two people
-    // typing different casing still land in the same Unify room.
-    return build("jitsi", { meetingId: room, roomKey: room ? `jitsi:${room.toLowerCase()}` : undefined });
+    // typing different casing still land in the same Unify room. El dominio
+    // entra en la clave: la misma sala en dos servidores distintos NO es la
+    // misma reunión.
+    return build("jitsi", {
+      meetingId: room,
+      jitsiDomain,
+      roomKey: room ? `jitsi:${jitsiDomain}/${room.toLowerCase()}` : undefined,
+    });
   }
 
-  if (host === "discord.gg" || host === "discord.com" || host.endsWith(".discord.com")) {
-    return build("discord", { roomKey: `discord:${url.pathname.toLowerCase()}` });
+  // Whereby: sus salas SÍ se pueden embeber -- es lo que vende como "Whereby
+  // Embedded", y una sala gratis también acepta ?embed. Se agrega `minimal`
+  // para que el iframe no muestre su propio encabezado dentro del nuestro.
+  if (host === "whereby.com" || host.endsWith(".whereby.com")) {
+    const room = url.pathname.replace(/^\/+/, "").split("/")[0];
+    if (!room) return build("whereby");
+    const embedUrl = `${url.origin}/${room}?embed&minimal`;
+    return build("whereby", {
+      meetingId: room,
+      roomKey: `whereby:${host}/${room.toLowerCase()}`,
+      embedUrl,
+    });
   }
 
-  // Webex and Skype can't be embedded (no third-party join SDK), but the Unify
-  // companion layer doesn't need one -- so we still recognize them and give
-  // them a stable room key. The path alone identifies the meeting; the query
-  // string carries per-person tokens and stays out of the key.
-  if (host.endsWith("webex.com") || host.endsWith("webex.com.cn")) {
-    return build("webex", { roomKey: `webex:${host}${url.pathname.toLowerCase()}` });
+  // Element Call está hecho para embeberse (así corre dentro de Element), así
+  // que su propia URL sirve tal cual como src del iframe.
+  if (host === "call.element.io" || host.endsWith(".element.io")) {
+    const room = `${url.pathname}${url.hash}`.replace(/^\/+/, "");
+    if (!room) return build("element-call");
+    return build("element-call", {
+      meetingId: room.slice(0, 60),
+      roomKey: `element:${host}${url.pathname.toLowerCase()}`,
+      embedUrl: normalized,
+    });
   }
-  if (host === "join.skype.com" || host === "skype.com" || host.endsWith(".skype.com")) {
-    return build("skype", { roomKey: `skype:${url.pathname.toLowerCase()}` });
+
+  // El resto de las plataformas que reconocemos por nombre pero no podemos
+  // embeber. La clave de sala sale del host + path (nunca del query, que trae
+  // tokens por persona), igual que en el resto del módulo.
+  for (const simple of SIMPLE_PLATFORMS as readonly SimplePlatform[]) {
+    const hit = simple.hosts.some((h) => (h.startsWith(".") ? host.endsWith(h) : host === h));
+    if (!hit) continue;
+    const path = url.pathname.replace(/\/+$/, "").toLowerCase();
+    const ids = (simple.idParams ?? [])
+      .map((k) => url.searchParams.get(k))
+      .filter((v): v is string => Boolean(v))
+      .map((v) => v.toLowerCase());
+    const tail = [path, ...ids].filter(Boolean).join("/");
+    // Sin nada que distinga esta reunión de otra de la misma plataforma no se
+    // arma clave: meter a todos en una sala común sería mucho peor que pedir
+    // el enlace completo.
+    return build(simple.platform, {
+      roomKey: tail ? `${simple.platform}:${host}${tail}` : undefined,
+    });
   }
 
   return build("unknown");

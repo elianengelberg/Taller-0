@@ -15,6 +15,7 @@ import {
   DetectedMeeting,
   detectMeetingPlatform,
   extractPasscode,
+  impersonatedDomain,
   PLATFORM_REGISTRY,
 } from "../lib/meetingPlatforms";
 import { cardClass, inputClass, labelClass, nameInputProps, urlInputProps } from "../lib/ui";
@@ -41,10 +42,22 @@ function companionEmbedFor(
   const { platform, meetingId, url, roomKey } = target;
 
   if (platform === "jitsi" && meetingId && roomKey) {
+    const server = target.jitsiDomain ?? "meet.jit.si";
     return {
       key: roomKey,
-      label: `Jitsi · ${meetingId}`,
-      embed: { kind: "jitsi", roomName: meetingId },
+      // El dominio se muestra sólo cuando NO es el público: en una instalación
+      // propia o en 8x8 saber a qué servidor entraste importa.
+      label: server === "meet.jit.si" ? `Jitsi · ${meetingId}` : `Jitsi (${server}) · ${meetingId}`,
+      embed: { kind: "jitsi", roomName: meetingId, domain: server },
+    };
+  }
+  // Las que se dejan embeber por iframe (Whereby, Element Call).
+  if (target.embedUrl && url && roomKey) {
+    const label = PLATFORM_REGISTRY[platform].label;
+    return {
+      key: roomKey,
+      label: meetingId ? `${label} · ${meetingId}` : label,
+      embed: { kind: "iframe", label, embedUrl: target.embedUrl, joinLink: url },
     };
   }
   if (platform === "zoom" && meetingId && roomKey) {
@@ -76,13 +89,30 @@ function companionEmbedFor(
     }
     return { key: roomKey, label: "Microsoft Teams", embed: { kind: "teams", meetingLink: url } };
   }
-  // Reconocida pero sin embed posible (Webex, Skype, Discord): companion.
+  // Reconocida pero sin embed posible (Webex, Skype, GoTo, Chime...): companion.
   if (url && roomKey) {
     return {
       key: roomKey,
       label: PLATFORM_REGISTRY[platform].label,
       embed: { kind: "external", label: PLATFORM_REGISTRY[platform].label, joinLink: url },
     };
+  }
+  // No la reconocemos por nombre, pero es un enlace de verdad: la capa de
+  // Unify no depende de la otra plataforma, así que igual se puede acompañar.
+  // La sala sale del origen + path (nunca del query, que trae tokens propios).
+  if (url) {
+    try {
+      const parsed = new URL(url);
+      const path = parsed.pathname.replace(/\/+$/, "").toLowerCase();
+      if (!path || path === "/") return null;
+      return {
+        key: `externa:${parsed.host}${path}`,
+        label: parsed.host.replace(/^www\./, ""),
+        embed: { kind: "external", label: parsed.host.replace(/^www\./, ""), joinLink: url },
+      };
+    } catch {
+      return null;
+    }
   }
   return null;
 }
@@ -318,11 +348,74 @@ function DetectionResult({
         ? platforms?.teams !== false
         : true;
 
+  // Un enlace que no reconocemos por nombre pero que es una URL de verdad
+  // igual sirve: Unify corre AL LADO de la llamada y sus subtítulos,
+  // traducción, IA y grabación no dependen de la otra plataforma. Antes esto
+  // era un callejón sin salida ("no reconocimos ese enlace") aunque la persona
+  // hubiera pegado una reunión perfectamente válida de otra app.
   if (platform === "unknown") {
+    const host = (() => {
+      try {
+        return url ? new URL(url).host.replace(/^www\./, "") : null;
+      } catch {
+        return null;
+      }
+    })();
+    const usable = Boolean(host) && (() => {
+      try {
+        return new URL(url!).pathname.replace(/\/+$/, "").length > 0;
+      } catch {
+        return false;
+      }
+    })();
+    if (!usable) {
+      return (
+        <div className="mt-5 rounded-xl border border-ink-700 bg-ink-900/60 p-4 text-sm text-ink-300">
+          No reconocimos ese enlace como una reunión. Revisá que esté completo (por ejemplo,
+          empezando con <span className="text-ink-100">https://</span>).
+        </div>
+      );
+    }
+    // Un dominio que imita a una plataforma conocida ("meet.google.com.evil.co")
+    // se avisa fuerte: desde que aceptamos acompañar cualquier enlace, mostrar
+    // un botón al lado no puede darle cara de confianza a un phishing.
+    const impersonates = host ? impersonatedDomain(host) : null;
+    if (impersonates) {
+      return (
+        <div className="mt-5 rounded-xl border border-red-500/40 bg-red-500/10 p-4">
+          <p className="text-sm font-semibold text-red-200">Cuidado con este enlace</p>
+          <p className="mt-1.5 text-xs leading-relaxed text-red-100/90">
+            El enlace dice <span className="font-mono text-red-50">{host}</span>, que{" "}
+            <span className="font-semibold">no es</span> {impersonates} aunque se le parezca. Los
+            enlaces así suelen usarse para robar contraseñas. Si esperabas una reunión de{" "}
+            {impersonates}, pedile el enlace de nuevo a quien te lo mandó.
+          </p>
+        </div>
+      );
+    }
     return (
-      <div className="mt-5 rounded-xl border border-ink-700 bg-ink-900/60 p-4 text-sm text-ink-300">
-        No reconocimos ese enlace como una reunión de una plataforma conocida. Revisá que esté
-        completo (por ejemplo, empezando con <span className="text-ink-100">https://</span>).
+      <div className="mt-5 rounded-xl border border-ink-700 bg-ink-900/60 p-4">
+        <p className="text-sm text-ink-300">
+          No conocemos <span className="font-semibold text-strong">{host}</span> por nombre, pero
+          podés usar Unify al lado igual.
+        </p>
+        <p className="mt-2 text-xs leading-relaxed text-ink-400">
+          Abrís la llamada en {host} y acá tenés{" "}
+          <span className="text-ink-200">subtítulos, traducción, transcripción, IA y grabación</span>.
+          Funciona con cualquier plataforma: Unify escucha tu micrófono, no la de ellos.
+        </p>
+        <Button className="mt-4 w-full" onClick={onJoinEmbed} disabled={preparing}>
+          {preparing ? "Preparando la grabación…" : "Unirme con Unify al lado"}
+        </Button>
+        <RecordingNotice />
+        <a
+          href={url!}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 flex w-full items-center justify-center rounded-xl border border-ink-600 px-4 py-2.5 text-sm font-semibold text-ink-200 hover:bg-ink-800"
+        >
+          Sólo abrir el enlace
+        </a>
       </div>
     );
   }
@@ -332,6 +425,9 @@ function DetectionResult({
   // (A Zoom personal/vanity link, or an incomplete paste, can be "embed"-capable
   // yet have no number, in which case we can't join it.)
   const canEmbed =
+    // Whereby y Element Call se embeben por iframe: no necesitan credenciales
+    // ni número de reunión, sólo la URL que ya trae el enlace.
+    Boolean(detected.embedUrl) ||
     (info.joinMode === "embed" &&
       serverReady &&
       (platform === "microsoft-teams" ? Boolean(url) : Boolean(meetingId))) ||

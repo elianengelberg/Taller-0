@@ -8,6 +8,7 @@ import CompanionDock from "../components/CompanionDock";
 import CompanionRolesPanel from "../components/CompanionRolesPanel";
 import CompanionSubtitleStage from "../components/CompanionSubtitleStage";
 import ExternalCompanionPane from "../components/ExternalCompanionPane";
+import IframeEmbed from "../components/IframeEmbed";
 import MeetCompanionPane from "../components/MeetCompanionPane";
 import Logo from "../components/Logo";
 import RecordingBanner from "../components/RecordingBanner";
@@ -64,13 +65,25 @@ function CompanionEmbedPane({
   subtitleStage?: ReactNode;
 }) {
   switch (embed.kind) {
-    case "jitsi":
+    case "jitsi": {
+      const server = embed.domain || "meet.jit.si";
       return (
         <JitsiEmbed
           roomName={embed.roomName}
+          domain={embed.domain}
           displayName={displayName}
           onLeave={onLeave}
-          onFailure={() => onDegrade("Jitsi", `https://meet.jit.si/${embed.roomName}`)}
+          onFailure={() => onDegrade("Jitsi", `https://${server}/${embed.roomName}`)}
+        />
+      );
+    }
+    case "iframe":
+      return (
+        <IframeEmbed
+          label={embed.label}
+          embedUrl={embed.embedUrl}
+          joinLink={embed.joinLink}
+          onFailure={() => onDegrade(embed.label, embed.joinLink)}
         />
       );
     case "zoom":
@@ -388,7 +401,9 @@ export default function ExternalMeeting() {
             ? `https://meet.jit.si/${e.roomName}`
             : e.kind === "external"
               ? e.joinLink
-              : `https://zoom.us/j/${e.meetingNumber}`;
+              : e.kind === "iframe"
+                ? e.joinLink
+                : `https://zoom.us/j/${e.meetingNumber}`;
     return `${window.location.origin}/externa?link=${encodeURIComponent(link)}`;
   })();
   // Gente a la que se le puede poner rol: quienes hablaron + quienes están en la sala.

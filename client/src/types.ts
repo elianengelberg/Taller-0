@@ -96,7 +96,9 @@ export interface MeetingSnapshot {
 // platform. Adding a new embeddable platform later (e.g. Teams) = one more
 // variant here + one branch in ExternalMeeting; nothing else changes.
 export type CompanionEmbed =
-  | { kind: "jitsi"; roomName: string }
+  | { kind: "jitsi"; roomName: string; domain?: string }
+  // Plataformas que sí se dejan embeber por iframe (Whereby, Element Call).
+  | { kind: "iframe"; label: string; embedUrl: string; joinLink: string }
   | { kind: "zoom"; meetingNumber: string; passcode?: string }
   | { kind: "teams"; meetingLink: string }
   // Google Meet can't be embedded (no SDK, frame-blocked): the real call

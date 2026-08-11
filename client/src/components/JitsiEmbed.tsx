@@ -3,6 +3,12 @@ import { JITSI_MEET_DOMAIN, loadJitsiApi } from "../lib/jitsi";
 
 interface Props {
   roomName: string;
+  /**
+   * Servidor de Jitsi: meet.jit.si, 8x8.vc (Jitsi as a Service) o una
+   * instalación propia. Todos exponen el mismo external_api, sólo cambia de
+   * dónde se carga el script.
+   */
+  domain?: string;
   displayName: string;
   // Fired when the user leaves the meeting from Jitsi's own hang-up button,
   // so the host page can navigate away instead of leaving an empty frame.
@@ -18,7 +24,7 @@ interface Props {
 // our own AI/transcription tools can't reach into its media -- embedding
 // keeps our branding/chrome around a real external call, but overlaying our
 // features *inside* it is a separate, platform-specific effort.
-export default function JitsiEmbed({ roomName, displayName, onLeave, onFailure }: Props) {
+export default function JitsiEmbed({ roomName, domain, displayName, onLeave, onFailure }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,10 +39,11 @@ export default function JitsiEmbed({ roomName, displayName, onLeave, onFailure }
     let disposed = false;
     let api: JitsiMeetExternalAPI | null = null;
 
-    loadJitsiApi()
+    const server = domain || JITSI_MEET_DOMAIN;
+    loadJitsiApi(server)
       .then(() => {
         if (disposed || !containerRef.current || !window.JitsiMeetExternalAPI) return;
-        api = new window.JitsiMeetExternalAPI(JITSI_MEET_DOMAIN, {
+        api = new window.JitsiMeetExternalAPI(server, {
           roomName,
           parentNode: containerRef.current,
           width: "100%",
@@ -65,7 +72,7 @@ export default function JitsiEmbed({ roomName, displayName, onLeave, onFailure }
         // Already disposed / never constructed -- nothing to clean up.
       }
     };
-  }, [roomName, displayName]);
+  }, [roomName, domain, displayName]);
 
   if (error) {
     return (
