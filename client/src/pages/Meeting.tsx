@@ -261,6 +261,8 @@ export default function Meeting() {
     localStream: media.stream,
     onReplaceTrack: replaceVideoTrack,
     onRemoveTrack: removeVideoTrack,
+    parkCamera: media.parkCamera,
+    unparkCamera: media.unparkCamera,
   });
   function toggleScreenShare() {
     if (screenShare.sharing) {

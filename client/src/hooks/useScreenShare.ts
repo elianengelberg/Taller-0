@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   displayMediaErrorMessage,
+  markScreenTrack,
   screenCaptureSupported,
   SHARE_UNSUPPORTED_MESSAGE,
 } from "../lib/screenCapture";
@@ -9,6 +10,10 @@ interface UseScreenShareOptions {
   localStream: MediaStream | null;
   onReplaceTrack: (oldTrack: MediaStreamTrack | null, newTrack: MediaStreamTrack) => void;
   onRemoveTrack: (track: MediaStreamTrack) => void;
+  /** Saca la cámara del stream y la conserva viva (ver useLocalMedia). */
+  parkCamera: () => MediaStreamTrack | null;
+  /** La devuelve al stream con el on/off vigente. */
+  unparkCamera: () => MediaStreamTrack | null;
 }
 
 // Screen sharing reuses the same "video slot" used for the camera: while
@@ -17,33 +22,43 @@ interface UseScreenShareOptions {
 // own) and on every WebRTC peer connection. Stopping restores the original
 // camera track. If there was no camera track to begin with, the screen
 // track is just added/removed as an extra track instead of swapped.
-export function useScreenShare({ localStream, onReplaceTrack, onRemoveTrack }: UseScreenShareOptions) {
+//
+// La cámara NO se guarda acá: la custodia la tiene useLocalMedia, que es quien
+// tiene que seguir pudiendo apagarla y cambiarla mientras la pantalla ocupa su
+// lugar en el stream.
+export function useScreenShare({
+  localStream,
+  onReplaceTrack,
+  onRemoveTrack,
+  parkCamera,
+  unparkCamera,
+}: UseScreenShareOptions) {
   const [sharing, setSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const screenTrackRef = useRef<MediaStreamTrack | null>(null);
-  const cameraTrackRef = useRef<MediaStreamTrack | null>(null);
 
   const stop = useCallback(() => {
-    const stream = localStream;
     const screenTrack = screenTrackRef.current;
-    const cameraTrack = cameraTrackRef.current;
     if (!screenTrack) return;
+    screenTrackRef.current = null;
 
-    if (stream) {
-      stream.removeTrack(screenTrack);
-      if (cameraTrack) stream.addTrack(cameraTrack);
-    }
+    localStream?.removeTrack(screenTrack);
+    const cameraTrack = unparkCamera();
     if (cameraTrack) {
       onReplaceTrack(screenTrack, cameraTrack);
     } else {
       onRemoveTrack(screenTrack);
     }
     screenTrack.stop();
-
-    screenTrackRef.current = null;
-    cameraTrackRef.current = null;
     setSharing(false);
-  }, [localStream, onReplaceTrack, onRemoveTrack]);
+  }, [localStream, onReplaceTrack, onRemoveTrack, unparkCamera]);
+
+  // El listener de "dejaste de compartir" (el botón del navegador) se registra
+  // UNA vez al empezar y vive lo que dura la pista, pero `stop` se recrea en
+  // cada render. Sin este puntero, el listener se quedaría llamando a una
+  // versión vieja de `stop` con datos de aquel render.
+  const stopRef = useRef(stop);
+  stopRef.current = stop;
 
   const start = useCallback(async () => {
     if (!localStream) return;
@@ -52,28 +67,29 @@ export function useScreenShare({ localStream, onReplaceTrack, onRemoveTrack }: U
       setError(SHARE_UNSUPPORTED_MESSAGE);
       return;
     }
+    // Dos clics seguidos en "Compartir" abrirían dos capturas y la primera
+    // quedaría viva sin que nada la pueda detener.
+    if (screenTrackRef.current) return;
     try {
       const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
       const screenTrack = displayStream.getVideoTracks()[0];
       if (!screenTrack) throw new Error("No se encontró video para compartir.");
+      markScreenTrack(screenTrack);
 
-      const cameraTrack = localStream.getVideoTracks()[0] ?? null;
+      const cameraTrack = parkCamera();
       screenTrackRef.current = screenTrack;
-      cameraTrackRef.current = cameraTrack;
-
-      if (cameraTrack) localStream.removeTrack(cameraTrack);
       localStream.addTrack(screenTrack);
       onReplaceTrack(cameraTrack, screenTrack);
 
       // If the user stops sharing from the browser's own "Stop sharing" UI
       // instead of our button, treat it the same as pressing our button.
-      screenTrack.addEventListener("ended", stop);
+      screenTrack.addEventListener("ended", () => stopRef.current());
 
       setSharing(true);
     } catch (err) {
       setError(displayMediaErrorMessage(err, "compartir la pantalla"));
     }
-  }, [localStream, onReplaceTrack, stop]);
+  }, [localStream, onReplaceTrack, parkCamera]);
 
   useEffect(() => {
     return () => {
