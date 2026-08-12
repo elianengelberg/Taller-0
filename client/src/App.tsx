@@ -6,6 +6,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 import { MeetingProvider } from "./context/MeetingContext";
 import ExternalJoin from "./pages/ExternalJoin";
 import ExternalMeeting from "./pages/ExternalMeeting";
+import ForgotPassword from "./pages/ForgotPassword";
 import GoogleCallback from "./pages/GoogleCallback";
 import HostSetup from "./pages/HostSetup";
 import History from "./pages/History";
@@ -15,6 +16,8 @@ import Meeting from "./pages/Meeting";
 import MeetingDetail from "./pages/MeetingDetail";
 import Home from "./pages/Home";
 import Register from "./pages/Register";
+import ResetPassword from "./pages/ResetPassword";
+import VerifyEmail from "./pages/VerifyEmail";
 
 export default function App() {
   return (
@@ -30,6 +33,12 @@ export default function App() {
           <Route path="/registrarse" element={<Register />} />
           {/* Landing spot for the Google OAuth redirect (see googleAuth.ts). */}
           <Route path="/auth/google" element={<GoogleCallback />} />
+          {/* Donde aterrizan los enlaces que mandamos por correo. El token
+              viaja en el fragmento (#token=…), así que nunca llega al
+              servidor de la web ni a sus logs. */}
+          <Route path="/verificar-email" element={<VerifyEmail />} />
+          <Route path="/recuperar" element={<ForgotPassword />} />
+          <Route path="/restablecer" element={<ResetPassword />} />
           <Route path="/crear" element={<HostSetup />} />
           <Route path="/unirse" element={<JoinForm />} />
           {/* Zoom-style direct-join link (see ShareMenu) -- same form, minus

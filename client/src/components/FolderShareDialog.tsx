@@ -113,6 +113,15 @@ export default function FolderShareDialog({
                   <div className="min-w-0">
                     <p className="truncate text-sm text-strong">{r.name}</p>
                     <p className="truncate text-xs text-ink-400">{r.email}</p>
+                    {/* Si esa cuenta nunca probó ser dueña de su dirección,
+                        quien comparte tiene derecho a saberlo: le está
+                        abriendo su historial a quien haya escrito ese email
+                        primero, no necesariamente a su dueño. */}
+                    {!r.emailVerified && (
+                      <p className="mt-0.5 text-xs text-amber-400">
+                        Esta cuenta todavía no confirmó su email
+                      </p>
+                    )}
                   </div>
                   <button
                     type="button"

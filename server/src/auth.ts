@@ -3,7 +3,7 @@
 // install/build on the host. Accounts exist so each person's meeting history
 // is private to them (see db.ts owner_id + the /api/auth/* and /api/meetings
 // routes in index.ts).
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "crypto";
+import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 
 // Clave con la que se firman los tokens de sesión. DEBE estar en el entorno
 // (Render) para que los tokens sobrevivan a un reinicio. Rotarla cierra la
@@ -61,6 +61,26 @@ export function verifyPassword(password: string, stored: string): boolean {
   const actual = scryptSync(password, salt, expected.length);
   // Constant-time compare so timing can't leak how much of the hash matched.
   return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+// --- Enlaces de un solo uso (verificar email, restablecer contraseña) -------
+
+// 32 bytes de azar real. Un enlace de estos es, por un rato, tan bueno como la
+// contraseña: adivinarlo tiene que ser imposible, no difícil.
+export function createSecretToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+/**
+ * Lo que se guarda en la base es esto, nunca el token.
+ *
+ * Acá alcanza con SHA-256 y no hace falta scrypt (que sí usan las
+ * contraseñas): el token no lo eligió una persona, son 256 bits al azar, así
+ * que no hay diccionario que probar. Lo que se está evitando es otra cosa: que
+ * una copia robada de la base sirva para usar los enlaces que están en vuelo.
+ */
+export function hashSecretToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
 }
 
 // --- Session tokens (JWT HS256) --------------------------------------------

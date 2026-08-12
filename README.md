@@ -115,8 +115,32 @@ IA. Para activar el guardado permanente hacen falta 3 cuentas gratis (variables 
    `ANTHROPIC_TRANSCRIPT_MODEL`), y la explicación de errores usa `claude-haiku-4-5` (se
    puede cambiar con `ANTHROPIC_ERROR_MODEL`).
 
-Cada una de las tres es independiente: podés activar solo la base de datos (para guardar
-mensajes) sin activar R2 (grabaciones) ni la IA, por ejemplo.
+4. **Correo** — [Resend](https://resend.com) (3.000 correos gratis por mes). Verificá tu
+   dominio en *Domains*, generá una API key y completá `RESEND_API_KEY` y `MAIL_FROM`
+   (tiene que ser una dirección de ese dominio verificado). Esto habilita dos cosas que sin
+   correo no pueden existir: **verificar el email** al crear una cuenta y **recuperar la
+   contraseña** si te la olvidás. Sin la key, la app anda igual, pero `/api/auth/config`
+   avisa que están apagadas y la interfaz esconde “¿Olvidaste tu contraseña?” en vez de
+   ofrecer un enlace que nunca va a llegar. Para probarlo en tu máquina, `MAIL_LOG=1`
+   imprime los correos —con sus enlaces— en la consola del servidor, sin enviar nada.
+
+Cada una de las cuatro es independiente: podés activar solo la base de datos (para guardar
+mensajes) sin activar R2 (grabaciones), la IA, ni el correo, por ejemplo.
+
+### Cómo quedan las cuentas con la verificación activada
+
+- Al registrarse sale un correo con un enlace que vence en 24 horas. La sesión se abre
+  igual en ese dispositivo (quien se registra suele venir de una reunión de invitado que
+  quiere guardar), pero para **volver a entrar** desde cualquier lado hay que confirmar.
+- Las cuentas creadas **antes** de configurar el correo no quedan trabadas: sólo se le
+  exige el enlace a las que se crearon con el envío ya andando. El aviso dentro de la app
+  las invita a confirmar, sin obligarlas.
+- Las cuentas de Google llegan verificadas: Google ya probó la dirección.
+- “Olvidé mi contraseña” manda un enlace de un solo uso que vence en una hora. Usarlo
+  **cierra todas las sesiones abiertas** de esa cuenta, así que también sirve para echar a
+  alguien que se metió. Si la cuenta entra sólo con Google no se le crea una contraseña: el
+  correo explica que el acceso es por el botón de Google (y que la contraseña de Google se
+  recupera en Google).
 
 ## Limitaciones a tener en cuenta
 

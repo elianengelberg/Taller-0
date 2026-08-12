@@ -3,13 +3,25 @@ import express, { NextFunction, Request, Response } from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { answerFromMeeting, generateMeetingReport } from "./ai";
-import { hashPassword, signToken, verifyPassword, verifyToken, verifyTokenClaims } from "./auth";
 import {
+  createSecretToken,
+  hashPassword,
+  hashSecretToken,
+  signToken,
+  verifyPassword,
+  verifyToken,
+  verifyTokenClaims,
+} from "./auth";
+import {
+  applyPasswordReset,
   attachRecording,
   bumpTokenVersion,
   canAccessFolder,
   claimAccountForVerifiedEmail,
   claimMeeting,
+  consumeAuthToken,
+  countRecentAuthTokens,
+  createAuthToken,
   createMeetingRecord,
   clearMsRefreshToken,
   createFolder,
@@ -18,6 +30,10 @@ import {
   dbEnabled,
   deleteFolder,
   deleteMeeting,
+  invalidateAuthTokens,
+  markEmailVerified,
+  peekAuthToken,
+  wasAuthTokenRecentlyUsed,
   getMeetingDetailForUser,
   getMeetingDetailRaw,
   getMsRefreshToken,
@@ -45,6 +61,11 @@ import {
   updateUserName,
   updateUserPasswordHash,
 } from "./db";
+import {
+  sendGoogleOnlyResetEmail,
+  sendPasswordResetEmail,
+  sendVerificationEmail,
+} from "./authMail";
 import { explainError } from "./explainError";
 import { answerAcrossMeetings } from "./globalAi";
 import { consumeState, createState, exchangeGoogleCode, googleAuthEnabled, googleAuthUrl } from "./googleAuth";
@@ -58,6 +79,7 @@ import {
   refreshAccessToken,
 } from "./microsoftAuth";
 import { addNamedTranscriptLine, getOrCreateCompanionMeeting, isLiveParticipant } from "./meetingStore";
+import { mailerEnabled } from "./mailer";
 import { rateLimit, userOrIp } from "./rateLimit";
 import { registerSocketHandlers } from "./socketHandlers";
 import {
@@ -215,6 +237,14 @@ const uploadLimit = rateLimit({
   message: "Se subieron demasiadas grabaciones desde acá. Probá de nuevo en un rato.",
 });
 const avatarLimit = rateLimit({ max: 20, windowMs: 60 * 60_000, keyBy: userOrIp });
+// Pedir que nos manden un correo. El freno que de verdad importa es el de por
+// cuenta (5 por hora, contra la base): éste es el que evita que una sola IP
+// use el servidor como cañón de correos contra muchas direcciones distintas.
+const mailLimit = rateLimit({
+  max: 20,
+  windowMs: 15 * 60_000,
+  message: "Pediste demasiados correos seguidos. Esperá unos minutos.",
+});
 // El bridge lo escribe la extensión desde meet.google.com, así que acepta
 // cualquier origen: el límite es lo que evita que se convierta en un canal
 // abierto para inundar salas ajenas.
@@ -347,6 +377,83 @@ function weakPasswordReason(password: string, email: string): string | null {
 }
 
 const accountsUnavailable = "Las cuentas no están disponibles: falta configurar la base de datos.";
+const mailUnavailable =
+  "El servidor todavía no tiene configurado el envío de correos, así que no puede mandar ese enlace.";
+
+// --- Enlaces por correo: verificar el email y recuperar la contraseña -------
+
+// El de verificación dura un día (te registrás de noche, lo abrís a la
+// mañana). El de contraseña dura una hora: es la llave de la cuenta y no tiene
+// por qué quedar dando vueltas en un buzón toda la tarde.
+const VERIFY_TTL_MS = 24 * 60 * 60_000;
+const RESET_TTL_MS = 60 * 60_000;
+// Tope POR CUENTA. Éste no se puede saltear cambiando de IP, y es lo que evita
+// que se use el registro de otra persona para inundarle el buzón.
+const LINKS_PER_HOUR = 5;
+
+type LinkOutcome = "sent" | "throttled" | "failed";
+
+async function issueEmailLink(
+  user: { id: string; email: string; name: string },
+  purpose: "verify-email" | "reset-password"
+): Promise<LinkOutcome> {
+  const recent = await countRecentAuthTokens(user.id, purpose, 60 * 60_000);
+  if (recent >= LINKS_PER_HOUR) return "throttled";
+  const token = createSecretToken();
+  // Primero se guarda el hash y sólo después sale el correo: al revés, un
+  // fallo de la base mandaría un enlace que nadie puede canjear.
+  const stored = await createAuthToken({
+    userId: user.id,
+    purpose,
+    tokenHash: hashSecretToken(token),
+    email: user.email,
+    ttlMs: purpose === "verify-email" ? VERIFY_TTL_MS : RESET_TTL_MS,
+  });
+  if (!stored) return "failed";
+  const sent =
+    purpose === "verify-email"
+      ? await sendVerificationEmail({
+          to: user.email,
+          name: user.name,
+          token,
+          appOrigin: CLIENT_ORIGIN,
+        })
+      : await sendPasswordResetEmail({
+          to: user.email,
+          name: user.name,
+          token,
+          appOrigin: CLIENT_ORIGIN,
+        });
+  return sent ? "sent" : "failed";
+}
+
+// Se dispara sin esperarlo: quien se registra no tiene por qué mirar una
+// ruedita porque el proveedor de correo está lento. Si falla, queda en el log
+// y la persona siempre puede pedir el reenvío desde la app.
+function issueEmailLinkInBackground(
+  user: { id: string; email: string; name: string },
+  purpose: "verify-email" | "reset-password"
+): void {
+  void issueEmailLink(user, purpose)
+    .then((outcome) => {
+      if (outcome !== "sent") {
+        console.warn(`[mail] ${purpose} para ${user.id}: ${outcome}`);
+      }
+    })
+    .catch((err) => {
+      console.error("[mail] error inesperado enviando el enlace:", err);
+    });
+}
+
+/** El id de sesión si el pedido trae una válida, o null. No corta el pedido. */
+async function optionalUserId(req: Request): Promise<string | null> {
+  const header = req.headers.authorization;
+  const claims = verifyTokenClaims(header?.startsWith("Bearer ") ? header.slice(7) : null);
+  if (!claims) return null;
+  const version = await currentTokenVersion(claims.userId);
+  if (version === null || claims.version < version) return null;
+  return claims.userId;
+}
 
 app.post("/api/auth/register", authRateLimit, async (req, res) => {
   if (!dbEnabled) {
@@ -369,7 +476,14 @@ app.post("/api/auth/register", authRateLimit, async (req, res) => {
     res.status(400).json({ error: "Ingresá tu nombre." });
     return;
   }
-  const result = await createUser({ email, name, passwordHash: hashPassword(password) });
+  const result = await createUser({
+    email,
+    name,
+    passwordHash: hashPassword(password),
+    // Sólo se exige verificar si el servidor puede mandar el correo. Marcarlo
+    // igual dejaría cuentas creadas y trabadas para siempre.
+    verificationRequired: mailerEnabled,
+  });
   if (!result.ok) {
     if (result.reason === "duplicate") {
       res.status(409).json({ error: "Ya existe una cuenta con ese email." });
@@ -378,7 +492,17 @@ app.post("/api/auth/register", authRateLimit, async (req, res) => {
     res.status(503).json({ error: "No se pudo crear la cuenta en este momento." });
     return;
   }
-  res.json({ token: signToken(result.user.id, 1), user: result.user });
+  if (mailerEnabled) issueEmailLinkInBackground(result.user, "verify-email");
+  // Se devuelve la sesión igual, sin esperar la verificación: quien acaba de
+  // registrarse suele venir de una reunión de invitado que quiere guardar, y
+  // mandarlo al buzón en ese momento le haría perder la reunión. La
+  // verificación se exige al volver a entrar (ver /api/auth/login), que es
+  // cuando hace falta probar que la dirección es suya.
+  res.json({
+    token: signToken(result.user.id, 1),
+    user: result.user,
+    verificationSent: mailerEnabled,
+  });
 });
 
 app.post("/api/auth/login", authRateLimit, async (req, res) => {
@@ -413,9 +537,33 @@ app.post("/api/auth/login", authRateLimit, async (req, res) => {
     return;
   }
   clearFailedLogins(email);
+
+  // La contraseña ya es correcta: recién ACÁ se puede hablar de verificación.
+  // Chequearlo antes convertiría este endpoint en un delator: cualquiera
+  // podría preguntar por una dirección y saber si tiene cuenta y en qué
+  // estado, sin conocer la contraseña.
+  if (mailerEnabled && user.verificationRequired && !user.emailVerified) {
+    // El motivo más común de llegar acá es que el correo se perdió, así que se
+    // manda otro sin que haya que pedirlo (con el tope por cuenta puesto).
+    issueEmailLinkInBackground(user, "verify-email");
+    res.status(403).json({
+      error:
+        "Todavía no confirmaste tu email. Te mandamos el enlace de nuevo a " +
+        `${user.email}: abrilo y entrá.`,
+      needsVerification: true,
+    });
+    return;
+  }
+
   res.json({
     token: signToken(user.id, user.tokenVersion),
-    user: { id: user.id, email: user.email, name: user.name, avatarUrl: user.avatarUrl },
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      avatarUrl: user.avatarUrl,
+      emailVerified: user.emailVerified,
+    },
   });
 });
 
@@ -534,13 +682,180 @@ app.post("/api/auth/change-password", authRateLimit, requireAuth, async (req, re
   // un token nuevo para no cerrarle la sesión a quien acaba de cambiarla.
   const version = await bumpTokenVersion(user.id);
   invalidateSessions(user.id, version);
+  // Y los enlaces de recuperación que estuvieran dando vueltas se queman: si
+  // alguien pidió uno por vos, cambiar la contraseña tiene que dejarlo inútil.
+  await invalidateAuthTokens(user.id, "reset-password");
   res.json({ ok: true, token: signToken(user.id, version) });
+});
+
+// --- Verificación del email -------------------------------------------------
+
+// Pedir (o volver a pedir) el enlace. Sirve con sesión abierta -- el aviso
+// dentro de la app -- y sin ella, que es el caso de quien no puede entrar
+// justamente porque no verificó.
+app.post("/api/auth/verify-email/request", authRateLimit, mailLimit, async (req, res) => {
+  if (!dbEnabled) {
+    res.status(503).json({ error: accountsUnavailable });
+    return;
+  }
+  if (!mailerEnabled) {
+    res.status(503).json({ error: mailUnavailable });
+    return;
+  }
+  const sessionUserId = await optionalUserId(req);
+  const user = sessionUserId
+    ? await getUserAuthById(sessionUserId)
+    : await getUserByEmail(String(req.body?.email ?? "").trim().toLowerCase());
+  if (user && !user.emailVerified) {
+    issueEmailLinkInBackground(user, "verify-email");
+  }
+  // Siempre la misma respuesta: preguntar por una dirección no puede servir
+  // para averiguar si tiene cuenta.
+  res.json({ ok: true });
+});
+
+// Canje del enlace. Es un POST desde la página, no un GET desde el correo:
+// así el escáner de enlaces del trabajo no te quema el token antes de que lo
+// abras (ver authMail.ts).
+app.post("/api/auth/verify-email/confirm", authRateLimit, async (req, res) => {
+  if (!dbEnabled) {
+    res.status(503).json({ error: accountsUnavailable });
+    return;
+  }
+  const raw = String(req.body?.token ?? "");
+  if (!raw || raw.length > 200) {
+    res.status(400).json({ error: "Ese enlace no es válido." });
+    return;
+  }
+  const hash = hashSecretToken(raw);
+  const claim = await consumeAuthToken(hash, "verify-email");
+  if (!claim) {
+    // Segundo clic, botón "atrás", o el escáner de correo que lo abrió antes.
+    // Si la cuenta ya quedó verificada, eso no es un error: es "ya está".
+    const previousUserId = await wasAuthTokenRecentlyUsed(hash, "verify-email");
+    if (previousUserId) {
+      const previous = await getUserAuthById(previousUserId);
+      if (previous?.emailVerified) {
+        res.json({ ok: true, alreadyVerified: true });
+        return;
+      }
+    }
+    res.status(400).json({
+      error: "Ese enlace venció o ya se usó. Pedí uno nuevo e intentá otra vez.",
+    });
+    return;
+  }
+  await markEmailVerified(claim.userId);
+  await invalidateAuthTokens(claim.userId, "verify-email");
+  const user = await getUserAuthById(claim.userId);
+  if (!user) {
+    res.status(400).json({ error: "Esa cuenta ya no existe." });
+    return;
+  }
+  // Se devuelve sesión: abrir el enlace ya probó que el buzón es tuyo, así que
+  // obligarte a escribir la contraseña de nuevo no agrega nada.
+  res.json({
+    ok: true,
+    token: signToken(user.id, user.tokenVersion),
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      avatarUrl: user.avatarUrl,
+      emailVerified: true,
+    },
+  });
+});
+
+// --- Recuperar la contraseña ------------------------------------------------
+
+app.post("/api/auth/password-reset/request", authRateLimit, mailLimit, async (req, res) => {
+  if (!dbEnabled) {
+    res.status(503).json({ error: accountsUnavailable });
+    return;
+  }
+  if (!mailerEnabled) {
+    res.status(503).json({ error: mailUnavailable });
+    return;
+  }
+  const email = String(req.body?.email ?? "").trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    res.status(400).json({ error: "Ingresá un email válido." });
+    return;
+  }
+  const user = await getUserByEmail(email);
+  if (user) {
+    if (!user.passwordHash && user.googleId) {
+      // No tiene contraseña que restablecer, y crearle una desde acá sería
+      // abrirle una segunda puerta a una cuenta que hoy sólo abre Google. Se
+      // le manda un correo explicando dónde está el botón -- callarse sería
+      // peor: el silencio delataría qué cuentas usan Google.
+      void sendGoogleOnlyResetEmail({
+        to: user.email,
+        name: user.name,
+        appOrigin: CLIENT_ORIGIN,
+      }).catch((err) => console.error("[mail] aviso de cuenta-Google:", err));
+    } else {
+      issueEmailLinkInBackground(user, "reset-password");
+    }
+  }
+  // Misma respuesta exista o no la cuenta: si no, esto sería una forma cómoda
+  // de averiguar quién está registrado en Unify.
+  res.json({ ok: true });
+});
+
+app.post("/api/auth/password-reset/confirm", authRateLimit, async (req, res) => {
+  if (!dbEnabled) {
+    res.status(503).json({ error: accountsUnavailable });
+    return;
+  }
+  const raw = String(req.body?.token ?? "");
+  const password = String(req.body?.password ?? "");
+  if (!raw || raw.length > 200) {
+    res.status(400).json({ error: "Ese enlace no es válido." });
+    return;
+  }
+  const hash = hashSecretToken(raw);
+  // Se mira el enlace sin gastarlo para poder revisar la contraseña primero:
+  // si se canjeara antes, escribir una contraseña débil te dejaría sin enlace
+  // y sin contraseña nueva.
+  const pending = await peekAuthToken(hash, "reset-password");
+  if (!pending) {
+    res.status(400).json({
+      error: "Ese enlace venció o ya se usó. Pedí uno nuevo desde “Olvidé mi contraseña”.",
+    });
+    return;
+  }
+  const weak = weakPasswordReason(password, pending.email);
+  if (weak) {
+    res.status(400).json({ error: weak });
+    return;
+  }
+  const claim = await consumeAuthToken(hash, "reset-password");
+  if (!claim) {
+    res.status(400).json({ error: "Ese enlace ya se usó. Pedí uno nuevo." });
+    return;
+  }
+  const version = await applyPasswordReset(claim.userId, hashPassword(password));
+  invalidateSessions(claim.userId, version);
+  await invalidateAuthTokens(claim.userId, "reset-password");
+  // Si la cuenta estaba trabada por intentos fallidos, recuperar la contraseña
+  // la destraba: quien probó el buzón es la dueña, no quien estaba adivinando.
+  clearFailedLogins(claim.email);
+  const user = await getUserById(claim.userId);
+  res.json({ ok: true, token: signToken(claim.userId, version), user });
 });
 
 // Lets the client show/hide "Continuar con Google" without guessing --
 // enabled only once the server has real Google OAuth credentials configured.
 app.get("/api/auth/config", (_req, res) => {
-  res.json({ googleEnabled: googleAuthEnabled });
+  res.json({
+    googleEnabled: googleAuthEnabled,
+    // Sin correo configurado no hay verificación ni recuperación posibles. El
+    // cliente esconde los botones en vez de ofrecer un enlace que nunca llega.
+    emailVerification: mailerEnabled,
+    passwordReset: mailerEnabled,
+  });
 });
 
 // Which external-meeting integrations are actually configured on this server,
@@ -625,6 +940,9 @@ app.get("/api/auth/google/callback", async (req, res) => {
           googleId: profile.googleId,
           emailVerified: true,
           tokenVersion: 1,
+          // Google ya probó el email, así que a esta cuenta nunca hay que
+          // exigirle el enlace por correo.
+          verificationRequired: false,
         };
       }
     }

@@ -1,11 +1,11 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import Button from "../components/Button";
 import GoogleButton from "../components/GoogleButton";
 import GradientBackdrop from "../components/GradientBackdrop";
 import Logo from "../components/Logo";
 import { useAuth } from "../context/AuthContext";
-import { claimMeeting } from "../lib/api";
+import { claimMeeting, fetchAuthConfig, requestEmailVerification } from "../lib/api";
 import { clearUnsavedMeeting } from "../lib/unsavedMeeting";
 import { cardClass, inputClass, labelClass } from "../lib/ui";
 
@@ -27,16 +27,37 @@ export default function Login() {
     searchParams.get("googleError") ? "No se pudo iniciar sesión con Google. Probá de nuevo." : null
   );
   const [submitting, setSubmitting] = useState(false);
+  // La contraseña era correcta pero falta abrir el enlace del correo. Es un
+  // estado aparte porque no se arregla escribiendo otra cosa en el formulario.
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resent, setResent] = useState<string | null>(null);
+  // "Olvidé mi contraseña" sólo se ofrece si este servidor puede mandar el
+  // correo. Si no, llevaría a una pantalla que nunca va a recibir nada.
+  const [resetEnabled, setResetEnabled] = useState(false);
+  useEffect(() => {
+    fetchAuthConfig().then((c) => setResetEnabled(c.passwordReset));
+  }, []);
+
+  async function handleResend() {
+    setResent(null);
+    const res = await requestEmailVerification(email.trim());
+    setResent(
+      res.error ?? `Listo, te lo mandamos de nuevo a ${email.trim()}. Puede tardar un par de minutos.`
+    );
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!email.trim() || !password) return;
     setSubmitting(true);
     setError(null);
+    setNeedsVerification(false);
+    setResent(null);
     const err = await login(email.trim(), password);
     setSubmitting(false);
     if (err) {
-      setError(err);
+      setError(err.message);
+      setNeedsVerification(err.needsVerification);
       return;
     }
     // Arrived here from the post-call "save this meeting?" prompt -- attach
@@ -103,15 +124,41 @@ export default function Login() {
             </div>
 
             {error && (
-              <p className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm text-red-300">
-                {error}
-              </p>
+              <div
+                className={`rounded-xl border px-4 py-2.5 text-sm ${
+                  needsVerification
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                    : "border-red-500/40 bg-red-500/10 text-red-300"
+                }`}
+              >
+                <p>{error}</p>
+                {needsVerification && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleResend}
+                      className="mt-2 font-semibold underline underline-offset-2 hover:text-amber-100"
+                    >
+                      Volver a enviarme el enlace
+                    </button>
+                    {resent && <p className="mt-2 text-xs text-amber-200/80">{resent}</p>}
+                  </>
+                )}
+              </div>
             )}
 
             <Button type="submit" className="w-full" disabled={submitting || !email.trim() || !password}>
               {submitting ? "Entrando…" : "Iniciar sesión"}
             </Button>
           </form>
+
+          {resetEnabled && (
+            <p className="mt-4 text-center text-sm">
+              <Link to="/recuperar" className="text-ink-300 hover:text-brand-200">
+                ¿Olvidaste tu contraseña?
+              </Link>
+            </p>
+          )}
 
           <GoogleButton />
 

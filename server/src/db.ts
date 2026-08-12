@@ -102,6 +102,36 @@ function migrate(): Promise<void> {
       // token emitido antes -- que es lo único que saca de la cuenta a alguien
       // que ya te robó la sesión.
       .then(() => pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 1;`))
+      // ¿A esta cuenta se le exige tener el email verificado para iniciar
+      // sesión? Se marca al crearla, y sólo cuando el servidor sabía mandar
+      // correos en ese momento. Las cuentas anteriores a la verificación
+      // quedan en FALSE a propósito: nadie que ya usaba Unify se queda
+      // afuera de un día para el otro por una función que no existía cuando
+      // se registró.
+      .then(() => pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_required BOOLEAN NOT NULL DEFAULT FALSE;`))
+      // Enlaces de un solo uso que se mandan por correo: verificar el email y
+      // restablecer la contraseña. Se guarda el HASH, nunca el token: si
+      // alguien se lleva una copia de la base, no puede usar los enlaces que
+      // están en vuelo -- igual que con las contraseñas.
+      .then(() =>
+        pool.query(
+          `CREATE TABLE IF NOT EXISTS auth_tokens (
+            id UUID PRIMARY KEY,
+            user_id UUID NOT NULL,
+            purpose TEXT NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            email TEXT NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            used_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+          );`
+        )
+      )
+      .then(() =>
+        pool.query(
+          `CREATE INDEX IF NOT EXISTS auth_tokens_user_purpose_idx ON auth_tokens(user_id, purpose);`
+        )
+      )
       // Outlook/Microsoft calendar: the long-lived refresh token so we can
       // fetch the person's upcoming meetings on their behalf. NULL until they
       // connect their calendar; cleared when they disconnect.
@@ -171,6 +201,8 @@ export interface PersistedUser {
   name: string;
   /** URL de la foto de perfil, o null si no tiene. */
   avatarUrl: string | null;
+  /** Está probado que el email es de esta persona (Google o enlace por correo). */
+  emailVerified: boolean;
 }
 
 // passwordHash is null for accounts created via Google Sign-In that never
@@ -178,10 +210,10 @@ export interface PersistedUser {
 type UserAuthRow = PersistedUser & {
   passwordHash: string | null;
   googleId: string | null;
-  /** El email fue probado (entró por Google). */
-  emailVerified: boolean;
   /** Los tokens con una versión menor a esta ya no valen. */
   tokenVersion: number;
+  /** A esta cuenta se le exige el email verificado para iniciar sesión. */
+  verificationRequired: boolean;
 };
 
 export interface PersistedRole {
@@ -264,18 +296,25 @@ export async function createUser(params: {
   email: string;
   name: string;
   passwordHash: string;
+  /**
+   * Exigir el email verificado para iniciar sesión. Lo decide index.ts según
+   * si el servidor sabe mandar correos: no se le puede pedir a nadie que
+   * confirme un email si el correo nunca va a salir.
+   */
+  verificationRequired: boolean;
 }): Promise<CreateUserResult> {
   if (!pool) return { ok: false, reason: "unavailable" };
   try {
     await migrate();
     const id = randomUUID();
-    await pool.query(`INSERT INTO users (id, email, password_hash, name) VALUES ($1, $2, $3, $4)`, [
-      id,
-      params.email,
-      params.passwordHash,
-      params.name,
-    ]);
-    return { ok: true, user: { id, email: params.email, name: params.name, avatarUrl: null } };
+    await pool.query(
+      `INSERT INTO users (id, email, password_hash, name, verification_required) VALUES ($1, $2, $3, $4, $5)`,
+      [id, params.email, params.passwordHash, params.name, params.verificationRequired]
+    );
+    return {
+      ok: true,
+      user: { id, email: params.email, name: params.name, avatarUrl: null, emailVerified: false },
+    };
   } catch (err) {
     // 23505 = unique_violation (email already registered).
     if ((err as { code?: string }).code === "23505") return { ok: false, reason: "duplicate" };
@@ -283,6 +322,12 @@ export async function createUser(params: {
     return { ok: false, reason: "unavailable" };
   }
 }
+
+// Una sola lista de columnas para las tres consultas de autenticación: si
+// mañana se agrega otra, agregarla en un lado y olvidarla en otro es
+// exactamente el tipo de descuido que deja pasar un token viejo.
+const AUTH_COLUMNS =
+  "id, email, name, avatar_url, password_hash, google_id, email_verified, token_version, verification_required";
 
 function toAuthRow(row: {
   id: string;
@@ -293,6 +338,7 @@ function toAuthRow(row: {
   google_id: string | null;
   email_verified?: boolean;
   token_version?: number;
+  verification_required?: boolean;
 }): UserAuthRow {
   return {
     id: row.id,
@@ -303,13 +349,14 @@ function toAuthRow(row: {
     googleId: row.google_id,
     emailVerified: Boolean(row.email_verified),
     tokenVersion: row.token_version ?? 1,
+    verificationRequired: Boolean(row.verification_required),
   };
 }
 
 export function getUserByEmail(email: string): Promise<UserAuthRow | null> {
   return safe(async () => {
     const { rows } = await pool!.query(
-      `SELECT id, email, name, avatar_url, password_hash, google_id, email_verified, token_version FROM users WHERE email = $1`,
+      `SELECT ${AUTH_COLUMNS} FROM users WHERE email = $1`,
       [email]
     );
     return rows[0] ? toAuthRow(rows[0]) : null;
@@ -319,7 +366,7 @@ export function getUserByEmail(email: string): Promise<UserAuthRow | null> {
 export function getUserByGoogleId(googleId: string): Promise<UserAuthRow | null> {
   return safe(async () => {
     const { rows } = await pool!.query(
-      `SELECT id, email, name, avatar_url, password_hash, google_id, email_verified, token_version FROM users WHERE google_id = $1`,
+      `SELECT ${AUTH_COLUMNS} FROM users WHERE google_id = $1`,
       [googleId]
     );
     return rows[0] ? toAuthRow(rows[0]) : null;
@@ -331,7 +378,7 @@ export function getUserByGoogleId(googleId: string): Promise<UserAuthRow | null>
 export function getUserAuthById(id: string): Promise<UserAuthRow | null> {
   return safe(async () => {
     const { rows } = await pool!.query(
-      `SELECT id, email, name, avatar_url, password_hash, google_id, email_verified, token_version FROM users WHERE id = $1`,
+      `SELECT ${AUTH_COLUMNS} FROM users WHERE id = $1`,
       [id]
     );
     return rows[0] ? toAuthRow(rows[0]) : null;
@@ -340,9 +387,20 @@ export function getUserAuthById(id: string): Promise<UserAuthRow | null> {
 
 export function getUserById(id: string): Promise<PersistedUser | null> {
   return safe(async () => {
-    const { rows } = await pool!.query(`SELECT id, email, name, avatar_url FROM users WHERE id = $1`, [id]);
+    const { rows } = await pool!.query(
+      `SELECT id, email, name, avatar_url, email_verified FROM users WHERE id = $1`,
+      [id]
+    );
     const row = rows[0];
-    return row ? { id: row.id, email: row.email, name: row.name, avatarUrl: row.avatar_url ?? null } : null;
+    return row
+      ? {
+          id: row.id,
+          email: row.email,
+          name: row.name,
+          avatarUrl: row.avatar_url ?? null,
+          emailVerified: Boolean(row.email_verified),
+        }
+      : null;
   }, null);
 }
 
@@ -358,11 +416,14 @@ export async function createUserWithGoogle(params: {
   if (!pool) throw new Error("La base de datos no está configurada.");
   const id = randomUUID();
   const avatarUrl = params.avatarUrl ?? null;
+  // email_verified = TRUE de entrada: Google ya probó que la dirección es de
+  // esta persona, que es justo lo que el enlace por correo va a buscar.
   await pool!.query(
-    `INSERT INTO users (id, email, password_hash, name, google_id, avatar_url) VALUES ($1, $2, NULL, $3, $4, $5)`,
+    `INSERT INTO users (id, email, password_hash, name, google_id, avatar_url, email_verified)
+     VALUES ($1, $2, NULL, $3, $4, $5, TRUE)`,
     [id, params.email, params.name, params.googleId, avatarUrl]
   );
-  return { id, email: params.email, name: params.name, avatarUrl };
+  return { id, email: params.email, name: params.name, avatarUrl, emailVerified: true };
 }
 
 // La foto que Google ya tiene sólo se copia si la persona todavía no eligió
@@ -458,6 +519,163 @@ export function claimAccountForVerifiedEmail(
     );
     return { passwordCleared: true };
   }, { passwordCleared: false });
+}
+
+// --- Enlaces de un solo uso enviados por correo ------------------------------
+
+export type AuthTokenPurpose = "verify-email" | "reset-password";
+
+/**
+ * Guarda un enlace pendiente. Recibe el HASH, no el token: el token en claro
+ * existe sólo el instante que tarda en irse dentro del correo.
+ *
+ * `false` significa que no se pudo guardar, y quien llama NO debe mandar el
+ * correo: un enlace que la base no conoce no se puede canjear, y la persona se
+ * queda esperando un mail que no sirve.
+ */
+export function createAuthToken(params: {
+  userId: string;
+  purpose: AuthTokenPurpose;
+  tokenHash: string;
+  email: string;
+  ttlMs: number;
+}): Promise<boolean> {
+  return safe(async () => {
+    // Barrido barato de lo que ya no sirve, aprovechando que estamos acá: sin
+    // esto la tabla crece para siempre con enlaces vencidos.
+    await pool!.query(`DELETE FROM auth_tokens WHERE expires_at < now() - INTERVAL '7 days'`);
+    await pool!.query(
+      `INSERT INTO auth_tokens (id, user_id, purpose, token_hash, email, expires_at)
+       VALUES ($1, $2, $3, $4, $5, now() + ($6::bigint * INTERVAL '1 millisecond'))`,
+      [randomUUID(), params.userId, params.purpose, params.tokenHash, params.email, params.ttlMs]
+    );
+    return true;
+  }, false);
+}
+
+/**
+ * Canjea un enlace. La marca de usado va en el MISMO UPDATE que lo busca, así
+ * que dos pedidos simultáneos con el mismo token no pueden ganar los dos: uno
+ * actualiza la fila y el otro no encuentra nada. Un `SELECT` y después un
+ * `UPDATE` habría dejado esa carrera abierta.
+ */
+export function consumeAuthToken(
+  tokenHash: string,
+  purpose: AuthTokenPurpose
+): Promise<{ userId: string; email: string } | null> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `UPDATE auth_tokens SET used_at = now()
+        WHERE token_hash = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > now()
+        RETURNING user_id, email`,
+      [tokenHash, purpose]
+    );
+    return rows[0] ? { userId: rows[0].user_id as string, email: rows[0].email as string } : null;
+  }, null);
+}
+
+/**
+ * Mira un enlace sin gastarlo. Existe por un motivo de trato, no de seguridad:
+ * el restablecimiento necesita el email de la cuenta para poder decir "esa
+ * contraseña contiene tu email" ANTES de quemar el enlace. Si se canjeara
+ * primero, escribir una contraseña débil te dejaría sin enlace y sin
+ * contraseña nueva, obligándote a pedir otro correo.
+ *
+ * No abre ninguna carrera: el canje sigue siendo un único UPDATE atómico, así
+ * que de dos pedidos simultáneos uno gana y el otro ve "ya se usó".
+ */
+export function peekAuthToken(
+  tokenHash: string,
+  purpose: AuthTokenPurpose
+): Promise<{ userId: string; email: string } | null> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `SELECT user_id, email FROM auth_tokens
+        WHERE token_hash = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > now()`,
+      [tokenHash, purpose]
+    );
+    return rows[0] ? { userId: rows[0].user_id as string, email: rows[0].email as string } : null;
+  }, null);
+}
+
+/**
+ * ¿Este token ya se usó hace poco? Sirve para que volver a abrir el enlace de
+ * verificación (el segundo clic, el "atrás" del navegador, o el escáner de
+ * correo del trabajo que lo abre antes que vos) muestre "listo" en vez de un
+ * error asustador. Sólo se usa para verificar el email: restablecer la
+ * contraseña sigue siendo estrictamente de un solo uso.
+ */
+export function wasAuthTokenRecentlyUsed(
+  tokenHash: string,
+  purpose: AuthTokenPurpose
+): Promise<string | null> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `SELECT user_id FROM auth_tokens
+        WHERE token_hash = $1 AND purpose = $2 AND used_at > now() - INTERVAL '24 hours'`,
+      [tokenHash, purpose]
+    );
+    return (rows[0]?.user_id as string) ?? null;
+  }, null);
+}
+
+/** Cuántos enlaces de este tipo se emitieron para esta cuenta en la ventana. */
+export function countRecentAuthTokens(
+  userId: string,
+  purpose: AuthTokenPurpose,
+  windowMs: number
+): Promise<number> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `SELECT count(*)::int AS n FROM auth_tokens
+        WHERE user_id = $1 AND purpose = $2
+          AND created_at > now() - ($3::bigint * INTERVAL '1 millisecond')`,
+      [userId, purpose, windowMs]
+    );
+    return (rows[0]?.n as number) ?? 0;
+  }, 0);
+}
+
+/** Quema los enlaces pendientes de ese tipo (al usar uno, o al cambiar la clave). */
+export function invalidateAuthTokens(userId: string, purpose: AuthTokenPurpose): Promise<void> {
+  return safe(async () => {
+    await pool!.query(
+      `UPDATE auth_tokens SET used_at = now()
+        WHERE user_id = $1 AND purpose = $2 AND used_at IS NULL`,
+      [userId, purpose]
+    );
+  }, undefined);
+}
+
+/** El email quedó probado. Sólo lo llama el canje de un enlace de verificación. */
+export function markEmailVerified(id: string): Promise<void> {
+  return safe(async () => {
+    await pool!.query(`UPDATE users SET email_verified = TRUE WHERE id = $1`, [id]);
+  }, undefined);
+}
+
+/**
+ * Cierre del restablecimiento, en una sola sentencia porque las tres cosas
+ * tienen que pasar juntas o ninguna:
+ *
+ *  - la contraseña nueva queda puesta;
+ *  - el email queda verificado (quien abrió el enlace probó tener el buzón);
+ *  - sube token_version, así que TODA sesión abierta antes deja de valer.
+ *
+ * Ese último punto es el que convierte esto en una recuperación de verdad: si
+ * alguien te había entrado a la cuenta, restablecer lo echa en el acto.
+ */
+export function applyPasswordReset(id: string, passwordHash: string): Promise<number> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `UPDATE users
+          SET password_hash = $2, email_verified = TRUE, token_version = token_version + 1
+        WHERE id = $1
+        RETURNING token_version`,
+      [id, passwordHash]
+    );
+    return (rows[0]?.token_version as number) ?? 1;
+  }, 1);
 }
 
 // --- Microsoft/Outlook calendar tokens -------------------------------------
@@ -647,6 +865,13 @@ export interface FolderShareRecipient {
   userId: string;
   name: string;
   email: string;
+  /**
+   * Si esa cuenta nunca probó ser dueña de su email, compartirle una carpeta
+   * es compartírsela a quien haya escrito esa dirección primero. No se
+   * bloquea (habría dejado de andar para todas las cuentas anteriores a la
+   * verificación), pero quien comparte tiene derecho a verlo.
+   */
+  emailVerified: boolean;
 }
 
 export function listFolderShares(
@@ -660,13 +885,18 @@ export function listFolderShares(
     ]);
     if (owned.rowCount === 0) return [];
     const { rows } = await pool!.query(
-      `SELECT u.id, u.name, u.email
+      `SELECT u.id, u.name, u.email, u.email_verified
        FROM folder_shares s JOIN users u ON u.id = s.shared_with_user_id
        WHERE s.folder_id = $1
        ORDER BY u.name ASC`,
       [folderId]
     );
-    return rows.map((r) => ({ userId: r.id, name: r.name, email: r.email }));
+    return rows.map((r) => ({
+      userId: r.id,
+      name: r.name,
+      email: r.email,
+      emailVerified: Boolean(r.email_verified),
+    }));
   }, []);
 }
 

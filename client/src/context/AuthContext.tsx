@@ -2,13 +2,22 @@ import { createContext, ReactNode, useContext, useEffect, useState } from "react
 import { AuthUser, authLogin, authMe, authRegister } from "../lib/api";
 import { getAuthToken, setAuthToken } from "../lib/authToken";
 
+export interface LoginFailure {
+  message: string;
+  /** Falta abrir el enlace del correo; ya se lo reenviamos. */
+  needsVerification: boolean;
+}
+
 interface AuthContextValue {
   user: AuthUser | null;
   // True only while we're validating a stored token on first load, so pages
   // can wait instead of briefly flashing the logged-out state.
   loading: boolean;
-  // Both return null on success or a human-readable error string.
-  login: (email: string, password: string) => Promise<string | null>;
+  // Ambos devuelven null si salió bien. Si no, un mensaje para mostrar --
+  // más, en el caso de entrar, si lo único que falta es confirmar el email
+  // (la contraseña era correcta), porque eso se resuelve distinto: no se
+  // arregla escribiendo otra cosa, sino abriendo el correo.
+  login: (email: string, password: string) => Promise<LoginFailure | null>;
   register: (email: string, password: string, name: string) => Promise<string | null>;
   logout: () => void;
   // Applies a freshly-saved profile (e.g. after renaming in Settings) so the
@@ -44,9 +53,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  async function login(email: string, password: string): Promise<string | null> {
+  async function login(email: string, password: string): Promise<LoginFailure | null> {
     const res = await authLogin(email, password);
-    if (res.error || !res.token || !res.user) return res.error ?? "No se pudo iniciar sesión.";
+    if (res.error || !res.token || !res.user) {
+      return {
+        message: res.error ?? "No se pudo iniciar sesión.",
+        needsVerification: res.needsVerification === true,
+      };
+    }
     setAuthToken(res.token);
     setUser(res.user);
     return null;

@@ -5,6 +5,7 @@ import AiChatBox from "../components/AiChatBox";
 import Button from "../components/Button";
 import Logo from "../components/Logo";
 import CalendarPanel from "../components/CalendarPanel";
+import EmailVerificationNotice from "../components/EmailVerificationNotice";
 import FolderShareDialog from "../components/FolderShareDialog";
 import {
   askAllMeetingsAI,
@@ -162,6 +163,11 @@ export default function History() {
           Reuniones guardadas con su chat, transcripción, grabación e informe. Organizalas en
           carpetas y compartilas.
         </p>
+
+        {/* Mientras el email no esté confirmado, la cuenta no se puede
+            recuperar. Va acá arriba porque el historial es justamente lo que
+            se pierde si eso pasa. */}
+        <EmailVerificationNotice className="mt-4" />
 
         {/* Honest notice when a guest's meeting couldn't be attached to this
             account (it already belongs to whoever opened that room logged in).

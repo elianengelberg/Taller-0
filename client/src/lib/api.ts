@@ -14,6 +14,12 @@ export interface AuthUser {
   name: string;
   /** Foto de perfil, o null si no tiene. */
   avatarUrl: string | null;
+  /**
+   * Está probado que el email es de esta persona: entró por Google, o abrió el
+   * enlace que le mandamos. Las cuentas anteriores a la verificación llegan en
+   * false hasta que la confirmen.
+   */
+  emailVerified: boolean;
 }
 
 export interface HistoryParticipant {
@@ -55,6 +61,8 @@ export interface FolderShareRecipient {
   userId: string;
   name: string;
   email: string;
+  /** Esa cuenta probó ser dueña de su email. Ver el aviso al compartir. */
+  emailVerified: boolean;
 }
 
 export interface CalendarEvent {
@@ -109,7 +117,7 @@ export async function authRegister(
   email: string,
   password: string,
   name: string
-): Promise<{ token?: string; user?: AuthUser; error?: string }> {
+): Promise<{ token?: string; user?: AuthUser; error?: string; verificationSent?: boolean }> {
   try {
     const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/register`, {
       method: "POST",
@@ -118,7 +126,7 @@ export async function authRegister(
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { error: data.error ?? "No se pudo crear la cuenta." };
-    return { token: data.token, user: data.user };
+    return { token: data.token, user: data.user, verificationSent: data.verificationSent === true };
   } catch {
     return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };
   }
@@ -127,7 +135,13 @@ export async function authRegister(
 export async function authLogin(
   email: string,
   password: string
-): Promise<{ token?: string; user?: AuthUser; error?: string }> {
+): Promise<{
+  token?: string;
+  user?: AuthUser;
+  error?: string;
+  /** La contraseña era correcta, pero falta abrir el enlace del correo. */
+  needsVerification?: boolean;
+}> {
   try {
     const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/login`, {
       method: "POST",
@@ -135,8 +149,92 @@ export async function authLogin(
       body: JSON.stringify({ email, password }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) return { error: data.error ?? "No se pudo iniciar sesión." };
+    if (!res.ok) {
+      return {
+        error: data.error ?? "No se pudo iniciar sesión.",
+        needsVerification: data.needsVerification === true,
+      };
+    }
     return { token: data.token, user: data.user };
+  } catch {
+    return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };
+  }
+}
+
+// --- Verificación de email y recuperación de contraseña ---------------------
+
+/**
+ * Pide (o vuelve a pedir) el enlace de verificación. Con sesión abierta va al
+ * email de la cuenta; sin ella hay que pasar la dirección, que es el caso de
+ * quien no puede entrar justamente porque no verificó.
+ *
+ * Responde siempre lo mismo exista o no la cuenta: el servidor no delata
+ * quién está registrado, y el cliente no puede fingir que sabe más.
+ */
+export async function requestEmailVerification(email?: string): Promise<{ ok?: boolean; error?: string }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/verify-email/request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(email ? { email } : {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo enviar el correo." };
+    return { ok: true };
+  } catch {
+    return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };
+  }
+}
+
+export async function confirmEmailVerification(
+  token: string
+): Promise<{ user?: AuthUser; alreadyVerified?: boolean; error?: string }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/verify-email/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo confirmar el email." };
+    // Confirmar el enlace ya probó que el buzón es tuyo, así que el servidor
+    // devuelve sesión y quedás adentro sin volver a escribir la contraseña.
+    if (typeof data.token === "string") setAuthToken(data.token);
+    return { user: data.user, alreadyVerified: data.alreadyVerified === true };
+  } catch {
+    return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };
+  }
+}
+
+export async function requestPasswordReset(email: string): Promise<{ ok?: boolean; error?: string }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/password-reset/request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo enviar el correo." };
+    return { ok: true };
+  } catch {
+    return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };
+  }
+}
+
+export async function confirmPasswordReset(
+  token: string,
+  password: string
+): Promise<{ user?: AuthUser; error?: string }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/password-reset/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo cambiar la contraseña." };
+    if (typeof data.token === "string") setAuthToken(data.token);
+    return { user: data.user };
   } catch {
     return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };
   }
@@ -160,15 +258,27 @@ export async function authMe(): Promise<{ user: AuthUser | null; unauthorized?: 
   }
 }
 
-// Whether the server has real Google OAuth credentials configured, so the
-// "Continuar con Google" button can be hidden instead of shown-but-broken.
-export async function fetchAuthConfig(): Promise<{ googleEnabled: boolean }> {
+export interface AuthConfig {
+  /** El servidor tiene credenciales de Google OAuth de verdad. */
+  googleEnabled: boolean;
+  /** Puede mandar el enlace de verificación (hay correo configurado). */
+  emailVerification: boolean;
+  /** Puede mandar el enlace para recuperar la contraseña. */
+  passwordReset: boolean;
+}
+
+// Qué sabe hacer de verdad este servidor, para que la pantalla de ingreso no
+// ofrezca botones que no funcionan: sin credenciales de Google no se muestra
+// "Continuar con Google", y sin correo configurado no se muestra "Olvidé mi
+// contraseña" (mandaría a una pantalla que nunca va a recibir el enlace).
+export async function fetchAuthConfig(): Promise<AuthConfig> {
+  const fallback: AuthConfig = { googleEnabled: false, emailVerification: false, passwordReset: false };
   try {
     const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/config`);
-    if (!res.ok) return { googleEnabled: false };
-    return await res.json();
+    if (!res.ok) return fallback;
+    return { ...fallback, ...(await res.json()) };
   } catch {
-    return { googleEnabled: false };
+    return fallback;
   }
 }
 

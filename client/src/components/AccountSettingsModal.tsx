@@ -12,6 +12,7 @@ import { prepareAvatar } from "../lib/avatar";
 import { cardClass, inputClass, labelClass } from "../lib/ui";
 import Avatar from "./Avatar";
 import Button from "./Button";
+import EmailVerificationNotice from "./EmailVerificationNotice";
 import { CloseIcon } from "./icons";
 
 // Basic account settings: rename and change password. A centered modal (not
@@ -169,6 +170,8 @@ export default function AccountSettingsModal({ onClose }: { onClose: () => void 
           </button>
         </div>
 
+        <EmailVerificationNotice className="mt-4" />
+
         {/* Foto de perfil: es lo que se ve junto al nombre en los subtítulos
             de cada reunión, así que va primero y en grande. */}
         <div className="mt-5 flex items-center gap-4">
@@ -239,7 +242,16 @@ export default function AccountSettingsModal({ onClose }: { onClose: () => void 
               Guardar
             </Button>
           </div>
-          {user?.email && <p className="text-xs text-ink-500">{user.email}</p>}
+          {user?.email && (
+            <p className="flex flex-wrap items-center gap-1.5 text-xs text-ink-500">
+              {user.email}
+              {user.emailVerified && (
+                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 font-medium text-emerald-400">
+                  Confirmado
+                </span>
+              )}
+            </p>
+          )}
           {nameStatus && (
             <p className={`text-xs ${nameStatus.kind === "ok" ? "text-emerald-400" : "text-red-400"}`}>
               {nameStatus.text}
