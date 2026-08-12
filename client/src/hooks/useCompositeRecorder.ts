@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   confirmRecordingComplete,
   markRecordingStarted,
+  fetchPlatformConfig,
   requestRecordingUploadUrl,
   uploadRecordingViaServer,
 } from "../lib/api";
+import { dropRecording, listPendingRecordings, markAttempt, stashRecording } from "../lib/recordingVault";
 import type { RecordingStatus, UploadStatus } from "./useRecorder";
 
 // Records a NATIVE Unify meeting by compositing every participant's video onto
@@ -272,9 +274,26 @@ export function useCompositeRecorder({ sceneRef, meetingDbId }: Options) {
         return;
       }
       setUploadStatus("uploading");
+      // Si el servidor no tiene dónde guardar, la subida no puede funcionar por
+      // más que se reintente: no se guarda nada en el navegador (sería llenarle
+      // el disco al usuario para nada) y se lo decimos.
+      if ((await fetchPlatformConfig()).recording === false) {
+        setUploadStatus("unavailable");
+        return;
+      }
+      // Al disco ANTES de intentar subir. La grabación de una reunión propia es
+      // el archivo más valioso que produce Unify, y hasta acá era la única que
+      // NO tenía red de contención: si la subida fallaba o se cerraba la
+      // pestaña, se perdía. Las reuniones externas ya lo tenían.
+      const vaultId = await stashRecording({ meetingDbId: dbId, blob, contentType, durationMs });
+      const finish = async (ok: boolean) => {
+        if (ok && vaultId) await dropRecording(vaultId);
+        setUploadStatus(ok ? "uploaded" : vaultId ? "failed" : "unavailable");
+      };
+
       const target = await requestRecordingUploadUrl(dbId, contentType);
       if (!target) {
-        setUploadStatus("unavailable");
+        await finish(false);
         return;
       }
       // Fast path: the browser PUTs straight to R2 with the presigned URL
@@ -298,7 +317,7 @@ export function useCompositeRecorder({ sceneRef, meetingDbId }: Options) {
       if (directOk) {
         // durationMs lets the server anchor the transcript to the video.
         await confirmRecordingComplete(dbId, target.publicUrl, durationMs);
-        setUploadStatus("uploaded");
+        await finish(true);
         return;
       }
 
@@ -307,10 +326,66 @@ export function useCompositeRecorder({ sceneRef, meetingDbId }: Options) {
       // the recording reaches the history even if the bucket's CORS isn't set
       // up to allow a direct browser PUT.
       const viaServer = await uploadRecordingViaServer(dbId, blob, contentType, durationMs);
-      setUploadStatus(viaServer ? "uploaded" : "failed");
+      await finish(viaServer);
     },
     []
   );
+
+  // Cerrar la pestaña mientras se graba o mientras el video está subiendo
+  // abandonaba el archivo a mitad de camino. Ahora el navegador pregunta antes
+  // y, si igual se va, la grabación ya quedó en la bóveda y se reintenta sola.
+  useEffect(() => {
+    const busy = status === "recording" || status === "processing" || uploadStatus === "uploading";
+    if (!busy) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+      return "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [status, uploadStatus]);
+
+  // Reintento de rescate al montar: sube lo que haya quedado colgado de una
+  // sesión anterior (pestaña cerrada a mitad de subida, red caída, servidor
+  // dormido). En silencio, porque no es lo que la persona vino a hacer ahora.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const pending = await listPendingRecordings();
+      if (pending.length === 0 || cancelled) return;
+      if ((await fetchPlatformConfig()).recording === false) return;
+      for (const rec of pending) {
+        if (cancelled) return;
+        if (rec.attempts >= 3) continue;
+        await markAttempt(rec.id);
+        const target = await requestRecordingUploadUrl(rec.meetingDbId, rec.contentType);
+        let ok = false;
+        if (target) {
+          try {
+            const res = await fetch(target.uploadUrl, {
+              method: "PUT",
+              headers: { "Content-Type": rec.contentType },
+              body: rec.blob,
+            });
+            if (res.ok) {
+              await confirmRecordingComplete(rec.meetingDbId, target.publicUrl, rec.durationMs);
+              ok = true;
+            }
+          } catch {
+            ok = false;
+          }
+        }
+        if (!ok) {
+          ok = await uploadRecordingViaServer(rec.meetingDbId, rec.blob, rec.contentType, rec.durationMs);
+        }
+        if (ok) await dropRecording(rec.id);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const start = useCallback(async () => {
     if (recorderRef.current) return;

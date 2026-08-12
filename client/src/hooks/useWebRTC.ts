@@ -31,6 +31,18 @@ export function useWebRTC({ socket, selfId, peerIds, localStream, enabled }: Use
   // one-way (we see/hear them; they never see/hear us). Tracked here so the
   // effect below can add the stream retroactively the moment it's ready.
   const streamlessPeersRef = useRef<Set<string>>(new Set());
+  // Una conexión que falla no vuelve sola.
+  //
+  // `destroyPeer` la saca del mapa, pero el efecto de la malla sólo se ejecuta
+  // cuando cambia la lista de participantes: si nadie entra ni sale, ese par
+  // queda sin audio ni video para siempre mientras los dos se siguen viendo en
+  // la lista. Es el clásico "yo no te escucho pero vos a mí sí". Este contador
+  // vuelve a disparar el efecto para que reconstruya lo que se cayó.
+  const [rebuildTick, setRebuildTick] = useState(0);
+  // Intentos por peer, para que un par irrecuperable no reintente para siempre.
+  const attemptsRef = useRef<Map<string, number>>(new Map());
+  const retryTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  const MAX_REBUILDS = 4;
 
   function destroyPeer(peerId: string) {
     const peer = peersRef.current.get(peerId);
@@ -68,10 +80,24 @@ export function useWebRTC({ socket, selfId, peerIds, localStream, enabled }: Use
     peer.on("error", (err) => {
       console.error(`Error en la conexión WebRTC con ${peerId}:`, err);
       destroyPeer(peerId);
+      scheduleRebuild(peerId);
     });
 
     peersRef.current.set(peerId, peer);
     return peer;
+  }
+
+  // Reconstruye la conexión con `peerId` tras una espera corta: un fallo de ICE
+  // suele ser un bache de red, y reintentar al instante falla igual.
+  function scheduleRebuild(peerId: string) {
+    const attempts = (attemptsRef.current.get(peerId) ?? 0) + 1;
+    attemptsRef.current.set(peerId, attempts);
+    if (attempts > MAX_REBUILDS) return;
+    const timer = setTimeout(() => {
+      retryTimersRef.current.delete(timer);
+      setRebuildTick((n) => n + 1);
+    }, 1500 * attempts);
+    retryTimersRef.current.add(timer);
   }
 
   useEffect(() => {
@@ -125,15 +151,35 @@ export function useWebRTC({ socket, selfId, peerIds, localStream, enabled }: Use
     for (const existingId of Array.from(peersRef.current.keys())) {
       if (!desired.has(existingId)) {
         destroyPeer(existingId);
+        // Se fue de la reunión: si vuelve, arranca con la cuenta en cero.
+        attemptsRef.current.delete(existingId);
       }
     }
-  }, [enabled, selfId, peerIds.join(","), localStream]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, selfId, peerIds.join(","), localStream, rebuildTick]);
+
+  // Una conexión que aguanta un rato ya no cuenta como problemática: sin esto,
+  // cuatro baches a lo largo de una reunión de dos horas la dejarían sin
+  // reintentos aunque cada uno se hubiera recuperado bien.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      for (const peerId of Array.from(attemptsRef.current.keys())) {
+        if (peersRef.current.has(peerId)) attemptsRef.current.delete(peerId);
+      }
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const peers = peersRef.current;
+    const timers = retryTimersRef.current;
     return () => {
       peers.forEach((peer) => peer.destroy());
       peers.clear();
+      // Sin esto, un reintento programado dispararía un setState después de
+      // desmontar el componente.
+      timers.forEach((t) => clearTimeout(t));
+      timers.clear();
     };
   }, []);
 
