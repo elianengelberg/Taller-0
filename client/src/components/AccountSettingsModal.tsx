@@ -1,7 +1,13 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { ThemeMode, useTheme } from "../context/ThemeContext";
-import { changePassword, fetchPlatformConfig, updateProfile, uploadAvatar } from "../lib/api";
+import {
+  changePassword,
+  fetchPlatformConfig,
+  logoutEverywhere,
+  updateProfile,
+  uploadAvatar,
+} from "../lib/api";
 import { prepareAvatar } from "../lib/avatar";
 import { cardClass, inputClass, labelClass } from "../lib/ui";
 import Avatar from "./Avatar";
@@ -126,7 +132,26 @@ export default function AccountSettingsModal({ onClose }: { onClose: () => void 
     setCurrentPassword("");
     setNewPassword("");
     setConfirmPassword("");
-    setPasswordStatus({ kind: "ok", text: "Contraseña actualizada." });
+    setPasswordStatus({
+      kind: "ok",
+      text: "Contraseña actualizada. Se cerró la sesión en los demás dispositivos.",
+    });
+  }
+
+  // Para cuando sospechás que alguien más entró: invalida todos los tokens
+  // emitidos hasta ahora, incluido el que tenga quien no debería estar.
+  const [closingSessions, setClosingSessions] = useState(false);
+  const [sessionsStatus, setSessionsStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  async function handleLogoutEverywhere() {
+    setClosingSessions(true);
+    setSessionsStatus(null);
+    const res = await logoutEverywhere();
+    setClosingSessions(false);
+    setSessionsStatus(
+      res.error
+        ? { kind: "error", text: res.error }
+        : { kind: "ok", text: "Listo: se cerró la sesión en todos los demás dispositivos." }
+    );
   }
 
   return (
@@ -309,6 +334,32 @@ export default function AccountSettingsModal({ onClose }: { onClose: () => void 
               Actualizar contraseña
             </Button>
           </form>
+        </div>
+
+        <div className="mt-6 border-t border-ink-700 pt-5">
+          <h3 className="text-sm font-semibold text-strong">Sesiones abiertas</h3>
+          <p className="mt-1 text-xs leading-relaxed text-ink-400">
+            Si entraste desde una computadora prestada, o creés que alguien más está en tu cuenta,
+            cerrá todo desde acá. Vas a seguir conectado sólo en este dispositivo.
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            className="mt-3 w-full"
+            onClick={handleLogoutEverywhere}
+            disabled={closingSessions}
+          >
+            {closingSessions ? "Cerrando…" : "Cerrar sesión en los demás dispositivos"}
+          </Button>
+          {sessionsStatus && (
+            <p
+              className={`mt-2 text-xs ${
+                sessionsStatus.kind === "ok" ? "text-emerald-400" : "text-red-400"
+              }`}
+            >
+              {sessionsStatus.text}
+            </p>
+          )}
         </div>
       </div>
     </div>

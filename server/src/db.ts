@@ -89,6 +89,19 @@ function migrate(): Promise<void> {
       // Google ya viven en su CDN y las nuestras en el bucket (ver storage.ts),
       // así la foto no engorda cada snapshot de la reunión.
       .then(() => pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;`))
+      // ¿Está probado que esta persona es dueña de ese email? Google lo prueba;
+      // registrarse con email y contraseña, no. La diferencia importa: sin ella,
+      // cualquiera podía registrar la cuenta con el email de otro y quedarse
+      // adentro cuando el dueño real entrara con Google (ver el callback).
+      .then(() => pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE;`))
+      // Las cuentas que ya existen y entran por Google tienen su email probado
+      // por Google desde siempre.
+      .then(() => pool.query(`UPDATE users SET email_verified = TRUE WHERE google_id IS NOT NULL AND email_verified = FALSE;`))
+      // Versión de sesión: viaja dentro del token y se incrementa al cambiar la
+      // contraseña o al cerrar sesión en todos lados. Subirla mata de golpe cada
+      // token emitido antes -- que es lo único que saca de la cuenta a alguien
+      // que ya te robó la sesión.
+      .then(() => pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 1;`))
       // Outlook/Microsoft calendar: the long-lived refresh token so we can
       // fetch the person's upcoming meetings on their behalf. NULL until they
       // connect their calendar; cleared when they disconnect.
@@ -162,7 +175,14 @@ export interface PersistedUser {
 
 // passwordHash is null for accounts created via Google Sign-In that never
 // set a password -- callers must check before handing it to verifyPassword.
-type UserAuthRow = PersistedUser & { passwordHash: string | null; googleId: string | null };
+type UserAuthRow = PersistedUser & {
+  passwordHash: string | null;
+  googleId: string | null;
+  /** El email fue probado (entró por Google). */
+  emailVerified: boolean;
+  /** Los tokens con una versión menor a esta ya no valen. */
+  tokenVersion: number;
+};
 
 export interface PersistedRole {
   id: string;
@@ -271,6 +291,8 @@ function toAuthRow(row: {
   avatar_url: string | null;
   password_hash: string | null;
   google_id: string | null;
+  email_verified?: boolean;
+  token_version?: number;
 }): UserAuthRow {
   return {
     id: row.id,
@@ -279,13 +301,15 @@ function toAuthRow(row: {
     avatarUrl: row.avatar_url ?? null,
     passwordHash: row.password_hash,
     googleId: row.google_id,
+    emailVerified: Boolean(row.email_verified),
+    tokenVersion: row.token_version ?? 1,
   };
 }
 
 export function getUserByEmail(email: string): Promise<UserAuthRow | null> {
   return safe(async () => {
     const { rows } = await pool!.query(
-      `SELECT id, email, name, avatar_url, password_hash, google_id FROM users WHERE email = $1`,
+      `SELECT id, email, name, avatar_url, password_hash, google_id, email_verified, token_version FROM users WHERE email = $1`,
       [email]
     );
     return rows[0] ? toAuthRow(rows[0]) : null;
@@ -295,7 +319,7 @@ export function getUserByEmail(email: string): Promise<UserAuthRow | null> {
 export function getUserByGoogleId(googleId: string): Promise<UserAuthRow | null> {
   return safe(async () => {
     const { rows } = await pool!.query(
-      `SELECT id, email, name, avatar_url, password_hash, google_id FROM users WHERE google_id = $1`,
+      `SELECT id, email, name, avatar_url, password_hash, google_id, email_verified, token_version FROM users WHERE google_id = $1`,
       [googleId]
     );
     return rows[0] ? toAuthRow(rows[0]) : null;
@@ -307,7 +331,7 @@ export function getUserByGoogleId(googleId: string): Promise<UserAuthRow | null>
 export function getUserAuthById(id: string): Promise<UserAuthRow | null> {
   return safe(async () => {
     const { rows } = await pool!.query(
-      `SELECT id, email, name, avatar_url, password_hash, google_id FROM users WHERE id = $1`,
+      `SELECT id, email, name, avatar_url, password_hash, google_id, email_verified, token_version FROM users WHERE id = $1`,
       [id]
     );
     return rows[0] ? toAuthRow(rows[0]) : null;
@@ -378,6 +402,62 @@ export function updateUserPasswordHash(id: string, passwordHash: string): Promis
   return safe(async () => {
     await pool!.query(`UPDATE users SET password_hash = $2 WHERE id = $1`, [id, passwordHash]);
   }, undefined);
+}
+
+/**
+ * Invalida TODAS las sesiones abiertas de esta cuenta y devuelve la versión
+ * nueva. Se llama al cambiar la contraseña y al pedir "cerrar sesión en todos
+ * lados": sin esto, cambiar la contraseña no echaba a quien ya tenía tu token.
+ */
+export function bumpTokenVersion(id: string): Promise<number> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `UPDATE users SET token_version = token_version + 1 WHERE id = $1 RETURNING token_version`,
+      [id]
+    );
+    return (rows[0]?.token_version as number) ?? 1;
+  }, 1);
+}
+
+/** Sólo la versión de sesión vigente, para validar un token. */
+export function getTokenVersion(id: string): Promise<number | null> {
+  return safe(async () => {
+    const { rows } = await pool!.query(`SELECT token_version FROM users WHERE id = $1`, [id]);
+    return rows[0] ? ((rows[0].token_version as number) ?? 1) : null;
+  }, null);
+}
+
+/**
+ * Google acaba de probar que esta persona es dueña del email. Si la cuenta
+ * tenía una contraseña puesta por alguien que NUNCA probó ser dueño del email,
+ * esa contraseña se borra: es la única forma de sacar de la cuenta a quien la
+ * registró primero con el email ajeno. Devuelve si hubo que borrarla.
+ */
+export function claimAccountForVerifiedEmail(
+  id: string,
+  googleId: string
+): Promise<{ passwordCleared: boolean }> {
+  return safe(async () => {
+    // Se lee primero para no depender del orden de evaluación de un RETURNING
+    // sobre la misma fila que se está actualizando.
+    const { rows } = await pool!.query(`SELECT email_verified FROM users WHERE id = $1`, [id]);
+    const wasVerified = Boolean(rows[0]?.email_verified);
+    if (wasVerified) {
+      await pool!.query(`UPDATE users SET google_id = $2 WHERE id = $1`, [id, googleId]);
+      return { passwordCleared: false };
+    }
+    // Nunca se probó que quien puso esa contraseña fuera dueño del email.
+    // Google acaba de probar lo contrario, así que la contraseña se va y las
+    // sesiones abiertas con ella también.
+    await pool!.query(
+      `UPDATE users
+          SET google_id = $2, email_verified = TRUE, password_hash = NULL,
+              token_version = token_version + 1
+        WHERE id = $1`,
+      [id, googleId]
+    );
+    return { passwordCleared: true };
+  }, { passwordCleared: false });
 }
 
 // --- Microsoft/Outlook calendar tokens -------------------------------------

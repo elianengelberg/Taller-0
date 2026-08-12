@@ -1,4 +1,4 @@
-import { getAuthToken } from "./authToken";
+import { getAuthToken, setAuthToken } from "./authToken";
 import { SERVER_URL } from "./socket";
 
 // Attaches the session token (if any) so the private history/AI endpoints
@@ -262,6 +262,27 @@ export async function changePassword(
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { error: data.error ?? "No se pudo cambiar la contraseña." };
+    // Cambiar la contraseña cierra TODAS las sesiones abiertas -- incluida
+    // esta. El servidor devuelve un token nuevo para que quien la cambió no
+    // se quede afuera de rebote.
+    if (typeof data.token === "string") setAuthToken(data.token);
+    return { ok: true };
+  } catch {
+    return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };
+  }
+}
+
+// Cierra la sesión en todos los dispositivos y renueva la de este. Para usar
+// cuando sospechás que alguien más entró a tu cuenta.
+export async function logoutEverywhere(): Promise<{ ok?: boolean; error?: string }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/logout-everywhere`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo cerrar las sesiones." };
+    if (typeof data.token === "string") setAuthToken(data.token);
     return { ok: true };
   } catch {
     return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };

@@ -3,10 +3,12 @@ import express, { NextFunction, Request, Response } from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { answerFromMeeting, generateMeetingReport } from "./ai";
-import { hashPassword, signToken, verifyPassword, verifyToken } from "./auth";
+import { hashPassword, signToken, verifyPassword, verifyToken, verifyTokenClaims } from "./auth";
 import {
   attachRecording,
+  bumpTokenVersion,
   canAccessFolder,
+  claimAccountForVerifiedEmail,
   claimMeeting,
   createMeetingRecord,
   clearMsRefreshToken,
@@ -22,6 +24,7 @@ import {
   getUserAuthById,
   getUserByEmail,
   getUserByGoogleId,
+  getTokenVersion,
   getUserById,
   linkGoogleId,
   listFolders,
@@ -230,16 +233,117 @@ interface AuthedRequest extends Request {
 // Gate for the private endpoints (meeting history + its AI). Reads the Bearer
 // token, and 401s if it's missing/expired/forged. On success the caller's user
 // id is attached to the request for owner-scoped queries.
+// Versión de sesión vigente por cuenta. La base es la fuente de verdad; esto
+// evita una consulta por cada pedido autenticado. Se refresca al invalidar.
+const tokenVersionCache = new Map<string, number>();
+
+async function currentTokenVersion(userId: string): Promise<number | null> {
+  const cached = tokenVersionCache.get(userId);
+  if (cached !== undefined) return cached;
+  const fresh = await getTokenVersion(userId);
+  if (fresh === null) return null;
+  if (tokenVersionCache.size > 10_000) tokenVersionCache.clear();
+  tokenVersionCache.set(userId, fresh);
+  return fresh;
+}
+
+function invalidateSessions(userId: string, newVersion: number): void {
+  tokenVersionCache.set(userId, newVersion);
+}
+
 function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const header = req.headers.authorization;
   const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
-  const userId = verifyToken(token);
-  if (!userId) {
+  const claims = verifyTokenClaims(token);
+  if (!claims) {
     res.status(401).json({ error: "Iniciá sesión para continuar." });
     return;
   }
-  (req as AuthedRequest).userId = userId;
-  next();
+  // La firma es válida, pero puede ser un token de antes de que se cambiara la
+  // contraseña o se cerraran las sesiones. Eso es justamente lo que saca de la
+  // cuenta a quien te robó la sesión.
+  void currentTokenVersion(claims.userId).then((version) => {
+    if (version === null || claims.version < version) {
+      res.status(401).json({ error: "Tu sesión ya no es válida. Iniciá sesión de nuevo." });
+      return;
+    }
+    (req as AuthedRequest).userId = claims.userId;
+    next();
+  });
+}
+
+// Freno por CUENTA, además del que ya hay por IP.
+//
+// El límite por IP no alcanza: quien prueba contraseñas contra una cuenta
+// concreta puede repartir los intentos entre muchas IPs (proxies, botnets) y
+// nunca tocar ese tope. Esto cuenta los fallos por email y hace esperar cada
+// vez más, que es lo que vuelve inviable adivinar una contraseña.
+//
+// Los intentos exitosos limpian el contador, así que a quien sabe su
+// contraseña esto no lo toca nunca.
+const failedLogins = new Map<string, { count: number; until: number }>();
+const LOGIN_LOCK_AFTER = 5;
+const LOGIN_LOCK_MAX_MS = 15 * 60_000;
+
+function loginLockRemainingMs(email: string): number {
+  const rec = failedLogins.get(email);
+  if (!rec) return 0;
+  return Math.max(0, rec.until - Date.now());
+}
+
+function noteFailedLogin(email: string): void {
+  if (failedLogins.size > 20_000) {
+    const now = Date.now();
+    for (const [k, v] of failedLogins) if (v.until < now) failedLogins.delete(k);
+    if (failedLogins.size > 20_000) failedLogins.clear();
+  }
+  const rec = failedLogins.get(email) ?? { count: 0, until: 0 };
+  rec.count += 1;
+  if (rec.count >= LOGIN_LOCK_AFTER) {
+    // Espera creciente: 30s, 1m, 2m, 4m… hasta 15 minutos.
+    const step = rec.count - LOGIN_LOCK_AFTER;
+    rec.until = Date.now() + Math.min(LOGIN_LOCK_MAX_MS, 30_000 * 2 ** step);
+  }
+  failedLogins.set(email, rec);
+}
+
+function clearFailedLogins(email: string): void {
+  failedLogins.delete(email);
+}
+
+// Contraseñas que no protegen nada. Una cuenta con "12345678" es una cuenta
+// abierta, por más límites que tenga el servidor.
+const WEAK_PASSWORDS = new Set([
+  "12345678", "123456789", "1234567890", "password", "contrasena", "contraseña",
+  "qwertyui", "11111111", "00000000", "iloveyou", "princess", "abc12345",
+  "password1", "passw0rd", "unify123", "admin123", "12341234", "qwerty123",
+]);
+
+/** Devuelve el motivo del rechazo, o null si la contraseña sirve. */
+function weakPasswordReason(password: string, email: string): string | null {
+  if (password.length < 8) return "La contraseña debe tener al menos 8 caracteres.";
+  if (password.length > 200) return "La contraseña es demasiado larga.";
+  const lower = password.toLowerCase();
+  if (WEAK_PASSWORDS.has(lower)) {
+    return "Esa contraseña es de las más usadas del mundo y se adivina al instante. Elegí otra.";
+  }
+  const localPart = email.split("@")[0]?.toLowerCase();
+  if (localPart && localPart.length >= 4 && lower.includes(localPart)) {
+    return "La contraseña no puede contener tu email: es lo primero que se prueba.";
+  }
+  if (/^(.)\1+$/.test(password)) return "Una contraseña de un solo carácter repetido no protege nada.";
+  // Secuencias corridas ("12345678", "abcdefgh").
+  let run = 1;
+  for (let i = 1; i < password.length; i++) {
+    run = password.charCodeAt(i) === password.charCodeAt(i - 1) + 1 ? run + 1 : 1;
+    if (run >= 6) return "Evitá secuencias corridas como 12345678 o abcdefgh.";
+  }
+  // Al menos dos tipos de carácter: letras, números o símbolos.
+  const kinds = [/[a-záéíóúñ]/i.test(password), /\d/.test(password), /[^a-záéíóúñ\d]/i.test(password)];
+  if (kinds.filter(Boolean).length < 2) {
+    return "Combiná al menos letras y números para que no se adivine.";
+  }
+  return null;
 }
 
 const accountsUnavailable = "Las cuentas no están disponibles: falta configurar la base de datos.";
@@ -256,8 +360,9 @@ app.post("/api/auth/register", authRateLimit, async (req, res) => {
     res.status(400).json({ error: "Ingresá un email válido." });
     return;
   }
-  if (password.length < 8) {
-    res.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres." });
+  const weak = weakPasswordReason(password, email);
+  if (weak) {
+    res.status(400).json({ error: weak });
     return;
   }
   if (!name) {
@@ -273,7 +378,7 @@ app.post("/api/auth/register", authRateLimit, async (req, res) => {
     res.status(503).json({ error: "No se pudo crear la cuenta en este momento." });
     return;
   }
-  res.json({ token: signToken(result.user.id), user: result.user });
+  res.json({ token: signToken(result.user.id, 1), user: result.user });
 });
 
 app.post("/api/auth/login", authRateLimit, async (req, res) => {
@@ -283,6 +388,18 @@ app.post("/api/auth/login", authRateLimit, async (req, res) => {
   }
   const email = String(req.body?.email ?? "").trim().toLowerCase();
   const password = String(req.body?.password ?? "");
+
+  // Freno por cuenta antes de tocar la base: quien está probando contraseñas
+  // contra ESTE email espera cada vez más, aunque cambie de IP en cada intento.
+  const lockedFor = loginLockRemainingMs(email);
+  if (lockedFor > 0) {
+    res.setHeader("Retry-After", String(Math.ceil(lockedFor / 1000)));
+    res.status(429).json({
+      error: `Demasiados intentos fallidos con este email. Probá de nuevo en ${Math.ceil(lockedFor / 60000)} minuto(s).`,
+    });
+    return;
+  }
+
   const user = await getUserByEmail(email);
   if (user && user.passwordHash === null) {
     res.status(401).json({ error: "Esa cuenta se creó con Google. Iniciá sesión con Google." });
@@ -291,11 +408,13 @@ app.post("/api/auth/login", authRateLimit, async (req, res) => {
   // Same message whether the email is unknown or the password is wrong, so we
   // don't reveal which emails have accounts.
   if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
+    noteFailedLogin(email);
     res.status(401).json({ error: "Email o contraseña incorrectos." });
     return;
   }
+  clearFailedLogins(email);
   res.json({
-    token: signToken(user.id),
+    token: signToken(user.id, user.tokenVersion),
     user: { id: user.id, email: user.email, name: user.name, avatarUrl: user.avatarUrl },
   });
 });
@@ -379,13 +498,18 @@ app.post("/api/auth/me/avatar", requireAuth, avatarLimit, async (req, res) => {
   }
 });
 
+// Cierra la sesión en TODOS los dispositivos y devuelve un token nuevo para
+// este. Es lo que hay que tocar si sospechás que alguien entró a tu cuenta.
+app.post("/api/auth/logout-everywhere", requireAuth, async (req, res) => {
+  const userId = (req as AuthedRequest).userId!;
+  const version = await bumpTokenVersion(userId);
+  invalidateSessions(userId, version);
+  res.json({ ok: true, token: signToken(userId, version) });
+});
+
 app.post("/api/auth/change-password", authRateLimit, requireAuth, async (req, res) => {
   const currentPassword = String(req.body?.currentPassword ?? "");
   const newPassword = String(req.body?.newPassword ?? "");
-  if (newPassword.length < 8) {
-    res.status(400).json({ error: "La nueva contraseña debe tener al menos 8 caracteres." });
-    return;
-  }
   const user = await getUserAuthById((req as AuthedRequest).userId!);
   if (!user) {
     res.status(401).json({ error: "Sesión inválida." });
@@ -395,12 +519,22 @@ app.post("/api/auth/change-password", authRateLimit, requireAuth, async (req, re
     res.status(400).json({ error: "Esta cuenta usa Google para iniciar sesión y no tiene contraseña." });
     return;
   }
+  const weakNew = weakPasswordReason(newPassword, user.email);
+  if (weakNew) {
+    res.status(400).json({ error: weakNew });
+    return;
+  }
   if (!verifyPassword(currentPassword, user.passwordHash)) {
     res.status(401).json({ error: "La contraseña actual no es correcta." });
     return;
   }
   await updateUserPasswordHash(user.id, hashPassword(newPassword));
-  res.json({ ok: true });
+  // Cambiar la contraseña ahora SÍ echa a quien tuviera la sesión abierta --
+  // que es el motivo por el que uno la cambia cuando sospecha algo. Se devuelve
+  // un token nuevo para no cerrarle la sesión a quien acaba de cambiarla.
+  const version = await bumpTokenVersion(user.id);
+  invalidateSessions(user.id, version);
+  res.json({ ok: true, token: signToken(user.id, version) });
 });
 
 // Lets the client show/hide "Continuar con Google" without guessing --
@@ -462,23 +596,42 @@ app.get("/api/auth/google/callback", async (req, res) => {
     if (!user) {
       const byEmail = await getUserByEmail(profile.email);
       if (byEmail) {
-        // Same email already has a password account -- link Google to it
-        // instead of failing on the duplicate-email constraint.
-        await linkGoogleId(byEmail.id, profile.googleId);
-        // Y si esa cuenta no tenía foto, se queda con la de Google.
+        // Ya existe una cuenta con ese email. Vincularla a ciegas era un
+        // agujero: cualquiera podía registrarse ANTES con el email de otra
+        // persona (nada obliga a probar que el email es tuyo), esperar a que
+        // la dueña real entrara con Google, y quedarse con acceso permanente
+        // a su historial usando la contraseña que él mismo había puesto.
+        //
+        // Google sí prueba el email. Así que si esa cuenta nunca lo probó, la
+        // contraseña que tenía la puso alguien sin derecho: se borra y se
+        // cierran sus sesiones. La dueña real se queda con la cuenta y entra
+        // por Google.
+        const { passwordCleared } = await claimAccountForVerifiedEmail(byEmail.id, profile.googleId);
+        if (passwordCleared) {
+          console.warn(
+            `[google-auth] cuenta ${byEmail.id} reclamada por su email verificado; se limpió una contraseña sin verificar`
+          );
+        }
         if (profile.picture && !byEmail.avatarUrl) {
           await setAvatarIfMissing(byEmail.id, profile.picture);
         }
-        user = byEmail;
+        const refreshed = await getUserByEmail(profile.email);
+        user = refreshed ?? byEmail;
       } else {
         const created = await createUserWithGoogle({ ...profile, avatarUrl: profile.picture });
-        user = { ...created, passwordHash: null, googleId: profile.googleId };
+        user = {
+          ...created,
+          passwordHash: null,
+          googleId: profile.googleId,
+          emailVerified: true,
+          tokenVersion: 1,
+        };
       }
     }
     // Token travels in the URL FRAGMENT, not a query param: fragments never
     // leave the browser, so the token can't end up in Vercel's request logs
     // or a Referer header on its way to the client.
-    res.redirect(`${CLIENT_ORIGIN}/auth/google#token=${signToken(user.id)}`);
+    res.redirect(`${CLIENT_ORIGIN}/auth/google#token=${signToken(user.id, user.tokenVersion)}`);
   } catch (err) {
     console.error("[google-auth] callback error:", err instanceof Error ? err.message : err);
     res.redirect(`${CLIENT_ORIGIN}/ingresar?googleError=1`);

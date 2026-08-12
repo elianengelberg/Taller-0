@@ -73,10 +73,17 @@ function sign(data: string): string {
   return base64url(createHmac("sha256", AUTH_SECRET).update(data).digest());
 }
 
-export function signToken(userId: string): string {
+// `version` es la versión de sesión de la cuenta (ver db.bumpTokenVersion).
+// Va firmada dentro del token para que cambiar la contraseña -- o pedir
+// "cerrar sesión en todos lados" -- invalide de inmediato todo lo emitido
+// antes. Sin esto, a alguien que te robó la sesión no lo sacaba nada durante
+// los 30 días de vida del token.
+export function signToken(userId: string, version = 1): string {
   const header = base64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
   const now = Math.floor(Date.now() / 1000);
-  const payload = base64url(JSON.stringify({ sub: userId, iat: now, exp: now + TOKEN_TTL_SECONDS }));
+  const payload = base64url(
+    JSON.stringify({ sub: userId, v: version, iat: now, exp: now + TOKEN_TTL_SECONDS })
+  );
   const signature = sign(`${header}.${payload}`);
   return `${header}.${payload}.${signature}`;
 }
@@ -87,7 +94,14 @@ export function signToken(userId: string): string {
 // JSON.parse sobre una cadena enorme mandada sólo para hacernos trabajar.
 const MAX_TOKEN_CHARS = 4096;
 
-export function verifyToken(token: string | null | undefined): string | null {
+export interface TokenClaims {
+  userId: string;
+  /** Versión de sesión que traía el token. Los viejos no la traen: valen 1. */
+  version: number;
+}
+
+/** Igual que verifyToken pero devuelve también la versión de sesión. */
+export function verifyTokenClaims(token: string | null | undefined): TokenClaims | null {
   if (!token || token.length > MAX_TOKEN_CHARS) return null;
   const parts = token.split(".");
   if (parts.length !== 3) return null;
@@ -103,12 +117,26 @@ export function verifyToken(token: string | null | undefined): string | null {
     // clásico de degradar la firma cambiando el encabezado.
     const head = JSON.parse(Buffer.from(header, "base64").toString()) as { alg?: string };
     if (head.alg !== "HS256") return null;
-    const decoded = JSON.parse(Buffer.from(payload, "base64").toString()) as { sub?: string; exp?: number };
+    const decoded = JSON.parse(Buffer.from(payload, "base64").toString()) as {
+      sub?: string;
+      exp?: number;
+      v?: number;
+    };
     if (typeof decoded.sub !== "string" || !decoded.sub) return null;
     if (typeof decoded.exp !== "number") return null;
     if (decoded.exp < Math.floor(Date.now() / 1000)) return null;
-    return decoded.sub;
+    return { userId: decoded.sub, version: typeof decoded.v === "number" ? decoded.v : 1 };
   } catch {
     return null;
   }
+}
+
+/**
+ * Sólo el id, sin mirar la versión de sesión. Lo usa el socket, donde una
+ * consulta a la base por cada conexión sería cara y donde el token sólo sirve
+ * para asociar la reunión a una cuenta -- nunca para leer datos privados.
+ * Todo lo que expone historial pasa por requireAuth, que sí la verifica.
+ */
+export function verifyToken(token: string | null | undefined): string | null {
+  return verifyTokenClaims(token)?.userId ?? null;
 }
