@@ -237,15 +237,54 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
   // en ninguna reunión y las descarta (socketHandlers: `if (!meeting) return`).
   // Resultado: cada corte de red se comía lo que se dijo justo ahí. Con esta
   // cola, las líneas esperan al ack del rejoin y recién entonces salen.
-  const outboxRef = useRef<{ alternatives: string[]; lang: string }[]>([]);
+  // La cola guarda EVENTOS (lo que se dijo, lo que se escribió): cada uno es un
+  // hecho que tiene que llegar, y en orden.
+  const outboxRef = useRef<{ event: string; payload: unknown }[]>([]);
   const joinedRef = useRef(false);
+
+  // El ESTADO es otra cosa y necesita otro trato. Al reconectar, el servidor
+  // vuelve a crear al participante con los valores de fábrica
+  // (`muted: false`, `handRaised: false`...), y el cliente nunca se los volvía
+  // a mandar: quien se cayó estando silenciado volvía y todos lo veían con el
+  // micrófono abierto. Encolar cada cambio no sirve -- diez toques de mute no
+  // son diez hechos, es un solo estado -- así que se guarda el último y se
+  // reenvía entero después del rejoin.
+  const localStateRef = useRef({
+    muted: false,
+    cameraOff: false,
+    sharingScreen: false,
+    handRaised: false,
+    language: "",
+  });
 
   const flushOutbox = useCallback(() => {
     const socket = socketRef.current;
     if (!joinedRef.current || !socket.connected) return;
+
+    // Primero el estado, para que lo que salga de la cola aparezca junto a la
+    // presencia correcta y no un instante después.
+    const st = localStateRef.current;
+    socket.emit("media-state", { muted: st.muted, cameraOff: st.cameraOff });
+    if (st.handRaised) socket.emit("raise-hand", { raised: true });
+    if (st.sharingScreen) socket.emit("screen-share", { sharing: true });
+    if (st.language) socket.emit("set-language", { language: st.language });
+
     const pending = outboxRef.current;
     outboxRef.current = [];
-    for (const line of pending) socket.emit("transcript-line", line);
+    for (const item of pending) socket.emit(item.event, item.payload);
+  }, []);
+
+  // Encola cuando no estamos adentro de la sala; si no, sale al instante.
+  const emitOrQueue = useCallback((event: string, payload: unknown) => {
+    const socket = socketRef.current;
+    if (!joinedRef.current || !socket.connected) {
+      outboxRef.current.push({ event, payload });
+      // Tope para que una desconexión larga no crezca sin límite en memoria;
+      // se conserva lo más reciente, que es lo que se sigue hablando.
+      if (outboxRef.current.length > 200) outboxRef.current.shift();
+      return;
+    }
+    socket.emit(event, payload);
   }, []);
 
   // Wake the backend as soon as the app loads (Render's free tier sleeps and
@@ -533,10 +572,15 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     }
   }, [draft, flushOutbox]);
 
-  const sendChatMessage = useCallback((text: string) => {
-    if (!text.trim()) return;
-    socketRef.current.emit("chat-message", { text });
-  }, []);
+  const sendChatMessage = useCallback(
+    (text: string) => {
+      if (!text.trim()) return;
+      // Igual que la transcripción: durante una reconexión el servidor
+      // responde "Reunión no encontrada" y el mensaje se perdía en silencio.
+      emitOrQueue("chat-message", { text });
+    },
+    [emitOrQueue]
+  );
 
   const assignRole = useCallback((participantId: string, roleId: string | null) => {
     socketRef.current.emit("assign-role", { participantId, roleId });
@@ -558,33 +602,34 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     (alternatives: string[], lang: string) => {
       const cleaned = alternatives.filter((a) => a.trim());
       if (cleaned.length === 0) return;
-      const socket = socketRef.current;
-      if (!joinedRef.current || !socket.connected) {
-        // Tope para que una desconexión larga no crezca sin límite en memoria;
-        // se conserva lo más reciente, que es lo que se sigue hablando.
-        outboxRef.current.push({ alternatives: cleaned, lang });
-        if (outboxRef.current.length > 200) outboxRef.current.shift();
-        return;
-      }
-      socket.emit("transcript-line", { alternatives: cleaned, lang });
+      emitOrQueue("transcript-line", { alternatives: cleaned, lang });
     },
-    []
+    [emitOrQueue]
   );
 
+  // Estos cuatro guardan el último valor además de emitirlo: al reconectar, el
+  // servidor recrea al participante con los valores de fábrica y flushOutbox lo
+  // vuelve a poner como estaba. Sin esto, quien se caía silenciado volvía y
+  // todos lo veían con el micrófono abierto.
   const setMediaState = useCallback((muted: boolean, cameraOff: boolean) => {
-    socketRef.current.emit("media-state", { muted, cameraOff });
+    localStateRef.current.muted = muted;
+    localStateRef.current.cameraOff = cameraOff;
+    if (joinedRef.current) socketRef.current.emit("media-state", { muted, cameraOff });
   }, []);
 
   const setSharingScreen = useCallback((sharing: boolean) => {
-    socketRef.current.emit("screen-share", { sharing });
+    localStateRef.current.sharingScreen = sharing;
+    if (joinedRef.current) socketRef.current.emit("screen-share", { sharing });
   }, []);
 
   const setHandRaised = useCallback((raised: boolean) => {
-    socketRef.current.emit("raise-hand", { raised });
+    localStateRef.current.handRaised = raised;
+    if (joinedRef.current) socketRef.current.emit("raise-hand", { raised });
   }, []);
 
   const setSelfLanguage = useCallback((language: string) => {
-    socketRef.current.emit("set-language", { language });
+    localStateRef.current.language = language;
+    if (joinedRef.current) socketRef.current.emit("set-language", { language });
   }, []);
 
   const moderate = useCallback(
@@ -606,6 +651,13 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     const socket = socketRef.current;
     joinedRef.current = false;
     outboxRef.current = [];
+    localStateRef.current = {
+      muted: false,
+      cameraOff: false,
+      sharingScreen: false,
+      handRaised: false,
+      language: "",
+    };
     socket.emit("leave-meeting");
     socket.disconnect();
     dispatch({ type: "RESET" });

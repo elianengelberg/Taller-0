@@ -472,10 +472,33 @@ export default function Meeting() {
     navigate("/", { replace: true });
   }
 
+  // El backend vive en un plan que duerme: la primera conexión del día puede
+  // tardar casi un minuto. Sin decirlo, "Conectando…" parece que se colgó y la
+  // gente recarga justo cuando estaba por entrar.
+  const [slowConnect, setSlowConnect] = useState(false);
+  useEffect(() => {
+    if (connectionStatus !== "connecting" && connectionStatus !== "idle") {
+      setSlowConnect(false);
+      return;
+    }
+    const t = setTimeout(() => setSlowConnect(true), 6000);
+    return () => clearTimeout(t);
+  }, [connectionStatus]);
+
   if (!draft) return null;
 
   if (connectionStatus === "idle" || connectionStatus === "connecting") {
-    return <StatusScreen loading title="Conectando" description="Estamos preparando tu reunión." />;
+    return (
+      <StatusScreen
+        loading
+        title="Conectando"
+        description={
+          slowConnect
+            ? "El servidor estaba dormido y está despertando. La primera conexión del día puede tardar hasta un minuto; después entra al instante."
+            : "Estamos preparando tu reunión."
+        }
+      />
+    );
   }
 
   if (connectionStatus === "waiting") {
