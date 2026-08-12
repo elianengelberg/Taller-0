@@ -55,6 +55,7 @@ import {
   refreshAccessToken,
 } from "./microsoftAuth";
 import { addNamedTranscriptLine, getOrCreateCompanionMeeting, isLiveParticipant } from "./meetingStore";
+import { rateLimit, userOrIp } from "./rateLimit";
 import { registerSocketHandlers } from "./socketHandlers";
 import {
   createRecordingUploadUrl,
@@ -184,6 +185,37 @@ function authRateLimit(req: Request, res: Response, next: NextFunction): void {
   }
   next();
 }
+
+// Límites por superficie. Los que llaman a Claude o emiten credenciales de un
+// tercero se limitan POR USUARIO cuando hay sesión (la identidad que de verdad
+// gasta) y por IP cuando no la hay.
+//
+// Los números están muy por encima de lo que produce un uso real: una reunión
+// larga traduce decenas de líneas por minuto, nadie le pregunta a la IA treinta
+// veces en cinco minutos, y nadie sube diez grabaciones por hora.
+const aiLimit = rateLimit({
+  max: 30,
+  windowMs: 5 * 60_000,
+  keyBy: userOrIp,
+  message: "Hiciste muchas consultas a la IA seguidas. Esperá un momento y probá de nuevo.",
+});
+const translateLimit = rateLimit({ max: 240, windowMs: 60_000, keyBy: userOrIp });
+const explainLimit = rateLimit({ max: 20, windowMs: 60_000 });
+// Emiten credenciales de Zoom/Azure contra NUESTRA cuenta: sin límite, este
+// servidor era un proveedor gratuito de accesos para cualquiera.
+const credentialLimit = rateLimit({ max: 30, windowMs: 60_000 });
+// Las subidas son deliberadamente sin sesión (los invitados también graban),
+// así que el límite es lo único que impide usarlas como alojamiento gratis.
+const uploadLimit = rateLimit({
+  max: 20,
+  windowMs: 60 * 60_000,
+  message: "Se subieron demasiadas grabaciones desde acá. Probá de nuevo en un rato.",
+});
+const avatarLimit = rateLimit({ max: 20, windowMs: 60 * 60_000, keyBy: userOrIp });
+// El bridge lo escribe la extensión desde meet.google.com, así que acepta
+// cualquier origen: el límite es lo que evita que se convierta en un canal
+// abierto para inundar salas ajenas.
+const bridgeLimit = rateLimit({ max: 240, windowMs: 60_000 });
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
@@ -316,7 +348,7 @@ function isAcceptableAvatarUrl(url: string): boolean {
 // la recortó y comprimió a 256px), así que express.json() la deja pasar y la
 // mandamos derecho al bucket sin bufferearla entera.
 const MAX_AVATAR_BYTES = 3 * 1024 * 1024;
-app.post("/api/auth/me/avatar", requireAuth, async (req, res) => {
+app.post("/api/auth/me/avatar", requireAuth, avatarLimit, async (req, res) => {
   if (!storageEnabled) {
     res.status(503).json({ error: "El servidor no tiene configurado dónde guardar las fotos." });
     return;
@@ -453,7 +485,7 @@ app.get("/api/auth/google/callback", async (req, res) => {
   }
 });
 
-app.post("/api/translate", async (req, res) => {
+app.post("/api/translate", translateLimit, async (req, res) => {
   const { text, source, target } = req.body ?? {};
   if (typeof text !== "string" || typeof source !== "string" || typeof target !== "string") {
     res.status(400).json({ error: "text, source y target son obligatorios." });
@@ -478,7 +510,7 @@ app.post("/api/translate", async (req, res) => {
 // posts the meeting number and gets back an opaque, short-lived token. Returns
 // 503 (not 500) when Zoom credentials aren't configured, so the client can
 // show an honest "Zoom no está configurado" message instead of a generic error.
-app.post("/api/zoom/signature", (req, res) => {
+app.post("/api/zoom/signature", credentialLimit, (req, res) => {
   if (!zoomEnabled) {
     res.status(503).json({ error: "La integración con Zoom no está configurada en el servidor." });
     return;
@@ -504,7 +536,7 @@ app.post("/api/zoom/signature", (req, res) => {
 // Azure Communication Services (Teams interop). The ACS connection string
 // stays server-side; the client gets only a short-lived per-session token.
 // 503 when Teams/ACS isn't configured, so the client shows an honest message.
-app.post("/api/teams/token", async (_req, res) => {
+app.post("/api/teams/token", credentialLimit, async (_req, res) => {
   if (!teamsEnabled) {
     res.status(503).json({ error: "La integración con Microsoft Teams no está configurada en el servidor." });
     return;
@@ -515,13 +547,14 @@ app.post("/api/teams/token", async (_req, res) => {
   } catch (err) {
     // Surface the real reason so a misconfigured ACS connection string /
     // Azure error is diagnosable from the client instead of an opaque 502.
-    const detail = err instanceof Error ? err.message : String(err);
-    console.error("[teams] token error:", detail);
-    res.status(502).json({ error: `No se pudo generar el acceso a Teams: ${detail}` });
+    // El detalle va al log del servidor, no al cliente: el mensaje de Azure
+    // puede nombrar el recurso, la región o la forma de la configuración.
+    console.error("[teams] token error:", err instanceof Error ? err.message : String(err));
+    res.status(502).json({ error: "No se pudo generar el acceso a Teams. Probá de nuevo en un momento." });
   }
 });
 
-app.post("/api/explain-error", async (req, res) => {
+app.post("/api/explain-error", explainLimit, async (req, res) => {
   const { error, context } = req.body ?? {};
   if (typeof error !== "string" || !error.trim()) {
     res.status(400).json({ error: "error es obligatorio." });
@@ -690,7 +723,7 @@ app.delete("/api/meetings/:id", requireAuth, async (req, res) => {
 
 // AI report: generated once over the whole transcript and saved, then served
 // instantly on later opens. `?regenerate=1` forces a fresh one.
-app.post("/api/meetings/:id/report", requireAuth, async (req, res) => {
+app.post("/api/meetings/:id/report", requireAuth, aiLimit, async (req, res) => {
   const regenerate = req.query.regenerate === "1" || req.body?.regenerate === true;
   const result = await generateMeetingReport(
     req.params.id,
@@ -704,7 +737,7 @@ app.post("/api/meetings/:id/report", requireAuth, async (req, res) => {
   res.json({ report: result.answer });
 });
 
-app.post("/api/meetings/:id/recording-upload-url", async (req, res) => {
+app.post("/api/meetings/:id/recording-upload-url", uploadLimit, async (req, res) => {
   if (!storageEnabled) {
     res.status(503).json({ error: "El almacenamiento de grabaciones no está configurado." });
     return;
@@ -775,7 +808,7 @@ app.post("/api/meetings/:id/recording-complete", async (req, res) => {
 // stream untouched and we pipe `req` straight into the multipart upload without
 // buffering the whole file. durationMs comes as a query param so we never have
 // to read the body twice.
-app.post("/api/meetings/:id/recording-upload", async (req, res) => {
+app.post("/api/meetings/:id/recording-upload", uploadLimit, async (req, res) => {
   if (!storageEnabled) {
     res.status(503).json({ error: "El almacenamiento de grabaciones no está configurado." });
     return;
@@ -816,7 +849,7 @@ app.post("/api/meetings/:id/claim", requireAuth, async (req, res) => {
   res.json({ ok });
 });
 
-app.post("/api/meetings/:id/ask", requireAuth, async (req, res) => {
+app.post("/api/meetings/:id/ask", requireAuth, aiLimit, async (req, res) => {
   const question = typeof req.body?.question === "string" ? req.body.question : "";
   const userId = (req as AuthedRequest).userId!;
   // Anyone currently in the live meeting (not just its owner) can ask the AI --
@@ -833,7 +866,7 @@ app.post("/api/meetings/:id/ask", requireAuth, async (req, res) => {
 // Same idea as /api/meetings/:id/ask, but grounded across every saved
 // meeting instead of one -- "what did I talk about on the 17th", "what was
 // my last meeting about", etc.
-app.post("/api/meetings/ask-all", requireAuth, async (req, res) => {
+app.post("/api/meetings/ask-all", requireAuth, aiLimit, async (req, res) => {
   const question = typeof req.body?.question === "string" ? req.body.question : "";
   const result = await answerAcrossMeetings(question, (req as AuthedRequest).userId!);
   if (!result.ok) {
@@ -976,7 +1009,7 @@ function allowMeetBridge(meetId: string): boolean {
   return entry.count <= 40;
 }
 
-app.post("/api/meet-bridge/:meetId", (req, res) => {
+app.post("/api/meet-bridge/:meetId", bridgeLimit, (req, res) => {
   const meetId = String(req.params.meetId).toLowerCase();
   if (!MEET_CODE_RE.test(meetId)) {
     res.status(400).json({ error: "Código de Meet inválido." });
@@ -1037,7 +1070,7 @@ function companionForMeet(meetId: string) {
   return meeting;
 }
 
-app.post("/api/meet-bridge/:meetId/transcript", async (req, res) => {
+app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) => {
   const meetId = String(req.params.meetId).toLowerCase();
   if (!MEET_CODE_RE.test(meetId)) {
     res.status(400).json({ error: "Código de Meet inválido." });
@@ -1072,7 +1105,7 @@ app.post("/api/meet-bridge/:meetId/transcript", async (req, res) => {
 
 // Lets the extension panel bootstrap: which saved meeting backs this Meet code,
 // and what has been said so far (so re-opening the panel isn't a blank slate).
-app.get("/api/meet-bridge/:meetId/session", (req, res) => {
+app.get("/api/meet-bridge/:meetId/session", bridgeLimit, (req, res) => {
   const meetId = String(req.params.meetId).toLowerCase();
   if (!MEET_CODE_RE.test(meetId)) {
     res.status(400).json({ error: "Código de Meet inválido." });
@@ -1091,7 +1124,7 @@ app.get("/api/meet-bridge/:meetId/session", (req, res) => {
 // a signed-in account (the AI costs money per question, so it is never open to
 // anonymous callers), but knowing the Meet code is what grants access to THAT
 // meeting's content -- the same trust model as the rest of the bridge.
-app.post("/api/meet-bridge/:meetId/ask", requireAuth, async (req, res) => {
+app.post("/api/meet-bridge/:meetId/ask", requireAuth, aiLimit, async (req, res) => {
   const meetId = String(req.params.meetId).toLowerCase();
   if (!MEET_CODE_RE.test(meetId)) {
     res.status(400).json({ error: "Código de Meet inválido." });

@@ -5,16 +5,39 @@
 // routes in index.ts).
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 
-// Signing secret for session tokens. MUST be set in production (Render) so
-// tokens survive restarts and can't be forged; falls back to a fixed dev
-// value locally with a warning. Rotating it logs everyone out (by design).
-const AUTH_SECRET = process.env.AUTH_SECRET || "encuentro-dev-secret-change-me";
-if (!process.env.AUTH_SECRET) {
-  console.warn(
-    "[auth] AUTH_SECRET no está configurado -- usando un valor de desarrollo inseguro. " +
-      "Definí AUTH_SECRET en el entorno para producción."
-  );
+// Clave con la que se firman los tokens de sesión. DEBE estar en el entorno
+// (Render) para que los tokens sobrevivan a un reinicio. Rotarla cierra la
+// sesión de todos, a propósito.
+//
+// Antes, si faltaba, se usaba una clave fija escrita acá mismo. Eso es una
+// puerta abierta: el código es público, así que cualquiera podía firmarse un
+// token con el id de usuario de otra persona y entrar a su cuenta y a su
+// historial completo -- sin contraseña y sin dejar rastro. Un `console.warn`
+// no protege nada.
+//
+// Ahora, si falta, se genera una clave aleatoria al arrancar. Nadie puede
+// falsificar nada, y lo que se rompe es visible y benigno: hay que volver a
+// iniciar sesión después de cada reinicio, que es exactamente el síntoma que
+// lleva a configurar la variable.
+function resolveAuthSecret(): string {
+  const configured = process.env.AUTH_SECRET;
+  if (configured && configured.length >= 16) return configured;
+  if (configured) {
+    console.error(
+      "[auth] AUTH_SECRET es demasiado corto (mínimo 16 caracteres). " +
+        "Se ignora y se usa una clave aleatoria de este arranque."
+    );
+  } else {
+    console.error(
+      "[auth] AUTH_SECRET no está configurado. Se genera una clave aleatoria para este arranque: " +
+        "nadie puede falsificar tokens, pero las sesiones se cierran en cada reinicio. " +
+        "Definí AUTH_SECRET en el entorno para que persistan."
+    );
+  }
+  return randomBytes(48).toString("hex");
 }
+
+const AUTH_SECRET = resolveAuthSecret();
 
 // 30 days: long enough that people aren't constantly re-logging in, short
 // enough that a leaked token eventually stops working.
@@ -60,8 +83,12 @@ export function signToken(userId: string): string {
 
 // Returns the user id encoded in a valid, unexpired token, or null for
 // anything malformed / tampered / expired.
+// Un token real ronda los 200 caracteres. El tope evita gastar CPU en HMAC y
+// JSON.parse sobre una cadena enorme mandada sólo para hacernos trabajar.
+const MAX_TOKEN_CHARS = 4096;
+
 export function verifyToken(token: string | null | undefined): string | null {
-  if (!token) return null;
+  if (!token || token.length > MAX_TOKEN_CHARS) return null;
   const parts = token.split(".");
   if (parts.length !== 3) return null;
   const [header, payload, signature] = parts;
@@ -70,8 +97,15 @@ export function verifyToken(token: string | null | undefined): string | null {
   if (signature.length !== expected.length) return null;
   if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
   try {
+    // Verificar el algoritmo declarado es defensa en profundidad: acá siempre
+    // se recalcula el HMAC, así que un `alg: none` ya no pasaba -- pero si
+    // alguna vez alguien agrega otro algoritmo, este chequeo evita el ataque
+    // clásico de degradar la firma cambiando el encabezado.
+    const head = JSON.parse(Buffer.from(header, "base64").toString()) as { alg?: string };
+    if (head.alg !== "HS256") return null;
     const decoded = JSON.parse(Buffer.from(payload, "base64").toString()) as { sub?: string; exp?: number };
-    if (!decoded.sub || !decoded.exp) return null;
+    if (typeof decoded.sub !== "string" || !decoded.sub) return null;
+    if (typeof decoded.exp !== "number") return null;
     if (decoded.exp < Math.floor(Date.now() / 1000)) return null;
     return decoded.sub;
   } catch {
