@@ -83,8 +83,12 @@ const UA = {
     const { ctx, page } = await abrir(UA.windows, `${B}/instalar`, ["clipboard-read", "clipboard-write"]);
     const t = await texto(page);
     check("detecta Windows y lo dice", /estás en Windows/.test(t));
-    check("los pasos son los de Windows (Extraer todo)", /En Windows, tres pasos/.test(t) && /Extraer todo/.test(t));
-    check("NO muestra los pasos de Mac", !/doble clic/.test(t) && !/Agregar al Dock/.test(t));
+    check("ofrece el INSTALADOR como camino principal",
+      (await page.locator('a[href="/instalar-unify.bat"]').count()) === 1 && /instalador hace casi todo solo/i.test(t));
+    check("prepara para el aviso de SmartScreen (sin sustos)", /Ejecutar de todas formas/.test(t));
+    check("dice qué exige Chrome sí o sí (los dos toques finales)", /Modo de desarrollador/.test(t) && /Ctrl\+V/.test(t));
+    check("el ZIP sigue como alternativa manual", /bajar el ZIP/.test(t) && /Extraer todo/.test(t));
+    check("NO muestra los pasos de Mac", !/Terminal/.test(t) && !/Agregar al Dock/.test(t));
     check("muestra el enlace para compartir con ?bajar=1", /instalar\?bajar=1/.test(t));
 
     // El enlace mágico, en una página virgen: es el caso real (a quien le
@@ -97,31 +101,39 @@ const UA = {
     await page2.goto(`${B}/instalar?bajar=1`, { waitUntil: "domcontentloaded" });
     await page2.bringToFront();
     const descarga = await Promise.race([dl, new Promise((r) => setTimeout(() => r(null), 15_000))]);
-    check("abrir /instalar?bajar=1 dispara la descarga del ZIP sin tocar nada",
-      Boolean(descarga) && descarga.suggestedFilename() === "unify-extension.zip",
+    check("abrir /instalar?bajar=1 en Windows descarga el INSTALADOR solo",
+      Boolean(descarga) && descarga.suggestedFilename() === "instalar-unify.bat",
       descarga?.suggestedFilename() ?? "no hubo descarga");
     await page2.waitForTimeout(600);
     check("y la página avisa que la descarga ya arrancó", /descarga.*arrancó sola/i.test(await texto(page2)));
     await page2.close();
 
-    // El botón de copiar chrome://extensions copia DE VERDAD.
+    // En el camino manual, chrome://extensions es un botón que copia al
+    // tocarlo (Chrome no deja que una página navegue ahí).
     await page.bringToFront();
-    await page.locator("button", { hasText: /^Copiar$/ }).first().click();
+    await page.locator("button", { hasText: "chrome://extensions" }).first().click();
     await page.waitForTimeout(400);
     const porta = await page.evaluate(() => navigator.clipboard.readText()).catch(() => "");
-    check("el botón Copiar deja chrome://extensions en el portapapeles", porta === "chrome://extensions", porta);
+    check("tocar chrome://extensions lo deja en el portapapeles", porta === "chrome://extensions", porta);
     await ctx.close();
   }
 
   // ═══════ 4. MAC: doble clic, Dock, sin “Extraer todo” ═══════
   console.log("\n── 4. Como Mac ──");
   {
-    const { ctx, page } = await abrir(UA.mac, `${B}/instalar`);
+    const { ctx, page } = await abrir(UA.mac, `${B}/instalar`, ["clipboard-read", "clipboard-write"]);
     const t = await texto(page);
     check("detecta Mac y lo dice", /estás en Mac/.test(t));
-    check("el ZIP se abre a la manera de Mac (doble clic)", /se descomprime solo con doble clic/.test(t));
+    check("ofrece el comando de Terminal como camino principal",
+      /curl -fsSL https:\/\/www\.unify-meet\.com\/instalar-unify\.command \| bash/.test(t));
+    await page.locator("button", { hasText: /^Copiar$/ }).first().click();
+    await page.waitForTimeout(400);
+    const porta = await page.evaluate(() => navigator.clipboard.readText()).catch(() => "");
+    check("y el botón lo copia entero", /curl -fsSL .*instalar-unify\.command \| bash/.test(porta), porta.slice(0, 50));
+    check("con el script legible antes de correrlo", (await page.locator('a[href="/instalar-unify.command"]').count()) === 1);
     check("la app ofrece Safari → Agregar al Dock", /Agregar al Dock/.test(t));
-    check("NO muestra los pasos de Windows", !/Extraer todo/.test(t));
+    check("el ZIP sigue como alternativa manual (doble clic)", /bajar el ZIP/.test(t) && /doble clic/.test(t));
+    check("NO muestra los pasos de Windows", !/Extraer todo…/.test(t) && !/SmartScreen|Ejecutar de todas formas/.test(t));
     await ctx.close();
   }
 
@@ -168,6 +180,35 @@ const UA = {
     check("el clic dispara el prompt real", prompted);
     check("y la confirmación queda a la vista", /quedó instalada/i.test(await texto(page)));
     await ctx.close();
+  }
+
+  // ═══════ 6b. Los instaladores de escritorio ═══════
+  console.log("\n── 6b. Los instaladores (Windows y Mac) ──");
+  {
+    const bat = await fetch(`${B}/instalar-unify.bat`);
+    check("el .bat de Windows se sirve", bat.status === 200, `HTTP ${bat.status}`);
+    const batTxt = Buffer.from(await bat.arrayBuffer()).toString("latin1");
+    check("con CRLF (sin eso, cmd.exe hace cualquier cosa)", /\r\n/.test(batTxt));
+    check("descarga el ZIP real, descomprime y copia la ruta",
+      batTxt.includes("unify-extension.zip") && batTxt.includes("Expand-Archive") && batTxt.includes("Set-Clipboard"));
+    check("abre chrome://extensions (o Edge si no hay Chrome)",
+      batTxt.includes("chrome://extensions") && batTxt.includes("edge://extensions"));
+    check("y es auditable (se anuncia como texto plano)", /Bloc de notas/.test(batTxt));
+
+    const cmd = await fetch(`${B}/instalar-unify.command`);
+    check("el .command de Mac se sirve", cmd.status === 200, `HTTP ${cmd.status}`);
+
+    // El de Mac se EJECUTA acá mismo: su núcleo (descargar el ZIP real de la
+    // web local, descomprimir, ruta con espacios) corre igual en Linux; lo
+    // exclusivo de macOS (pbcopy, open) está protegido con "|| true".
+    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "fakehome-"));
+    execFileSync("bash", [path.resolve(__dirname, "../client/public/instalar-unify.command")], {
+      env: { ...process.env, UNIFY_BASE: B, HOME: fakeHome },
+      stdio: "pipe",
+    });
+    const manifiesto = path.join(fakeHome, "Library", "Application Support", "Unify", "extension", "manifest.json");
+    check("EJECUTADO de verdad: deja la extensión instalada donde dice",
+      fs.existsSync(manifiesto) && JSON.parse(fs.readFileSync(manifiesto, "utf8")).version === "4.0.0");
   }
 
   // ═══════ 7. Los archivos de Apple ═══════

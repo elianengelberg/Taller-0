@@ -74,13 +74,15 @@ export default function Instalar() {
   useEffect(() => {
     if (!bajarSolo || movil || yaBajo.current || CHROME_WEB_STORE_URL) return;
     yaBajo.current = true;
+    // En Windows baja el INSTALADOR (hace todo solo); en el resto, el ZIP.
+    const archivo = plataforma === "windows" ? "instalar-unify.bat" : "unify-extension.zip";
     const a = document.createElement("a");
-    a.href = "/unify-extension.zip";
-    a.download = "unify-extension.zip";
+    a.href = `/${archivo}`;
+    a.download = archivo;
     document.body.appendChild(a);
     a.click();
     a.remove();
-  }, [bajarSolo, movil]);
+  }, [bajarSolo, movil, plataforma]);
 
   async function handleInstalar() {
     setEstado(null);
@@ -255,59 +257,84 @@ export default function Instalar() {
                 <a href={CHROME_WEB_STORE_URL} target="_blank" rel="noopener noreferrer">
                   <Button className="mt-4 w-full sm:w-auto">Agregar a Chrome desde la Web Store</Button>
                 </a>
+              ) : plataforma === "mac" ? (
+                <div className="mt-4">
+                  {/* En Mac, el patrón de siempre: un comando para Terminal.
+                      (Un .command descargado pierde el permiso de ejecución y
+                      Gatekeeper lo frena: pegar el comando es MENOS pasos.) */}
+                  <p className="text-sm font-medium text-strong">
+                    Copiá esto y pegalo en Terminal (⌘ Espacio → “Terminal” → Enter):
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <code className="min-w-0 flex-1 overflow-x-auto rounded-lg bg-ink-900 px-3 py-2 text-xs text-brand-200">
+                      curl -fsSL https://www.unify-meet.com/instalar-unify.command | bash
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => copiar("curl -fsSL https://www.unify-meet.com/instalar-unify.command | bash", "terminal")}
+                      className="rounded-lg border border-ink-600 px-3 py-2 text-xs font-semibold text-ink-100 hover:bg-ink-800"
+                    >
+                      {copiado === "terminal" ? "¡Copiado!" : "Copiar"}
+                    </button>
+                  </div>
+                  <div className="mt-3 rounded-xl border border-ink-700 bg-ink-800/60 p-4 text-sm leading-relaxed text-ink-200">
+                    <p>
+                      El instalador descarga la extensión, la deja en su carpeta, te{" "}
+                      <span className="font-semibold">copia la ruta al portapapeles</span> y te abre la página de
+                      extensiones de Chrome. Ahí quedan los dos toques que Chrome exige sí o sí:
+                    </p>
+                    <ol className="mt-1.5 list-decimal space-y-1 pl-5">
+                      <li>Prendé el <span className="font-semibold">Modo de desarrollador</span> (arriba a la derecha).</li>
+                      <li>Tocá <span className="font-semibold">“Cargar descomprimida”</span> y pegá la ruta (⌘V).</li>
+                    </ol>
+                    <p className="mt-2 text-xs text-ink-400">
+                      Es un script de texto plano:{" "}
+                      <a href="/instalar-unify.command" className="underline hover:text-ink-200">leelo acá</a> antes
+                      de correrlo si querés. Alternativa manual:{" "}
+                      <a href="/unify-extension.zip" download className="underline hover:text-ink-200">bajar el ZIP</a>{" "}
+                      (doble clic lo descomprime) y cargar esa carpeta a mano.
+                    </p>
+                  </div>
+                </div>
               ) : (
                 <div className="mt-4">
-                  {!bajarSolo && (
-                    <a href="/unify-extension.zip" download>
-                      <Button className="w-full sm:w-auto">Descargar la extensión (.zip)</Button>
-                    </a>
-                  )}
+                  <a href="/instalar-unify.bat" download>
+                    <Button className="w-full sm:w-auto">Descargar el instalador para Windows</Button>
+                  </a>
                   <div className="mt-3 rounded-xl border border-ink-700 bg-ink-800/60 p-4 text-sm leading-relaxed text-ink-200">
-                    <p className="font-medium text-strong">
-                      {plataforma === "mac" ? "En tu Mac, tres pasos:" : "En Windows, tres pasos:"}
-                    </p>
+                    <p className="font-medium text-strong">El instalador hace casi todo solo:</p>
                     <ol className="mt-1.5 list-decimal space-y-1.5 pl-5">
                       <li>
-                        {plataforma === "mac" ? (
-                          <>
-                            Abrí la descarga: en Mac el ZIP{" "}
-                            <span className="font-semibold">se descomprime solo con doble clic</span> (te queda la
-                            carpeta “unify-extension” en Descargas — Safari hasta la descomprime por vos).
-                          </>
-                        ) : (
-                          <>
-                            En Descargas, clic derecho sobre <span className="font-mono text-[13px]">unify-extension.zip</span>{" "}
-                            → <span className="font-semibold">“Extraer todo…”</span> → Extraer.
-                          </>
-                        )}
+                        Abrí <span className="font-mono text-[13px]">instalar-unify.bat</span> desde Descargas. Si
+                        Windows pregunta (SmartScreen), tocá{" "}
+                        <span className="font-semibold">“Más información” → “Ejecutar de todas formas”</span> — es
+                        un script de texto plano, podés abrirlo con el Bloc de notas y leerlo entero.
                       </li>
                       <li>
-                        En Chrome, pegá esto en la barra de direcciones y prendé el{" "}
-                        <span className="font-semibold">Modo de desarrollador</span> (arriba a la derecha):
-                        <span className="mt-1.5 flex flex-wrap items-center gap-2">
-                          <code className="rounded-lg bg-ink-900 px-3 py-1.5 text-xs text-brand-200">
-                            chrome://extensions
-                          </code>
-                          <button
-                            type="button"
-                            onClick={() => copiar("chrome://extensions", "chrome")}
-                            className="rounded-lg border border-ink-600 px-3 py-1.5 text-xs font-semibold text-ink-100 hover:bg-ink-800"
-                          >
-                            {copiado === "chrome" ? "¡Copiado!" : "Copiar"}
-                          </button>
-                          <span className="text-xs text-ink-500">
-                            (Chrome no deja que una página abra ese enlace por vos — hay que pegarlo)
-                          </span>
-                        </span>
+                        El instalador descarga la extensión, la deja en su carpeta, te{" "}
+                        <span className="font-semibold">copia la ruta al portapapeles</span> y te abre la página de
+                        extensiones. Ahí: prendé el <span className="font-semibold">Modo de desarrollador</span>{" "}
+                        (arriba a la derecha).
                       </li>
                       <li>
-                        Tocá <span className="font-semibold">“Cargar descomprimida”</span> y elegí la carpeta del
-                        paso 1. Listo: entrá a cualquier reunión y Unify aparece solo.
+                        Tocá <span className="font-semibold">“Cargar descomprimida”</span> y pegá la ruta con{" "}
+                        <span className="font-semibold">Ctrl+V</span>. Listo: entrá a cualquier reunión y Unify
+                        aparece solo.
                       </li>
                     </ol>
                     <p className="mt-2 text-xs text-ink-400">
-                      Cuando la extensión esté publicada en la Chrome Web Store, esto va a ser un solo clic en
-                      “Agregar a Chrome”.
+                      Esos dos toques finales los exige Chrome sí o sí (ninguna página ni script puede activar una
+                      extensión por vos). Alternativa manual:{" "}
+                      <a href="/unify-extension.zip" download className="underline hover:text-ink-200">bajar el ZIP</a>{" "}
+                      → “Extraer todo…” → pegá{" "}
+                      <button
+                        type="button"
+                        onClick={() => copiar("chrome://extensions", "chrome")}
+                        className="underline hover:text-ink-200"
+                      >
+                        chrome://extensions{copiado === "chrome" ? " ✓" : ""}
+                      </button>{" "}
+                      en la barra y cargá la carpeta.
                     </p>
                   </div>
                 </div>
@@ -321,8 +348,9 @@ export default function Instalar() {
           <section className={`${cardClass} mt-6`}>
             <h2 className="text-lg font-semibold text-strong">El enlace que instala</h2>
             <p className="mt-1 text-sm leading-relaxed text-ink-300">
-              Compartí este enlace: a quien lo abra le arranca la descarga de la extensión sola y le muestra los
-              pasos de SU sistema (Windows, Mac, iPhone o Android).
+              Compartí este enlace: a quien lo abra le arranca sola la descarga del{" "}
+              <span className="font-semibold text-strong">instalador</span> (en Windows) o del ZIP, y le muestra
+              los pasos de SU sistema (Windows, Mac, iPhone o Android).
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <code className="rounded-lg bg-ink-800 px-3 py-2 text-xs text-brand-200">
