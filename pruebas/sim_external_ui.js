@@ -1,0 +1,119 @@
+// Live UI simulation of joining EXTERNAL meetings (Zoom/Meet/Teams/Jitsi):
+// detection, routing to the right embed, companion socket connect, and
+// graceful errors when a platform's server config is missing (no white screen).
+const { chromium } = require("/opt/node22/lib/node_modules/playwright/node_modules/playwright-core");
+const BASE = "http://localhost:4174";
+const results = [];
+const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" : "FAIL"} ${n}${d ? " — " + d : ""}`); };
+
+async function detectAndJoin(page, link, { passcode } = {}) {
+  await page.goto(`${BASE}/externa`, { waitUntil: "domcontentloaded" });
+  await page.getByLabel("Enlace de la reunión").fill(link);
+  await page.getByLabel("Tu nombre").fill("Tester");
+  await page.getByRole("button", { name: /^Detectar$/ }).click();
+  await page.waitForTimeout(400);
+  if (passcode !== undefined) {
+    const pc = page.getByLabel(/Contraseña de la reunión/i);
+    if (await pc.count()) await pc.first().fill(passcode);
+  }
+}
+
+(async () => {
+  const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome", args: ["--no-sandbox", "--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"] });
+  const ctx = await browser.newContext({ viewport: { width: 1200, height: 800 } });
+
+  // ---- Detection + routing (no external SDma load needed) ----
+  {
+    const p = await ctx.newPage();
+    await p.route("**fonts.g**", (r) => r.abort());
+    const errs = []; p.on("pageerror", (e) => errs.push(e.message.slice(0, 120)));
+
+    // Un enlace de una plataforma que no conocemos por nombre ya NO es un
+    // callejón sin salida: se ofrece acompañarlo con Unify al lado (subtítulos,
+    // traducción, IA y grabación no dependen de la otra plataforma).
+    await detectAndJoin(p, "https://example.com/foo");
+    check("plataforma desconocida → se ofrece Unify al lado",
+      (await p.getByText(/No conocemos/i).count()) > 0 &&
+        (await p.getByRole("button", { name: /Unirme con Unify al lado/i }).count()) > 0);
+    // Un enlace sin sala sigue sin ofrecerse: no identifica ninguna reunión.
+    await detectAndJoin(p, "https://example.com/");
+    check("enlace sin sala → sigue diciendo que no lo reconoce",
+      (await p.getByText(/No reconocimos ese enlace/i).count()) > 0);
+
+    // Zoom detection
+    await detectAndJoin(p, "https://us05web.zoom.us/j/1234567890?pwd=abc");
+    check("Zoom detectado con número", (await p.getByText(/Reconocimos una reunión de/i).count()) > 0 && (await p.getByText(/Zoom/).count()) > 0);
+    check("Zoom: se muestra el número extraído del enlace", (await p.getByText(/1234567890/).count()) > 0);
+    // Con credenciales ofrece unirse acá dentro (+ contraseña); sin ellas avisa y
+    // ofrece abrirlo afuera. Las dos ramas son correctas: se valida la coherencia.
+    {
+      const joinable = (await p.getByRole("button", { name: /Unirme acá dentro/i }).count()) > 0;
+      const pass = (await p.getByLabel(/Contraseña de la reunión/i).count()) > 0;
+      const warned = (await p.getByText(/no tiene configuradas las credenciales/i).count()) > 0;
+      const openOut = (await p.getByRole("link", { name: /Abrir en Zoom/i }).count()) > 0;
+      check("Zoom: la oferta es coherente con la config del servidor",
+        (joinable && pass && !warned) || (!joinable && warned && openOut),
+        `unirse=${joinable} pass=${pass} aviso=${warned} abrir=${openOut}`);
+    }
+
+    // Meet detection
+    await detectAndJoin(p, "https://meet.google.com/abc-defg-hij");
+    check("Meet detectado con código", (await p.getByText(/Google Meet/i).count()) > 0);
+    check("Meet ofrece unirse (companion + extensión)", (await p.getByRole("button", { name: /Unirme acá dentro/i }).count()) > 0);
+
+    // Teams detection
+    await detectAndJoin(p, "https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0");
+    check("Teams detectado", (await p.getByText(/Microsoft Teams/i).count()) > 0);
+
+    // Jitsi detection
+    await detectAndJoin(p, "https://meet.jit.si/UnifyTestRoom123");
+    check("Jitsi detectado con sala", (await p.getByText(/Jitsi Meet/i).count()) > 0);
+
+    // Zoom personal/vanity link (no number) → honest "can't join, open in Zoom"
+    await detectAndJoin(p, "https://zoom.us/my/somename");
+    check("Zoom sin número → no ofrece unirse acá, ofrece abrir en Zoom", (await p.getByRole("link", { name: /Abrir en Zoom/i }).count()) > 0);
+
+    check("sin errores de página en toda la detección", errs.length === 0, errs[0] || "");
+    await p.close();
+  }
+
+  // ---- Graceful errors joining unconfigured platforms (Zoom/Teams 503) ----
+  {
+    const p = await ctx.newPage();
+    await p.route("**fonts.g**", (r) => r.abort());
+    const errs = []; p.on("pageerror", (e) => errs.push(e.message.slice(0, 120)));
+
+    // Zoom sin credenciales: desde el cambio de "aviso previo", ya NO se ofrece
+    // unirse acá dentro -- se avisa antes y se ofrece abrirlo en Zoom.
+    await detectAndJoin(p, "https://us05web.zoom.us/j/1234567890", { passcode: "" });
+    await p.waitForTimeout(800);
+    check("Zoom sin config: avisa antes y NO ofrece unirse acá dentro",
+      (await p.getByRole("button", { name: /Unirme acá dentro/i }).count()) === 0 &&
+      (await p.getByText(/no tiene configuradas las credenciales/i).count()) > 0);
+    check("Zoom sin config: ofrece abrirlo en su plataforma",
+      (await p.getByRole("link", { name: /Abrir en Zoom/i }).count()) > 0);
+    check("Zoom: la página no crashea", errs.length === 0, errs[0] || "");
+    await p.close();
+  }
+
+  // ---- Jitsi companion connects (Unify layer) even if external script blocked ----
+  {
+    const p = await ctx.newPage();
+    await p.route("**fonts.g**", (r) => r.abort());
+    // Block the external Jitsi script to simulate it being unavailable; the
+    // Unify companion layer must still connect and the page must not crash.
+    await p.route("**external_api.js", (r) => r.abort());
+    const errs = []; p.on("pageerror", (e) => errs.push(e.message.slice(0, 120)));
+    await detectAndJoin(p, "https://meet.jit.si/UnifyRoomXYZ");
+    await p.getByRole("button", { name: /Unirme acá dentro/i }).click();
+    await p.waitForTimeout(2500);
+    check("Jitsi: la capa Unify conecta (companion)", (await p.getByTitle(/Invitar a los demás/i).count()) > 0);
+    check("Jitsi con script bloqueado: no crashea, muestra algo", errs.length === 0, errs[0] || "");
+    await p.close();
+  }
+
+  await browser.close();
+  const failed = results.filter((r) => !r).length;
+  console.log(`\n${results.length - failed}/${results.length} OK`);
+  process.exit(failed ? 1 : 0);
+})().catch((e) => { console.error("SIM ERROR:", e.message, e.stack); process.exit(1); });

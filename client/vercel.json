@@ -48,6 +48,15 @@
           "value": "no-cache, max-age=0"
         }
       ]
+    },
+    {
+      "source": "/unify-ipad.mobileconfig",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/x-apple-aspen-config"
+        }
+      ]
     }
   ]
 }

@@ -148,8 +148,9 @@ export default function Instalar() {
             <div className="mt-4 rounded-xl border border-ink-700 bg-ink-800/60 p-4 text-sm leading-relaxed text-ink-200">
               {plataforma === "ios" ? (
                 <>
-                  <p className="font-medium text-strong">En iPhone o iPad (Safari):</p>
-                  <ol className="mt-1.5 list-decimal space-y-1 pl-5">
+                  <p className="font-medium text-strong">En iPhone o iPad, dos caminos:</p>
+                  <p className="mt-2 font-medium text-ink-100">A · El rápido (dos toques, en Safari):</p>
+                  <ol className="mt-1 list-decimal space-y-1 pl-5">
                     <li>
                       Tocá <span className="font-semibold">Compartir</span> (el cuadrado con la flecha hacia
                       arriba).
@@ -158,6 +159,22 @@ export default function Instalar() {
                       Elegí <span className="font-semibold">“Agregar a inicio”</span>.
                     </li>
                   </ol>
+                  <p className="mt-3 font-medium text-ink-100">B · Con un archivo (perfil de Apple):</p>
+                  <a href="/unify-ipad.mobileconfig" className="mt-1.5 inline-block">
+                    <Button variant="secondary">Descargar el perfil para iPad</Button>
+                  </a>
+                  <ol className="mt-1.5 list-decimal space-y-1 pl-5">
+                    <li>Tocá el botón (en Safari) y aceptá <span className="font-semibold">“Permitir”</span>.</li>
+                    <li>
+                      Abrí <span className="font-semibold">Ajustes</span> → arriba aparece{" "}
+                      <span className="font-semibold">“Perfil descargado”</span> → <span className="font-semibold">Instalar</span>.
+                    </li>
+                    <li>Unify queda en tu pantalla de inicio, con su ícono, a pantalla completa.</li>
+                  </ol>
+                  <p className="mt-2 text-xs text-ink-400">
+                    Es un perfil de configuración estándar de Apple, sólo con el acceso directo de Unify
+                    adentro; se borra cuando quieras desde Ajustes.
+                  </p>
                 </>
               ) : plataforma === "mac" ? (
                 <>
@@ -204,6 +221,13 @@ export default function Instalar() {
                 Las extensiones de Chrome sólo existen en computadoras — {plataforma === "ios" ? "en iPhone/iPad" : "en el teléfono"},
                 la app de arriba ya te cubre el modo companion.
               </p>
+              {plataforma === "ios" && (
+                <p className="mt-2 text-xs text-ink-400">
+                  Y para que no pierdas tiempo: un ZIP no instala nada en un iPad — iPadOS no ejecuta
+                  archivos, es una regla de Apple. El único “archivo que instala” en iPad es el perfil de
+                  arriba, y es para la app.
+                </p>
+              )}
               <p className="mt-3">
                 Para instalarla en tu computadora, mandate este enlace (la descarga arranca sola al abrirlo):
               </p>

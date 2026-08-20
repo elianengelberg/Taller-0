@@ -1,0 +1,309 @@
+// La extensión v4 REAL en Chromium real (bajo xvfb): detección de reuniones
+// externas, el toast "Veo que te estás uniendo…", el auto-SÍ a los 5
+// segundos, la grabación del carril B (getDisplayMedia con la pestaña
+// preseleccionada), el overlay en vivo y los subtítulos traducidos.
+//
+// La gracia del montaje: NO se toca el manifest. El navegador arranca con
+// --host-resolver-rules para que *.zoom.us y meet.jit.si apunten a un
+// servidor https local (certificado autofirmado + --ignore-certificate-errors),
+// así los content_scripts se inyectan por los MISMOS matches que van a la
+// Chrome Web Store. Un test que patea un manifest parchado no prueba el
+// manifest.
+//
+// Requiere: el servidor real en 4001 (con base de datos). Correr con xvfb-run.
+//
+// Lo que NO se prueba acá y por qué: el carril A (tabCapture) necesita una
+// invocación real del usuario (ícono/atajo) que Playwright no puede fabricar
+// -- y su maquinaria (getMediaStreamId + offscreen) es la misma que Meet usa
+// hace meses y cubre sim_realext.js.
+const http = require("http");
+const https = require("https");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { execSync } = require("child_process");
+const { chromium } = require("/opt/node22/lib/node_modules/playwright/node_modules/playwright-core");
+
+const EXT = path.resolve(__dirname, "../extension");
+const API = "http://localhost:4001";
+const STUB_PORT = 4177;
+const results = [];
+const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" : "FAIL"} ${n}${d ? " — " + d : ""}`); };
+
+// Página de reunión falsa. El canvas animado importa: una pestaña estática
+// casi no genera frames y la grabación quedaría por debajo del mínimo real
+// de 20 KB que exige la extensión.
+const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${titulo}</title></head>
+<body style="margin:0;background:#111">
+  <canvas id="c" width="640" height="360"></canvas>
+  <script>
+    const g = document.getElementById("c").getContext("2d");
+    let t = 0;
+    setInterval(() => {
+      t += 1;
+      g.fillStyle = "hsl(" + (t * 7 % 360) + ",70%,45%)";
+      g.fillRect(0, 0, 640, 360);
+      g.fillStyle = "#fff"; g.font = "48px sans-serif";
+      g.fillText("frame " + t, 40 + (t % 120), 180);
+    }, 50);
+  </script>
+</body></html>`;
+
+(async () => {
+  // --- Certificado autofirmado + servidor https en 443 (somos root) --------
+  const certDir = fs.mkdtempSync(path.join(os.tmpdir(), "unify-cert-"));
+  execSync(
+    `openssl req -x509 -newkey rsa:2048 -nodes -keyout ${certDir}/k.pem -out ${certDir}/c.pem -days 2 -subj "/CN=zoom.us"`,
+    { stdio: "ignore" }
+  );
+  const fakeSites = https.createServer(
+    { key: fs.readFileSync(`${certDir}/k.pem`), cert: fs.readFileSync(`${certDir}/c.pem`) },
+    (req, res) => {
+      const host = String(req.headers.host || "");
+      const titulo = host.includes("zoom") ? "Zoom falso" : "Jitsi falso";
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(PAGE(titulo));
+    }
+  );
+  await new Promise((r) => fakeSites.listen(443, r));
+
+  // --- Stub de Unify para el camino feliz de la subida ----------------------
+  // El servidor real no tiene R2 en este entorno (la subida da 503, y ESO
+  // también se prueba, abajo). El stub guarda los bytes para poder afirmar
+  // que lo subido es un webm de verdad, no un puñado de promesas.
+  let subida = null;
+  const stub = http.createServer((req, res) => {
+    const cors = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "*",
+    };
+    if (req.method === "OPTIONS") { res.writeHead(204, cors); res.end(); return; }
+    if (req.url.includes("/api/meet-bridge/") && req.url.endsWith("/session")) {
+      res.writeHead(200, { ...cors, "Content-Type": "application/json" });
+      res.end(JSON.stringify({ dbId: "stub-db-1", joinCode: "STUB", transcript: [], participants: [] }));
+      return;
+    }
+    if (req.url.startsWith("/api/meetings/stub-db-1/recording-upload")) {
+      const partes = [];
+      req.on("data", (c) => partes.push(c));
+      req.on("end", () => {
+        subida = { bytes: Buffer.concat(partes), url: req.url };
+        res.writeHead(200, { ...cors, "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, url: "https://stub/video.webm" }));
+      });
+      return;
+    }
+    res.writeHead(404, cors);
+    res.end("{}");
+  });
+  await new Promise((r) => stub.listen(STUB_PORT, r));
+
+  // --- Chromium con la extensión real y el DNS mapeado -----------------------
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "unify-profile-"));
+  const ctx = await chromium.launchPersistentContext(profile, {
+    executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+    headless: false, // extensiones piden ventana; corre bajo xvfb
+    ignoreHTTPSErrors: true,
+    args: [
+      "--no-sandbox",
+      // El entorno define HTTPS_PROXY y Chromium lo hereda: el CONNECT al
+      // proxy le gana a --host-resolver-rules y rompe el mapeo. Este
+      // navegador sólo habla con localhost y dominios mapeados a localhost,
+      // así que va directo.
+      "--no-proxy-server",
+      `--disable-extensions-except=${EXT}`,
+      `--load-extension=${EXT}`,
+      "--ignore-certificate-errors",
+      '--host-resolver-rules=MAP *.zoom.us 127.0.0.1, MAP zoom.us 127.0.0.1, MAP meet.jit.si 127.0.0.1',
+      // Acepta solo el pedido de captura de ESTA pestaña (preferCurrentTab),
+      // que es exactamente lo que hace el carril B.
+      "--auto-accept-this-tab-capture",
+      "--use-fake-ui-for-media-stream",
+      "--use-fake-device-for-media-stream",
+    ],
+  });
+
+  let sw = ctx.serviceWorkers()[0];
+  if (!sw) sw = await ctx.waitForEvent("serviceworker", { timeout: 15000 }).catch(() => null);
+  check("la extensión v4 carga (service worker activo)", Boolean(sw), sw ? "ok" : "no arrancó");
+  const extId = sw ? new URL(sw.url()).host : null;
+
+  // serverBase -> stub, escrito donde lo escribe el popup de verdad.
+  const setStorage = async (valores) => {
+    const p = await ctx.newPage();
+    await p.goto(`chrome-extension://${extId}/popup.html`);
+    await p.evaluate((v) => new Promise((r) => chrome.storage.local.set(v, r)), valores);
+    await p.close();
+  };
+  await setStorage({ serverBase: `http://localhost:${STUB_PORT}` });
+
+  // ═══════ 1. Detección y toast en una URL REAL de Zoom ═══════
+  console.log("\n── 1. El toast en zoom.us ──");
+  const page = await ctx.newPage();
+  const errs = [];
+  page.on("pageerror", (e) => errs.push(e.message.slice(0, 140)));
+  await page.goto("https://us05web.zoom.us/j/91234567890?pwd=x", { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(2500);
+
+  const toast = page.locator(".caja");
+  check("el toast aparece con los matches del manifest PUBLICADO", (await toast.count()) === 1);
+  const texto = await toast.textContent().catch(() => "");
+  check("dice “Veo que te estás uniendo…” y ofrece subtítulos + grabación",
+    /Veo que te estás uniendo a una reunión de Zoom/.test(texto) && /subtítulos y grabar/.test(texto),
+    texto.slice(0, 80));
+  check("avisa la cuenta regresiva del auto-SÍ", /arranco solo/.test(texto));
+  check("ofrece el atajo del carril A en el pie", /Ctrl\+Shift\+U/.test(texto));
+
+  // ═══════ 2. “Ahora no” se respeta (y le gana al timer) ═══════
+  console.log("\n── 2. Ahora no ──");
+  await page.locator("button.no").click();
+  await page.waitForTimeout(400);
+  check("el toast se va", (await page.locator(".caja").count()) === 0);
+  await page.waitForTimeout(5500);
+  check("y el auto-SÍ NO se dispara sobre un no explícito", (await page.locator(".caja").count()) === 0);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(2500);
+  check("ni vuelve a molestar en la misma reunión tras recargar",
+    (await page.locator(".caja").count()) === 0);
+
+  // ═══════ 3. Sí, grabar (carril B) ═══════
+  console.log("\n── 3. Sí, grabar (carril B) ──");
+  await page.goto("https://us05web.zoom.us/j/98765432109", { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(2500);
+  check("nueva reunión, nuevo toast", (await page.locator(".caja").count()) === 1);
+
+  await page.locator("button.si").click();
+  await page.waitForTimeout(2500);
+  const overlay = await page.locator(".rec").textContent().catch(() => "");
+  check("al aceptar, el overlay dice que está grabando y transcribiendo",
+    /Grabando y transcribiendo/i.test(overlay), overlay.slice(0, 60));
+
+  // Grabar unos segundos de canvas animado y detener desde el overlay.
+  await page.waitForTimeout(7000);
+  await page.locator("button.no").click(); // "Detener"
+  await page.waitForTimeout(600);
+  const guardando = await page.locator(".rec").textContent().catch(() => "");
+  check("al detener, el overlay avisa que está guardando (no desaparece)",
+    /guardando/i.test(guardando), guardando.slice(0, 50));
+  await page.waitForTimeout(3000);
+  const notaOk = await page.locator(".ok").textContent().catch(() => "");
+  check("y confirma que quedó en el historial", /guardada/i.test(notaOk), notaOk.slice(0, 60));
+
+  check("la grabación llegó al stub de Unify", Boolean(subida), subida ? `${subida.bytes.length} bytes` : "nada");
+  if (subida) {
+    check("con un tamaño real (no un archivo vacío)", subida.bytes.length > 20_000, `${subida.bytes.length} bytes`);
+    const magia = subida.bytes.subarray(0, 4).toString("hex");
+    check("y es un webm de verdad (magia EBML)", magia === "1a45dfa3", magia);
+    check("la subida declara la duración", /durationMs=\d{3,}/.test(subida.url), subida.url.slice(0, 80));
+  } else {
+    check("con un tamaño real (no un archivo vacío)", false, "no hubo subida");
+    check("y es un webm de verdad (magia EBML)", false, "no hubo subida");
+    check("la subida declara la duración", false, "no hubo subida");
+  }
+
+  // ═══════ 4. Overlay + bridge real ═══════
+  console.log("\n── 4. Overlay + bridge real ──");
+  {
+    await setStorage({ serverBase: API });
+
+    const zoomId = `9${Date.now() % 1e9}0`;
+    await page.goto(`https://acme.zoom.us/j/${zoomId}`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(2500);
+    await page.locator("button.si").click();
+    await page.waitForTimeout(2000);
+
+    // Alguien más (la web, otro overlay) publica una línea en la MISMA sala.
+    const r = await fetch(`${API}/api/meet-bridge/${encodeURIComponent(`zoom:${zoomId}`)}/transcript`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ speaker: "Bruno Web", text: "¿me escuchan desde el overlay?", lang: "es-AR" }),
+    });
+    check("el bridge real acepta la línea de esa sala", r.status === 200, `HTTP ${r.status}`);
+
+    // El overlay sondea cada 2,5 s: a los 6 ya tiene que estar pintada.
+    await page.waitForTimeout(6000);
+    const subs = await page.locator(".subs").textContent().catch(() => "");
+    check("el overlay la muestra EN VIVO con su hablante",
+      subs.includes("Bruno Web") && subs.includes("¿me escuchan desde el overlay?"), subs.slice(0, 80));
+
+    // Detener acá sube contra el servidor real SIN R2: el 503 tiene que
+    // volver como un aviso honesto, no como un silencio.
+    await page.locator("button.no").click();
+    await page.waitForTimeout(3500);
+    const aviso = await page.locator(".aviso").textContent().catch(() => "");
+    check("sin almacenamiento configurado, la falla de subida SE DICE",
+      /no pudimos subirla|no pudimos subir/i.test(aviso), aviso.slice(0, 80));
+  }
+
+  // ═══════ 5. Sin responder: a los 5 segundos arranca solo ═══════
+  console.log("\n── 5. Sin responder: a los 5 segundos arranca solo ──");
+  {
+    // Idioma de traducción: inglés, como lo dejaría el panel de Meet.
+    await setStorage({ lang: "en" });
+
+    // La traducción del overlay es un fetch de la PÁGINA: se stubbea acá y se
+    // afirma más abajo que el overlay la pinta (el proveedor real ya tiene su
+    // propia cobertura en el servidor).
+    await ctx.route("**/api/translate", (route) =>
+      route.fulfill({
+        status: 200, contentType: "application/json",
+        body: JSON.stringify({ translatedText: "EN: the blue slide shows the sales curve" }),
+      })
+    );
+
+    const zoomId2 = `9${(Date.now() + 7) % 1e9}3`;
+    await page.goto(`https://acme.zoom.us/j/${zoomId2}`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(2500);
+    check("aparece el toast con la cuenta regresiva", (await page.locator(".caja").count()) === 1);
+
+    // NO se toca nada: a los ~5 s tienen que arrancar los subtítulos solos.
+    await page.waitForTimeout(6000);
+    const estado = await page.locator(".rec").textContent().catch(() => "");
+    check("a los 5 segundos, sin respuesta, los subtítulos arrancan SOLOS",
+      /Subtítulos de Unify activos/i.test(estado), estado.slice(0, 60));
+    check("con el selector de idioma en el idioma guardado",
+      (await page.locator("select.sel").inputValue().catch(() => "")) === "en");
+    check("y el botón Grabar a mano (la grabación en sí exige un gesto tuyo)",
+      (await page.locator("button.si", { hasText: "Grabar" }).count()) === 1);
+
+    // Llega una línea a la sala (otro participante) -> el overlay la muestra
+    // y la TRADUCE al idioma elegido.
+    await fetch(`${API}/api/meet-bridge/${encodeURIComponent(`zoom:${zoomId2}`)}/transcript`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ speaker: "Lin Wei", text: "la lámina azul muestra la curva de ventas", lang: "es-AR" }),
+    });
+    await page.waitForTimeout(6000);
+    const subs2 = await page.locator(".subs").textContent().catch(() => "");
+    check("el overlay muestra la línea original", /lámina azul/.test(subs2), subs2.slice(0, 70));
+    check("y abajo su traducción al idioma elegido",
+      /EN: the blue slide shows the sales curve/.test(subs2));
+
+    // El próximo clic REAL en la página dispara la grabación armada
+    // (--auto-accept-this-tab-capture confirma el selector por nosotros).
+    await page.mouse.click(320, 180);
+    await page.waitForTimeout(2500);
+    const estado2 = await page.locator(".rec").textContent().catch(() => "");
+    check("el primer clic en la página dispara la grabación que quedó armada",
+      /Grabando y transcribiendo/i.test(estado2), estado2.slice(0, 60));
+    await page.locator("button.no").click(); // Detener
+    await page.waitForTimeout(2500);
+  }
+
+  // ═══════ 6. Jitsi también (segunda plataforma, mismos matches) ═══════
+  console.log("\n── 6. Jitsi ──");
+  await page.goto("https://meet.jit.si/SalaDePruebaUnify", { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(2500);
+  const t2 = await page.locator(".caja").textContent().catch(() => "");
+  check("el toast también sale en meet.jit.si", /reunión de Jitsi/.test(t2), t2.slice(0, 60));
+
+  check("ninguna página tiró errores de JavaScript", errs.length === 0, errs.slice(0, 2).join(" | "));
+
+  await ctx.close();
+  fakeSites.close();
+  stub.close();
+  const failed = results.filter((r) => !r).length;
+  console.log(`\n${results.length - failed}/${results.length} OK`);
+  process.exit(failed ? 1 : 0);
+})().catch((e) => { console.error("ERROR:", e.message, e.stack?.slice(0, 400)); process.exit(1); });
