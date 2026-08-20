@@ -55,8 +55,9 @@ manifest) y listo — quienes la tengan instalada se actualizan solos.
 
 **Categoría:** Productividad · **Idioma:** Español
 
-**Capturas:** sacalas de una reunión real con el panel abierto (1280×800).
-La tienda pide al menos una.
+**Capturas (1280×800):** ya están listas en `extension/store/`:
+`captura-1-toast.png` (el aviso al entrar a una reunión) y
+`captura-2-overlay.png` (grabando, con subtítulos traducidos). Subí las dos.
 
 ## Prácticas de privacidad (lo que pregunta el formulario)
 

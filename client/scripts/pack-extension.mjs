@@ -43,6 +43,9 @@ function listar(dir, base = "") {
     const abs = path.join(dir, nombre);
     const rel = base ? `${base}/${nombre}` : nombre;
     if (fs.statSync(abs).isDirectory()) {
+      // store/ es material de la FICHA (capturas para la Web Store), no
+      // código de la extensión: no viaja en el paquete.
+      if (rel === "store") continue;
       out.push(...listar(abs, rel));
       continue;
     }
