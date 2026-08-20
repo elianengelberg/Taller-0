@@ -1,8 +1,14 @@
-# Unify para Google Meet
+# Unify — asistente de reuniones (extensión)
 
-Extensión de Chrome/Edge que mete Unify **dentro** de Google Meet: transcribe a
-todos los participantes, traduce en vivo, graba la reunión completa y responde
-con IA — sin salir de la pestaña de Meet y sin pantallas divididas.
+Extensión de Chrome/Edge con **dos modos**:
+
+1. **Dentro de Google Meet** (integración profunda): mete Unify en la pestaña de
+   Meet, lee sus subtítulos nativos para transcribir a TODOS los participantes,
+   traduce en vivo, graba la reunión completa y responde con IA.
+2. **En cualquier otra reunión** (Zoom, Teams, Jitsi, Webex): detecta que
+   entraste, te ofrece grabarla y transcribirla con un toast, y muestra un
+   overlay flotante con la transcripción en vivo — la misma sala que ve el
+   companion de la web, así las líneas de todos se juntan en un solo hilo.
 
 ## Qué hace
 
@@ -24,6 +30,30 @@ quien habla. Leer esos subtítulos es la única forma de tener la reunión compl
 
 **Por eso la extensión necesita que los subtítulos de Meet estén activos.** Si
 están apagados, los prende sola la primera vez; si no puede, el panel te lo pide.
+
+## En reuniones que no son Meet (Zoom, Teams, Jitsi, Webex)
+
+Cuando entrás a una de esas plataformas, aparece abajo a la derecha:
+
+> **Che, te estás uniendo a una reunión de Zoom. ¿Querés que Unify la grabe y transcriba?**
+
+Hay **dos formas de grabar**, según cómo el navegador entrega el permiso:
+
+- **Tocás [Sí, grabar]:** ese clic te habilita a grabar en el acto (Chrome lo
+  llama "activación de usuario en la página"). El selector de pestaña viene con
+  la reunión ya elegida: un clic y listo.
+- **Apretás Ctrl+Shift+U (⌘⇧U) o el ícono de Unify:** graba sin selector, con el
+  audio de la pestaña garantizado. Esto NO se puede disparar desde el botón de
+  la página: Chrome exige que la orden venga de la barra del navegador (el ícono
+  o el atajo). Por eso el toast lo ofrece como atajo directo.
+
+En los dos casos, si la subida al historial falla, el overlay **te lo dice** en
+vez de perder la grabación en silencio.
+
+Por qué el overlay solo muestra a quien hablás vos si nadie más usa Unify: una
+pestaña únicamente escucha tu micrófono. Para transcribir a TODOS en una reunión
+que no es Meet, cada participante abre Unify al lado (el botón "Abrir Unify al
+lado" del overlay), y todas las voces caen en la misma sala.
 
 ## Instalar (modo desarrollador)
 

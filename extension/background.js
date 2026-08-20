@@ -1,18 +1,40 @@
-// Service worker de Unify para Google Meet.
+// Service worker de Unify.
 //
-// Su trabajo principal es la GRABACIÓN. La versión anterior dependía de
-// "compartir pantalla": el usuario tenía que elegir la pestaña correcta y
-// acordarse de tildar "compartir audio" -- y si se equivocaba, el video salía
-// mudo o mostraba la interfaz de Unify en vez de la reunión.
+// Hay DOS maneras de grabar una reunión, según cómo llegó el permiso:
 //
-// Acá usamos la captura de pestaña de la extensión: tomamos el audio y el video
-// de la pestaña de Meet tal cual suenan y se ven, con TODOS los participantes,
-// sin pedirle nada al usuario. En Manifest V3 el service worker no puede usar
-// MediaRecorder, así que la grabación real ocurre en un documento "offscreen"
-// que este archivo crea y controla.
+//   CARRIL A -- captura de pestaña (tabCapture). Chrome exige que la extensión
+//   haya sido INVOCADA (ícono de la barra, atajo o menú contextual): un clic
+//   dentro de la página NO alcanza, Chrome lo define así y no hay forma de
+//   rodearlo. A cambio: cero selector, audio de pestaña garantizado, y la
+//   grabación vive en el documento offscreen (en Manifest V3 este service
+//   worker no puede usar MediaRecorder), que sobrevive a lo que le pase a la
+//   página. Es el camino de siempre en Meet, y ahora también en las pestañas
+//   externas detectadas por prompt-injector.js.
+//
+//   CARRIL B -- getDisplayMedia desde el content script. El clic en el toast
+//   de la página sí lo habilita (activación de usuario en la página). El
+//   MediaRecorder corre en la página, así que los chunks viajan hasta acá
+//   apenas existen: lo ya enviado se salva aunque la pestaña muera. El Port
+//   abierto además mantiene despierto este service worker (Chrome >= 116
+//   reinicia el reloj de inactividad con cada mensaje).
+//
+// Los dos carriles terminan igual: pedirle al bridge el dbId de la reunión
+// companion -- con la MISMA clave de sala que deriva la web, así el overlay y
+// el companion web caen en la misma sala -- y subir el video al endpoint de
+// grabaciones que ya usa la web como respaldo.
 
 const OFFSCREEN = "offscreen.html";
+const DEFAULT_SERVER = "https://taller-0.onrender.com";
 let recordingTabId = null;
+
+const lastMeet = new Map(); // tabId -> { dbId, serverBase, token }  (Meet, como siempre)
+const lastExternal = new Map(); // tabId -> { roomKey, plataforma, url }  (Zoom/Teams/Jitsi/Webex)
+
+async function config() {
+  const v = await chrome.storage.local.get({ serverBase: DEFAULT_SERVER, token: null });
+  const serverBase = String(v.serverBase || DEFAULT_SERVER).replace(/\/+$/, "");
+  return { serverBase: /^https?:\/\//.test(serverBase) ? serverBase : DEFAULT_SERVER, token: v.token ?? null };
+}
 
 async function hasOffscreen() {
   const ctxs = await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"] });
@@ -24,7 +46,7 @@ async function ensureOffscreen() {
   await chrome.offscreen.createDocument({
     url: OFFSCREEN,
     reasons: ["USER_MEDIA"],
-    justification: "Grabar el audio y el video de la reunión de Google Meet.",
+    justification: "Grabar el audio y el video de la pestaña de la reunión.",
   });
 }
 
@@ -32,6 +54,25 @@ function notify(tabId, msg) {
   if (tabId == null) return;
   chrome.tabs.sendMessage(tabId, msg).catch(() => {});
 }
+
+function badge(on) {
+  chrome.action.setBadgeText({ text: on ? "REC" : "" });
+  if (on) chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
+}
+
+// La reunión companion que respalda esa clave de sala. El bridge la crea si
+// no existe, con la MISMA clave que derivaría la web: de ahí sale que las
+// superficies se encuentren en una sola sala en vez de fabricar islas.
+async function sesionDeSala(roomKey) {
+  const { serverBase } = await config();
+  const res = await fetch(`${serverBase}/api/meet-bridge/${encodeURIComponent(roomKey)}/session`);
+  if (!res.ok) throw new Error("El bridge no reconoció esta sala.");
+  const s = await res.json();
+  if (!s?.dbId) throw new Error("La sala no tiene reunión de respaldo.");
+  return s;
+}
+
+// --- CARRIL A: tabCapture tras una invocación real ---------------------------
 
 async function startRecording(tabId, payload) {
   // Id de captura de ESTA pestaña: lo que se grabe es exactamente lo que la
@@ -48,31 +89,33 @@ async function startRecording(tabId, payload) {
   });
   if (!res?.ok) throw new Error(res?.error || "No se pudo iniciar la grabación.");
   recordingTabId = tabId;
-  chrome.action.setBadgeText({ text: "REC" });
-  chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
+  badge(true);
 }
 
 async function stopRecording() {
   if (await hasOffscreen()) {
     await chrome.runtime.sendMessage({ target: "offscreen", kind: "stop" }).catch(() => {});
   }
-  chrome.action.setBadgeText({ text: "" });
+  badge(false);
 }
 
-// Datos de la reunión que el panel comparte, para poder grabar desde el popup o
-// el atajo de teclado sin volver a pedírselos a la pestaña.
-const lastMeet = new Map(); // tabId -> { dbId, serverBase, token }
-
-// Chrome exige que la extensión haya sido "invocada" (ícono de la barra, atajo
-// o menú contextual) antes de dejar capturar la pestaña: un clic dentro de la
-// página no alcanza. Por eso hay tres caminos y todos terminan acá.
+// Un solo toggle para las tres puertas de invocación (atajo, popup, ícono),
+// que ahora también entiende pestañas externas, no sólo Meet.
 async function toggleForTab(tabId) {
   if (recordingTabId === tabId) {
     await stopRecording();
     return { ok: true, recording: false };
   }
-  const payload = lastMeet.get(tabId);
-  if (!payload?.dbId) return { ok: false, error: "Abrí el panel de Unify en la reunión y probá de nuevo." };
+  let payload = lastMeet.get(tabId);
+  if (!payload?.dbId) {
+    const ext = lastExternal.get(tabId);
+    if (ext?.roomKey) {
+      const s = await sesionDeSala(ext.roomKey);
+      const { serverBase, token } = await config();
+      payload = { dbId: s.dbId, serverBase, token };
+    }
+  }
+  if (!payload?.dbId) return { ok: false, error: "Abrí una reunión y probá de nuevo." };
   await startRecording(tabId, payload);
   notify(tabId, { kind: "unify-record-state", recording: true });
   return { ok: true, recording: true };
@@ -90,8 +133,104 @@ chrome.commands?.onCommand.addListener(async (command) => {
   }
 });
 
+// --- CARRIL B: recibir la grabación que corre en la página --------------------
+
+chrome.runtime.onConnect.addListener((puerto) => {
+  if (puerto.name !== "unify-ext-rec") return;
+  const tabId = puerto.sender?.tab?.id ?? null;
+  let chunks = [];
+  let bytes = 0;
+  let roomKey = null;
+  let empezoEn = 0;
+  let finalizado = false; // "fin" + tope + onDisconnect pueden solaparse: una sola subida
+  // Tope de memoria: una reunión de horas en alta calidad no puede vivir en la
+  // RAM del service worker. 700 MB ~ 25 minutos a 3,5 Mb/s; pasado eso se
+  // corta la grabación con aviso, en vez de tumbar el proceso sin explicación.
+  const MAX_BYTES = 700 * 1024 * 1024;
+
+  puerto.onMessage.addListener(async (msg) => {
+    if (msg?.kind === "inicio") {
+      roomKey = String(msg.roomKey ?? "");
+      chunks = [];
+      bytes = 0;
+      empezoEn = Date.now();
+      badge(true);
+      return;
+    }
+    if (msg?.kind === "chunk" && typeof msg.b64 === "string") {
+      // Los Ports serializan JSON, así que el chunk llega en base64 (ver
+      // prompt-injector.js). Acá vuelve a bytes de una, para no acumular
+      // strings gigantes.
+      const bin = atob(msg.b64);
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      chunks.push(arr);
+      bytes += arr.byteLength;
+      if (bytes > MAX_BYTES) {
+        puerto.postMessage({
+          kind: "subida-error",
+          message: "La grabación superó el tamaño máximo y se cortó acá. Lo grabado hasta ahora se está subiendo.",
+        });
+        try { puerto.postMessage({ kind: "cortar" }); } catch { /* página cerrada */ }
+        void finalizarCarrilB();
+      }
+      return;
+    }
+    if (msg?.kind === "fin") {
+      void finalizarCarrilB();
+    }
+  });
+
+  async function finalizarCarrilB() {
+    if (finalizado) return;
+    finalizado = true;
+    badge(false);
+    const durationMs = empezoEn ? Date.now() - empezoEn : 0;
+    const cuerpo = new Blob(chunks, { type: "video/webm" });
+    chunks = [];
+    bytes = 0;
+    if (!roomKey || cuerpo.size < 20_000) return; // nada real que subir
+    try {
+      const { serverBase, token } = await config();
+      const { dbId } = await sesionDeSala(roomKey);
+      // Mismo endpoint de respaldo que usa la web cuando el PUT directo a R2
+      // falla: el servidor lo pasa al bucket y lo cuelga del historial.
+      const res = await fetch(
+        `${serverBase}/api/meetings/${dbId}/recording-upload?durationMs=${Math.round(durationMs)}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "video/webm",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: cuerpo,
+        }
+      );
+      if (!res.ok) throw new Error(String(res.status));
+      puerto.postMessage({ kind: "subida-ok" });
+    } catch {
+      try {
+        puerto.postMessage({
+          kind: "subida-error",
+          message: "Grabamos la reunión pero no pudimos subirla. Revisá tu conexión.",
+        });
+      } catch { /* la página ya no está */ }
+    }
+  }
+
+  puerto.onDisconnect.addListener(() => {
+    // La página murió con la grabación abierta: subir lo que alcanzó a llegar
+    // es mejor que perderlo todo (es el motivo por el que los chunks viajan
+    // apenas existen).
+    if (chunks.length > 0) void finalizarCarrilB();
+    if (tabId != null && recordingTabId !== tabId) badge(false);
+  });
+});
+
+// --- Mensajería general --------------------------------------------------------
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  // El panel nos deja los datos de la reunión apenas se abre.
+  // El panel de Meet nos deja los datos de la reunión apenas se abre.
   if (msg?.kind === "unify-meet-info" && sender.tab?.id != null) {
     lastMeet.set(sender.tab.id, {
       dbId: msg.dbId,
@@ -102,14 +241,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // El injector detectó una reunión externa: guardar la sala para que el
+  // carril A (Ctrl+Shift+U / ícono) sepa qué capturar sin volver a preguntar.
+  if (msg?.kind === "unify-external-info" && sender.tab?.id != null) {
+    lastExternal.set(sender.tab.id, {
+      roomKey: msg.roomKey,
+      plataforma: msg.plataforma,
+      url: msg.url,
+    });
+    sendResponse?.({ ok: true });
+    return true;
+  }
+
   // El popup pregunta qué mostrar (y sobre qué pestaña actuar).
   if (msg?.kind === "unify-popup-state") {
     chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+      const id = tab?.id ?? null;
       sendResponse({
-        tabId: tab?.id ?? null,
+        tabId: id,
         isMeet: Boolean(tab?.url?.startsWith("https://meet.google.com/")),
-        ready: Boolean(tab?.id != null && lastMeet.get(tab.id)?.dbId),
-        recording: tab?.id != null && recordingTabId === tab.id,
+        isExternal: Boolean(id != null && lastExternal.get(id)),
+        ready: Boolean(id != null && (lastMeet.get(id)?.dbId || lastExternal.get(id)?.roomKey)),
+        recording: id != null && recordingTabId === id,
       });
     });
     return true;
@@ -153,7 +306,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // Avisos que sube el documento offscreen.
   if (msg?.kind === "offscreen-finished") {
-    chrome.action.setBadgeText({ text: "" });
+    badge(false);
     notify(recordingTabId, { kind: "unify-record-state", recording: false });
     if (!msg.ok) {
       notify(recordingTabId, {
@@ -175,5 +328,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // Si se cierra la pestaña que se está grabando, cerrar la grabación con prolijidad.
 chrome.tabs.onRemoved.addListener((tabId) => {
   lastMeet.delete(tabId);
+  lastExternal.delete(tabId);
   if (tabId === recordingTabId) void stopRecording();
 });

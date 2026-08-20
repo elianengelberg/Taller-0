@@ -142,6 +142,36 @@ mensajes) sin activar R2 (grabaciones), la IA, ni el correo, por ejemplo.
   correo explica que el acceso es por el botón de Google (y que la contraseña de Google se
   recupera en Google).
 
+## Instalar como app (PWA)
+
+Unify es una **PWA instalable**: en Chrome/Edge de escritorio o Android aparece
+"Instalar Unify" en la barra de direcciones, y queda como una app más, con su
+ícono, sin la barra del navegador y **abriéndose sola** desde el ícono.
+
+- **Escritorio y Android**: se instala directo desde el navegador. En Android,
+  además, Unify aparece en el menú de **Compartir**: si te llega un enlace de
+  Zoom o Meet por WhatsApp, Compartir → Unify lo abre ya detectado en
+  `/externa`.
+- **Empaquetado para tiendas**:
+  - **Android (Google Play)** conviene con **Bubblewrap/TWA**: envuelve la PWA en
+    una Trusted Web Activity que corre en el Chrome del teléfono (cámara,
+    micrófono y voz-a-texto funcionan igual que en la web) y se actualiza sola
+    con cada deploy del frontend. Necesita `assetlinks.json` en
+    `/.well-known/` con la huella de la clave de firma.
+  - **iOS (App Store)** va con **Capacitor** (WKWebView). Ojo con dos límites de
+    iOS: no existe `getDisplayMedia` (no hay grabar-pantalla) y la Web Speech
+    API no anda en WKWebView — la transcripción del propio micrófono se hace con
+    el reconocimiento nativo (`SFSpeechRecognizer`) alimentando el mismo evento
+    `transcript-line`. La v1 de iOS es companion + historial + unirse a
+    reuniones en primer plano.
+
+El service worker está pensado para no molestar: **nunca** cachea `/api` ni el
+socket (servir historial viejo sería corromper datos), deja fuera del precache
+los bundles pesados (SDK de Zoom ~5,6 MB) para que instalar no cueste 10 MB, y
+**no se actualiza en medio de una reunión** — el aviso de "hay una versión
+nueva" solo aparece fuera de la llamada, para no cambiar los chunks bajo los
+pies de la videollamada en curso.
+
 ## Limitaciones a tener en cuenta
 
 - **Transcripción por voz**: usa la Web Speech API, que hoy solo está disponible en
@@ -161,7 +191,9 @@ mensajes) sin activar R2 (grabaciones), la IA, ni el correo, por ejemplo.
   Translation) alcanza con cambiar ese archivo.
 - **Grabación**: usa `getDisplayMedia`, así que el usuario tiene que elegir manualmente qué
   compartir (recomendado: "esta pestaña", con la casilla de audio de la pestaña tildada,
-  para capturar también el audio de los demás participantes).
+  para capturar también el audio de los demás participantes). La **extensión** evita ese
+  paso: con `Ctrl+Shift+U` (o el ícono) captura la pestaña sin selector y con el audio
+  garantizado, tanto en Meet como en Zoom/Teams/Jitsi/Webex.
 - **Sin guardado permanente configurado**: el estado de una reunión en curso vive en
   memoria del servidor; si se reinicia mientras hay reuniones activas, se pierden. Con
   `DATABASE_URL` configurado, el chat y la transcripción quedan guardados igual aunque el

@@ -15,7 +15,6 @@ import RecordingBanner from "../components/RecordingBanner";
 import SaveMeetingPrompt from "../components/SaveMeetingPrompt";
 import SettingsPanel from "../components/SettingsPanel";
 import SidePanel from "../components/SidePanel";
-import ToastViewport from "../components/ToastViewport";
 import TranscriptPanel from "../components/TranscriptPanel";
 import VideoGrid from "../components/VideoGrid";
 import { useAuth } from "../context/AuthContext";
@@ -726,7 +725,6 @@ export default function Meeting() {
         onToggleSettings={() => togglePanel("settings")}
         onLeave={handleLeave}
       />
-      <ToastViewport />
       {showRecPrompt && recorder.status === "idle" && (
         <RecordAutoPrompt onStart={(auto) => beginRecording(auto)} onDecline={declineRecording} />
       )}

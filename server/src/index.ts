@@ -1462,6 +1462,54 @@ io.on("connection", (socket) => {
 // for anything (no moderation, no persistence beyond the transcript flow).
 // ============================================================================
 const MEET_CODE_RE = /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/;
+
+// El bridge ya no es sólo de Meet: la extensión también acompaña reuniones de
+// Zoom, Teams, Jitsi y compañía. La identidad de la sala es la MISMA clave que
+// deriva el cliente (meetingPlatforms.ts): "plataforma:resto". Eso es lo que
+// hace que el overlay de la extensión y el companion web caigan en la misma
+// sala de Unify y sus transcripciones se fundan en un solo hilo, en vez de
+// fabricar una isla por superficie.
+//
+// La lista es cerrada a propósito: este endpoint crea reuniones y registros en
+// la base sin sesión, así que un prefijo libre sería una canilla de basura.
+const BRIDGE_PLATFORMS = new Set([
+  "google-meet", "zoom", "teams", "jitsi", "webex", "whereby", "element",
+  "chime", "goto", "bluejeans", "ringcentral", "dialpad", "livestorm", "zoho",
+  "skype", "discord", "slack", "whatsapp", "gather", "generica",
+]);
+
+// Cómo se titula la reunión en el historial ("Reunión de Zoom", etc.).
+const BRIDGE_LABELS: Record<string, string> = {
+  "google-meet": "Google Meet", zoom: "Zoom", teams: "Microsoft Teams",
+  jitsi: "Jitsi", webex: "Webex", whereby: "Whereby", element: "Element Call",
+  chime: "Amazon Chime", goto: "GoTo Meeting", bluejeans: "BlueJeans",
+  ringcentral: "RingCentral", dialpad: "Dialpad", livestorm: "Livestorm",
+  zoho: "Zoho Meeting", skype: "Skype", discord: "Discord", slack: "Slack",
+  whatsapp: "WhatsApp", gather: "Gather", generica: "Reunión externa",
+};
+
+/**
+ * Normaliza el id que llega por la URL a una clave de sala, o null si no es
+ * válido. Un código de Meet pelado ("abc-defg-hij") sigue andando tal cual --
+ * es lo que manda la extensión v3 instalada -- y se mapea a la misma clave
+ * "google-meet:código" de siempre, así que nadie pierde su sala.
+ */
+function bridgeRoomKey(raw: string): string | null {
+  const value = String(raw ?? "").trim().toLowerCase().slice(0, 240);
+  if (MEET_CODE_RE.test(value)) return `google-meet:${value}`;
+  const sep = value.indexOf(":");
+  if (sep <= 0) return null;
+  const platform = value.slice(0, sep);
+  const tail = value.slice(sep + 1);
+  if (!BRIDGE_PLATFORMS.has(platform)) return null;
+  // El resto de la clave sale de hosts, paths y ids de reunión: letras,
+  // números y la puntuación que esos formatos usan de verdad (Teams mete
+  // "19:meeting_...@thread.v2", Jitsi "dominio/sala"). Nada de espacios ni
+  // caracteres de control.
+  if (!/^[a-z0-9][a-z0-9\-._~:/@%+=]{0,200}$/.test(tail)) return null;
+  return `${platform}:${tail}`;
+}
+
 const meetBridgeLimiters = new Map<string, { windowStart: number; count: number }>();
 
 function allowMeetBridge(meetId: string): boolean {
@@ -1481,15 +1529,16 @@ function allowMeetBridge(meetId: string): boolean {
 }
 
 app.post("/api/meet-bridge/:meetId", bridgeLimit, (req, res) => {
-  const meetId = String(req.params.meetId).toLowerCase();
-  if (!MEET_CODE_RE.test(meetId)) {
-    res.status(400).json({ error: "Código de Meet inválido." });
+  const roomKey = bridgeRoomKey(req.params.meetId);
+  if (!roomKey) {
+    res.status(400).json({ error: "Clave de reunión inválida." });
     return;
   }
-  if (!allowMeetBridge(meetId)) {
+  if (!allowMeetBridge(roomKey)) {
     res.status(429).json({ error: "Demasiadas actualizaciones." });
     return;
   }
+  const meetId = roomKey;
   const b = req.body ?? {};
   // Whitelist + clamp every field: this endpoint is reachable by anyone who
   // knows the meet code, so nothing here is trusted beyond display.
@@ -1511,7 +1560,9 @@ app.post("/api/meet-bridge/:meetId", bridgeLimit, (req, res) => {
       : null,
     at: Date.now(),
   };
-  io.to(`meeting:GOOGLE-MEET:${meetId.toUpperCase()}`).emit("meet-state", state);
+  // La sala del socket es la misma que crea getOrCreateCompanionMeeting: la
+  // clave en mayúsculas. Antes esto estaba clavado a GOOGLE-MEET.
+  io.to(`meeting:${meetId.toUpperCase()}`).emit("meet-state", state);
   res.json({ ok: true });
 });
 
@@ -1526,14 +1577,17 @@ app.post("/api/meet-bridge/:meetId", bridgeLimit, (req, res) => {
 // Socket.io room for a meeting id -- must match socketHandlers' roomName().
 const roomFor = (meetingId: string) => `meeting:${meetingId}`;
 
-// Resolves (creating if needed) the companion meeting that backs a Meet code.
-function companionForMeet(meetId: string) {
-  const { meeting, created } = getOrCreateCompanionMeeting(`google-meet:${meetId}`);
+// Resuelve (creando si hace falta) la reunión companion que respalda una
+// clave de sala. El título del historial sale de la plataforma: "Reunión de
+// Zoom", "Reunión de Microsoft Teams", igual que las creadas desde la web.
+function companionForRoomKey(roomKey: string) {
+  const { meeting, created } = getOrCreateCompanionMeeting(roomKey);
   if (created) {
+    const platform = roomKey.split(":")[0];
     void createMeetingRecord({
       id: meeting.dbId,
       joinCode: meeting.id,
-      hostName: "Google Meet",
+      hostName: BRIDGE_LABELS[platform] ?? "Reunión externa",
       roles: [],
       ownerId: null,
     });
@@ -1542,12 +1596,12 @@ function companionForMeet(meetId: string) {
 }
 
 app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) => {
-  const meetId = String(req.params.meetId).toLowerCase();
-  if (!MEET_CODE_RE.test(meetId)) {
-    res.status(400).json({ error: "Código de Meet inválido." });
+  const roomKey = bridgeRoomKey(req.params.meetId);
+  if (!roomKey) {
+    res.status(400).json({ error: "Clave de reunión inválida." });
     return;
   }
-  if (!allowMeetBridge(meetId)) {
+  if (!allowMeetBridge(roomKey)) {
     res.status(429).json({ error: "Demasiadas líneas seguidas." });
     return;
   }
@@ -1559,7 +1613,7 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
     return;
   }
 
-  const meeting = companionForMeet(meetId);
+  const meeting = companionForRoomKey(roomKey);
   const line = addNamedTranscriptLine(meeting, speaker, text, lang);
   io.to(roomFor(meeting.id)).emit("transcript-line", { line });
   void recordMessage({
@@ -1577,17 +1631,24 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
 // Lets the extension panel bootstrap: which saved meeting backs this Meet code,
 // and what has been said so far (so re-opening the panel isn't a blank slate).
 app.get("/api/meet-bridge/:meetId/session", bridgeLimit, (req, res) => {
-  const meetId = String(req.params.meetId).toLowerCase();
-  if (!MEET_CODE_RE.test(meetId)) {
-    res.status(400).json({ error: "Código de Meet inválido." });
+  const roomKey = bridgeRoomKey(req.params.meetId);
+  if (!roomKey) {
+    res.status(400).json({ error: "Clave de reunión inválida." });
     return;
   }
-  const meeting = companionForMeet(meetId);
+  const meeting = companionForRoomKey(roomKey);
   res.json({
     dbId: meeting.dbId,
     joinCode: meeting.id,
     transcript: meeting.transcript.slice(-120),
-    participants: Array.from(meeting.participants.values()).map((p) => ({ id: p.id, name: p.name })),
+    // La foto viene resuelta por el SERVIDOR a partir de la cuenta (regla de
+    // siempre: si la mandara el cliente, cualquiera podría ponerse la cara de
+    // otro). El overlay la usa para el subtítulo con foto, como en la web.
+    participants: Array.from(meeting.participants.values()).map((p) => ({
+      id: p.id,
+      name: p.name,
+      avatarUrl: p.avatarUrl ?? null,
+    })),
   });
 });
 
@@ -1596,13 +1657,13 @@ app.get("/api/meet-bridge/:meetId/session", bridgeLimit, (req, res) => {
 // anonymous callers), but knowing the Meet code is what grants access to THAT
 // meeting's content -- the same trust model as the rest of the bridge.
 app.post("/api/meet-bridge/:meetId/ask", requireAuth, aiLimit, async (req, res) => {
-  const meetId = String(req.params.meetId).toLowerCase();
-  if (!MEET_CODE_RE.test(meetId)) {
-    res.status(400).json({ error: "Código de Meet inválido." });
+  const roomKey = bridgeRoomKey(req.params.meetId);
+  if (!roomKey) {
+    res.status(400).json({ error: "Clave de reunión inválida." });
     return;
   }
   const question = typeof req.body?.question === "string" ? req.body.question : "";
-  const meeting = companionForMeet(meetId);
+  const meeting = companionForRoomKey(roomKey);
   const result = await answerFromMeeting(
     meeting.dbId,
     question,

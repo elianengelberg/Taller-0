@@ -34,7 +34,10 @@ function paintRecording(on) {
 }
 
 chrome.runtime.sendMessage({ kind: "unify-popup-state" }, (s) => {
-  if (!s?.isMeet) return; // fuera de Meet no mostramos el botón
+  // El botón aparece en Meet (panel profundo) y también en las reuniones
+  // externas que detectó prompt-injector.js: abrir este popup cuenta como
+  // invocación, así que desde acá la captura de pestaña queda habilitada.
+  if (!s?.isMeet && !s?.isExternal) return;
   tabId = s.tabId;
   rec.hidden = false;
   recTip.hidden = false;
@@ -42,7 +45,9 @@ chrome.runtime.sendMessage({ kind: "unify-popup-state" }, (s) => {
   if (!s.ready && !s.recording) {
     rec.disabled = true;
     rec.style.opacity = "0.55";
-    rec.title = "Esperá a que cargue el panel de Unify en la reunión.";
+    rec.title = s.isMeet
+      ? "Esperá a que cargue el panel de Unify en la reunión."
+      : "Entrá a la reunión y esperá un segundo a que Unify la detecte.";
   }
 });
 

@@ -1,20 +1,48 @@
 {
   "manifest_version": 3,
-  "name": "Unify para Google Meet",
-  "version": "3.0.0",
-  "description": "Transcribe a todos los participantes con roles, traduce en vivo, graba la reunión completa y respondé con IA — dentro de Google Meet.",
-  "permissions": ["activeTab", "scripting", "tabCapture", "storage", "offscreen"],
+  "name": "Unify — asistente de reuniones",
+  "version": "4.0.0",
+  "description": "Detecta tu reunión de Zoom, Meet, Teams, Jitsi o Webex y la graba, transcribe y traduce con Unify — con subtítulos por hablante e IA.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabCapture",
+    "storage",
+    "offscreen"
+  ],
   "host_permissions": [
     "https://meet.google.com/*",
     "https://taller-0.onrender.com/*",
     "http://localhost:4000/*",
     "http://localhost:4001/*"
   ],
-  "background": { "service_worker": "background.js" },
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
-      "matches": ["https://meet.google.com/*"],
-      "js": ["content.js"],
+      "matches": [
+        "https://meet.google.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.zoom.us/j/*",
+        "https://*.zoom.us/w/*",
+        "https://*.zoom.us/wc/*",
+        "https://teams.microsoft.com/*",
+        "https://teams.live.com/*",
+        "https://meet.jit.si/*",
+        "https://8x8.vc/*",
+        "https://*.webex.com/*"
+      ],
+      "js": [
+        "prompt-injector.js"
+      ],
       "run_at": "document_idle"
     },
     {
@@ -25,21 +53,35 @@
         "http://localhost:4174/*",
         "http://localhost:5173/*"
       ],
-      "js": ["auth-sync.js"],
+      "js": [
+        "auth-sync.js"
+      ],
       "run_at": "document_idle"
     }
   ],
-  "action": { "default_popup": "popup.html", "default_title": "Unify para Google Meet" },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Unify para Google Meet"
+  },
   "commands": {
     "toggle-recording": {
-      "suggested_key": { "default": "Ctrl+Shift+U", "mac": "Command+Shift+U" },
+      "suggested_key": {
+        "default": "Ctrl+Shift+U",
+        "mac": "Command+Shift+U"
+      },
       "description": "Empezar o detener la grabación de la reunión"
     }
   },
   "web_accessible_resources": [
     {
-      "resources": ["shadow.css", "offscreen.html"],
-      "matches": ["https://meet.google.com/*"]
+      "resources": [
+        "shadow.css",
+        "offscreen.html"
+      ],
+      "matches": [
+        "https://meet.google.com/*"
+      ]
     }
-  ]
+  ],
+  "minimum_chrome_version": "116"
 }

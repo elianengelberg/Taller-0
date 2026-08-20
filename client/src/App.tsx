@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import CalendarRecordWatcher from "./components/CalendarRecordWatcher";
 import RequireAuth from "./components/RequireAuth";
+import ToastViewport from "./components/ToastViewport";
 import { AuthProvider } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { MeetingProvider } from "./context/MeetingContext";
@@ -27,6 +28,9 @@ export default function App() {
         {/* Global: watches the connected Outlook calendar and offers to
             record meetings as they start, on any page while logged in. */}
         <CalendarRecordWatcher />
+        {/* Global: los avisos (actualización de la PWA, pedidos del anfitrión)
+            se ven en cualquier página, no sólo dentro de la reunión. */}
+        <ToastViewport />
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/ingresar" element={<Login />} />

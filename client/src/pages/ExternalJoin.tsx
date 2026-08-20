@@ -213,7 +213,16 @@ export default function ExternalJoin() {
   const deepLinkRan = useRef(false);
   useEffect(() => {
     if (deepLinkRan.current) return;
-    const prefill = searchParams.get("link");
+    // `link` es el deep link de la extensión. `url`/`text`/`title` son lo que
+    // manda el share_target de la PWA (compartís el enlace de Zoom desde
+    // WhatsApp -> Unify): muchas apps ponen el enlace en `text`, no en `url`,
+    // así que se miran los tres. El detector ya sabe pescar un enlace metido
+    // dentro de una invitación entera pegada tal cual.
+    const prefill =
+      searchParams.get("link") ??
+      searchParams.get("url") ??
+      searchParams.get("text") ??
+      searchParams.get("title");
     if (!prefill) return;
     deepLinkRan.current = true;
     setLink(prefill);
