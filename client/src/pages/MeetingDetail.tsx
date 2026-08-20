@@ -7,6 +7,7 @@ import { DownloadIcon, SparklesIcon } from "../components/icons";
 import Logo from "../components/Logo";
 import RoleBadge from "../components/RoleBadge";
 import {
+  AiVideoFrame,
   fetchFolders,
   fetchMeetingDetail,
   FolderSummary,
@@ -62,6 +63,96 @@ export default function MeetingDetail() {
   return <MeetingDetailView meeting={meeting} />;
 }
 
+
+// La IA "ve" el video: el navegador -- que ya tiene la grabación en el
+// reproductor -- la recorre a N momentos parejos, dibuja cada cuadro en un
+// canvas y manda JPEGs chicos junto con la pregunta. El servidor nunca
+// procesa video (sin ffmpeg, sin descargas): sólo recibe imágenes acotadas.
+//
+// Se usa un <video> oculto propio (no el del reproductor visible) por dos
+// motivos: no patear la posición donde la persona está mirando, y poder pedir
+// crossOrigin="anonymous" sin arriesgar la reproducción visible -- si el
+// bucket no manda CORS, este video falla y simplemente no hay fotogramas
+// (la IA responde igual, desde la transcripción).
+const FRAME_COUNT = 6;
+const FRAME_WIDTH = 480;
+
+async function captureVideoFrames(url: string): Promise<AiVideoFrame[]> {
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    video.crossOrigin = "anonymous";
+    video.muted = true;
+    video.preload = "auto";
+    const frames: AiVideoFrame[] = [];
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      video.removeAttribute("src");
+      video.load();
+      resolve(frames);
+    };
+    // Nunca colgar la pregunta por culpa de la captura.
+    const timeout = setTimeout(finish, 20_000);
+
+    video.addEventListener("error", () => { clearTimeout(timeout); finish(); });
+    video.addEventListener("loadedmetadata", async () => {
+      let dur = video.duration;
+      // Los webm que produce MediaRecorder -- o sea, TODAS nuestras
+      // grabaciones -- declaran duración Infinity en los metadatos. El truco
+      // estándar: pedir un instante enorme; el navegador se ve obligado a
+      // calcular la duración real y la corrige.
+      if (!Number.isFinite(dur) || dur <= 0) {
+        dur = await new Promise<number>((res) => {
+          const listo = () => {
+            if (Number.isFinite(video.duration) && video.duration > 0) {
+              video.removeEventListener("durationchange", listo);
+              video.removeEventListener("seeked", listo);
+              res(video.duration);
+            }
+          };
+          video.addEventListener("durationchange", listo);
+          video.addEventListener("seeked", listo);
+          video.currentTime = 1e9;
+          setTimeout(() => res(video.duration), 6000);
+        });
+      }
+      if (!Number.isFinite(dur) || dur <= 0) { clearTimeout(timeout); finish(); return; }
+      // Momentos parejos, evitando el primer y el último instante (suelen ser
+      // negro de arranque o el cierre de la llamada).
+      const times = Array.from({ length: FRAME_COUNT }, (_, i) => ((i + 0.5) / FRAME_COUNT) * dur);
+      const canvas = document.createElement("canvas");
+      const scale = FRAME_WIDTH / Math.max(1, video.videoWidth);
+      canvas.width = FRAME_WIDTH;
+      canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+      const g = canvas.getContext("2d");
+      if (!g || canvas.height <= 1) { clearTimeout(timeout); finish(); return; }
+      let i = 0;
+      const next = () => {
+        if (i >= times.length) { clearTimeout(timeout); finish(); return; }
+        video.currentTime = times[i];
+      };
+      video.addEventListener("seeked", () => {
+        try {
+          g.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
+          frames.push({ atSec: Math.floor(times[i]), data: dataUrl.split(",")[1] ?? "" });
+        } catch {
+          // Canvas contaminado (bucket sin CORS): sin fotogramas y a otra cosa.
+          clearTimeout(timeout);
+          frames.length = 0;
+          finish();
+          return;
+        }
+        i += 1;
+        next();
+      });
+      next();
+    });
+    video.src = url;
+  });
+}
+
 function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
   const readOnly = Boolean(meeting.sharedView);
   const [folders, setFolders] = useState<FolderSummary[]>([]);
@@ -77,6 +168,15 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
   // (ver server/src/storage.ts), que es lo único que distingue una de otra
   // desde acá.
   const audioOnlyRecording = /\.(m4a|weba)(\?|$)/i.test(meeting.recordingUrl ?? "");
+
+  // Fotogramas para la IA, capturados UNA vez y reusados entre preguntas.
+  const framesRef = useRef<AiVideoFrame[] | null>(null);
+  async function askWithVideo(question: string) {
+    if (meeting.recordingUrl && !audioOnlyRecording && framesRef.current === null) {
+      framesRef.current = await captureVideoFrames(meeting.recordingUrl).catch(() => []);
+    }
+    return askMeetingAI(meeting.id, question, framesRef.current ?? []);
+  }
 
   function seekTo(offsetSec: number) {
     const v = videoRef.current;
@@ -208,9 +308,13 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
         <AiChatBox
           className="mt-6"
           title="Preguntale a la IA sobre esta reunión"
-          description="Responde solo con lo que se dijo en esta reunión (chat y transcripción de voz) — no inventa información."
-          placeholder="Ej: ¿Qué dijo Germán sobre el presupuesto?"
-          onAsk={(q) => askMeetingAI(meeting.id, q)}
+          description={
+            meeting.recordingUrl && !audioOnlyRecording
+              ? "Responde con lo que se dijo (chat y transcripción) y además MIRA el video grabado: podés preguntarle por algo que se mostró en pantalla."
+              : "Responde solo con lo que se dijo en esta reunión (chat y transcripción de voz) — no inventa información."
+          }
+          placeholder="Ej: ¿Qué dijo Germán? ¿Qué se mostró en pantalla?"
+          onAsk={askWithVideo}
         />
 
         <div className={`${cardClass} mt-6`}>
@@ -282,11 +386,21 @@ function fmtOffset(sec: number): string {
 
 // Bolds words up to (and including) the current one -- a karaoke-style fill so
 // you can see which word is being said as the video plays.
-function highlightWords(text: string, uptoIdx: number): ReactNode[] {
+// Las palabras de una línea hablada: la que se está diciendo va en negrita,
+// las ya dichas quedan marcadas, y CADA palabra es clickeable -- tocarla salta
+// el video al instante estimado en que se dijo (interpolación lineal dentro de
+// la ventana de la línea; es un aproximado honesto, no un timestamp exacto).
+function highlightWords(
+  text: string,
+  uptoIdx: number,
+  onWord?: (wordIdx: number, wordCount: number) => void
+): ReactNode[] {
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
   let word = -1;
   return text.split(/(\s+)/).map((tok, i) => {
     if (/^\s+$/.test(tok) || tok === "") return tok;
     word += 1;
+    const idx = word;
     const cls =
       word === uptoIdx
         ? "font-bold text-strong"
@@ -294,14 +408,35 @@ function highlightWords(text: string, uptoIdx: number): ReactNode[] {
           ? "font-semibold text-ink-50"
           : "text-ink-300";
     return (
-      <span key={i} className={cls}>
+      <span
+        key={i}
+        className={`${cls}${onWord ? " cursor-pointer hover:underline decoration-brand-400/60 underline-offset-2" : ""}`}
+        onClick={
+          onWord
+            ? (e) => {
+                e.stopPropagation();
+                onWord(idx, wordCount);
+              }
+            : undefined
+        }
+      >
         {tok}
       </span>
     );
   });
 }
 
-type SyncEntry = MeetingHistoryMessage & { offset: number };
+type SyncEntry = MeetingHistoryMessage & {
+  offset: number;
+  /** Fin estimado de la línea hablada (misma fórmula que computeAt). */
+  end: number;
+};
+
+/** Momento estimado en que se dice la palabra `wordIdx` de la línea. */
+function wordTime(entry: SyncEntry, wordIdx: number, wordCount: number): number {
+  if (wordCount <= 0 || entry.end <= entry.offset) return entry.offset;
+  return entry.offset + (wordIdx / wordCount) * (entry.end - entry.offset);
+}
 
 // One transcript/chat line. Memoized so that, as playback advances, only the
 // line whose active state actually changed re-renders -- not the whole list on
@@ -349,9 +484,12 @@ const TranscriptLineItem = memo(function TranscriptLineItem({
       </div>
       <p
         onClick={() => onSeek(entry.offset)}
+        title={entry.kind === "transcript" ? "Tocá una palabra para saltar a ese instante" : undefined}
         className="mt-1.5 cursor-pointer text-sm leading-relaxed text-ink-100"
       >
-        {active ? highlightWords(entry.text, wordIdx) : entry.text}
+        {entry.kind === "transcript"
+          ? highlightWords(entry.text, active ? wordIdx : -1, (w, n) => onSeek(wordTime(entry, w, n)))
+          : entry.text}
       </p>
     </li>
   );
@@ -379,10 +517,23 @@ function SyncedTranscript({
   videoRef: React.RefObject<HTMLVideoElement>;
   onSeek: (offsetSec: number) => void;
 }) {
-  const entries = useMemo<SyncEntry[]>(
-    () => messages.map((m) => ({ ...m, offset: (new Date(m.createdAt).getTime() - baseMs) / 1000 })),
-    [messages, baseMs]
-  );
+  const entries = useMemo<SyncEntry[]>(() => {
+    const base = messages.map((m) => ({
+      ...m,
+      offset: (new Date(m.createdAt).getTime() - baseMs) / 1000,
+      end: 0,
+    }));
+    // La ventana estimada de cada línea hablada: mismo cálculo que computeAt,
+    // así el clic por palabra y el relleno en negrita no discrepan jamás.
+    const voz = base.filter((e) => e.kind === "transcript");
+    for (let i = 0; i < voz.length; i++) {
+      const words = voz[i].text.split(/\s+/).filter(Boolean);
+      const est = Math.max(1.5, words.length * 0.45);
+      voz[i].end =
+        i + 1 < voz.length ? Math.min(voz[i + 1].offset, voz[i].offset + est + 3) : voz[i].offset + est;
+    }
+    return base;
+  }, [messages, baseMs]);
   const voice = useMemo(() => entries.filter((e) => e.kind === "transcript"), [entries]);
 
   const [active, setActive] = useState<{ id: number | null; wordIdx: number }>({ id: null, wordIdx: -1 });
@@ -395,10 +546,9 @@ function SyncedTranscript({
       for (let i = 0; i < voice.length; i++) {
         const start = voice[i].offset;
         const words = voice[i].text.split(/\s+/).filter(Boolean);
-        // Estimate the line's spoken length from its word count, but never run
-        // past the next line's start (+ a little grace).
-        const est = Math.max(1.5, words.length * 0.45);
-        const end = i + 1 < voice.length ? Math.min(voice[i + 1].offset, start + est + 3) : start + est;
+        // La ventana viene precalculada en entries (la misma que usa el clic
+        // por palabra), así negrita y salto nunca discrepan.
+        const end = voice[i].end;
         if (t >= start && t < end) {
           const prog = end > start ? (t - start) / (end - start) : 1;
           return { id: voice[i].id, wordIdx: Math.min(words.length - 1, Math.floor(prog * words.length)) };

@@ -127,8 +127,11 @@ informes EXCLUSIVAMENTE en base a lo que pasó en una reunión específica: la t
 lo que se dijo (por voz o por chat), quién lo dijo, y las estadísticas ya calculadas.
 
 Reglas estrictas:
-- Usá solo información de la transcripción y las estadísticas de abajo. No uses conocimiento
-  externo ni inventes nada. Si algo no está ahí, decilo explícitamente en vez de adivinar.
+- Usá solo información de la transcripción, las estadísticas de abajo y -- si el mensaje trae
+  imágenes -- los fotogramas del video grabado de ESTA reunión. No uses conocimiento externo
+  ni inventes nada. Si algo no está en esas fuentes, decilo explícitamente en vez de adivinar.
+- Si hay fotogramas y la pregunta es sobre algo visual (qué se mostró en pantalla, una
+  lámina, un gráfico, quién aparecía), respondé mirándolos y citá el minuto del fotograma.
 - Para cantidades, duración o "quién habló más": usá las estadísticas ya calculadas, no
   cuentes vos desde la transcripción (es fácil que te equivoques contando texto largo).
 - Si te piden un resumen, informe o reporte completo de la reunión, generalo con estructura
@@ -156,6 +159,30 @@ function firstText(content: { type: string; text?: string }[]): string {
 
 export type AskResult = { ok: true; answer: string } | { ok: false; error: string };
 
+/**
+ * Un fotograma del VIDEO GRABADO de la reunión, capturado por el navegador
+ * (el cliente busca el video a distintos segundos, lo dibuja en un canvas y
+ * manda JPEGs chicos). Así la IA no responde sólo desde la transcripción:
+ * también mira lo que se veía en pantalla -- una lámina compartida, un
+ * gráfico, quién estaba en cámara.
+ *
+ * El servidor NO procesa video (no hay ffmpeg ni descargas de R2 acá): los
+ * bytes llegan ya listos, chicos y acotados. index.ts valida cantidad y
+ * tamaño antes de que esto se llame.
+ */
+export interface VideoFrame {
+  /** Segundo del video del que salió el fotograma. */
+  atSec: number;
+  /** JPEG en base64, SIN el prefijo data:. */
+  data: string;
+}
+
+function fmtSec(s: number): string {
+  const m = Math.floor(s / 60);
+  const r = Math.floor(s % 60);
+  return `${m}:${String(r).padStart(2, "0")}`;
+}
+
 export async function answerFromMeeting(
   meetingId: string,
   question: string,
@@ -163,7 +190,9 @@ export async function answerFromMeeting(
   // True when the caller has verified this user is a current participant of the
   // live meeting -- then they can query it even if they're not its owner (e.g.
   // everyone in a shared external/companion room, not just whoever opened it).
-  liveParticipant = false
+  liveParticipant = false,
+  // Fotogramas del video grabado (ver VideoFrame). Vacío = sólo transcripción.
+  frames: VideoFrame[] = []
 ): Promise<AskResult> {
   if (!anthropicClient) {
     return { ok: false, error: "La función de IA no está configurada en el servidor." };
@@ -186,11 +215,37 @@ export async function answerFromMeeting(
   }
 
   try {
+    // Con fotogramas, el mensaje del usuario pasa a ser multimodal: cada
+    // imagen va precedida de su momento en el video, así el modelo puede
+    // cruzar "lo que se veía" con "lo que se decía" en ese instante.
+    const pregunta = trimmedQuestion.slice(0, 2000);
+    type Bloque =
+      | { type: "text"; text: string }
+      | { type: "image"; source: { type: "base64"; media_type: "image/jpeg"; data: string } };
+    let content: string | Bloque[] = pregunta;
+    if (frames.length > 0) {
+      const bloques: Bloque[] = [
+        {
+          type: "text",
+          text:
+            "Estos son fotogramas REALES del video grabado de la reunión, con el minuto del que " +
+            "sale cada uno. Usalos junto con la transcripción: si la pregunta es sobre algo que se " +
+            "VIO (una lámina, un gráfico, quién estaba en cámara, qué se compartió en pantalla), " +
+            "respondé desde las imágenes y decí en qué minuto se ve.",
+        },
+      ];
+      for (const f of frames) {
+        bloques.push({ type: "text", text: `Fotograma en ${fmtSec(f.atSec)}:` });
+        bloques.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: f.data } });
+      }
+      bloques.push({ type: "text", text: pregunta });
+      content = bloques;
+    }
     const response = await anthropicClient.messages.create({
       model: MODEL,
       max_tokens: 4096,
       system: buildMeetingSystemPrompt(meeting),
-      messages: [{ role: "user", content: trimmedQuestion.slice(0, 2000) }],
+      messages: [{ role: "user", content }],
     });
     return { ok: true, answer: firstText(response.content) };
   } catch (err) {

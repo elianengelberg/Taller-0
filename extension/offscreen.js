@@ -93,10 +93,13 @@ async function start({ streamId, dbId, serverBase, token }) {
   tracks = [...tabStream.getTracks(), ...(micStream?.getTracks() ?? [])];
 
   const mimeType = pickMime();
+  // 5 Mb/s de video + 192 kb/s de audio: texto de pantallas compartidas
+  // legible y voces limpias, sin producir archivos absurdos (una hora ronda
+  // los 2,3 GB; el respaldo del servidor y R2 lo aguantan bien).
   recorder = new MediaRecorder(combined, {
     mimeType,
-    videoBitsPerSecond: 3_500_000,
-    audioBitsPerSecond: 128_000,
+    videoBitsPerSecond: 5_000_000,
+    audioBitsPerSecond: 192_000,
   });
   chunks = [];
   recorder.ondataavailable = (e) => e.data.size > 0 && chunks.push(e.data);

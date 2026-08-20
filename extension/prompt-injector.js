@@ -25,7 +25,10 @@
 
   const DEFAULT_SERVER = "https://taller-0.onrender.com";
   const DEFAULT_APP = "https://www.unify-meet.com";
-  const cfg = { serverBase: DEFAULT_SERVER, appBase: DEFAULT_APP, token: null };
+  const cfg = { serverBase: DEFAULT_SERVER, appBase: DEFAULT_APP, token: null, lang: "" };
+  // Traducciones por id de línea, para no volver a pedir la misma dos veces.
+  // Se vacía al cambiar el idioma.
+  const traducciones = new Map();
 
   function safeDecode(value) {
     try { return decodeURIComponent(value); } catch { return value; }
@@ -143,6 +146,10 @@
     .quien { font-size: 11.5px; color: #94a3b8; }
     .dijo { font-size: 13px; color: #e2e8f0; overflow-wrap: anywhere; }
     .vacio { font-size: 12.5px; color: #64748b; }
+    .sel { margin-top: 8px; width: 100%; background: #1e293b; color: #e2e8f0;
+      border: 1px solid #334155; border-radius: 8px; padding: 5px 8px;
+      font: 12px system-ui, sans-serif; }
+    .trad { font-size: 12.5px; color: #a5b4fc; margin-top: 1px; }
     .aviso { margin-top: 8px; font-size: 12px; color: #fca5a5; }
     .ok { margin-top: 8px; font-size: 12px; color: #6ee7b7; }
   `);
@@ -181,26 +188,49 @@
     caja.className = "caja";
 
     const texto = document.createElement("div");
-    texto.textContent = `Che, te estás uniendo a una reunión de ${det.nombre}. ¿Querés que Unify la grabe y transcriba?`;
+    texto.textContent = `Veo que te estás uniendo a una reunión de ${det.nombre}. ¿Querés los subtítulos y grabar la reunión?`;
 
     const fila = document.createElement("div");
     fila.className = "fila";
     const si = document.createElement("button");
     si.className = "si";
-    si.textContent = "Sí, grabar";
+    si.textContent = "Sí, dale";
     const no = document.createElement("button");
     no.className = "no";
     no.textContent = "Ahora no";
     fila.append(si, no);
 
+    // Si no contestás, a los 5 segundos es un SÍ solo: los subtítulos y la
+    // transcripción arrancan sin permiso del navegador. La GRABACIÓN no puede
+    // arrancar por timer -- Chrome sólo entrega la pantalla con un gesto tuyo
+    // -- así que queda "armada": tu próximo clic en la página (el de "Unirse",
+    // sin ir más lejos) dispara el pedido con la pestaña ya elegida.
+    const cuenta = document.createElement("div");
+    cuenta.className = "pie";
+    let restante = 5;
+    cuenta.textContent = `Si no respondés, en ${restante} arranco solo con los subtítulos.`;
+
     const pie = document.createElement("div");
     pie.className = "pie";
     pie.textContent = "Consejo: con Ctrl+Shift+U (⌘⇧U en Mac) grabás directo, sin el selector de pestaña.";
 
-    caja.append(texto, fila, pie);
+    caja.append(texto, fila, cuenta, pie);
     root.appendChild(caja);
 
+    const timer = setInterval(() => {
+      restante -= 1;
+      if (restante > 0) {
+        cuenta.textContent = `Si no respondés, en ${restante} arranco solo con los subtítulos.`;
+        return;
+      }
+      clearInterval(timer);
+      // Auto-SÍ: subtítulos ya, grabación armada al próximo gesto.
+      mostrarOverlay(det, { grabandoAca: false });
+      armarGrabacionAlProximoGesto(det);
+    }, 1000);
+
     no.addEventListener("click", () => {
+      clearInterval(timer);
       // Sólo esta reunión, en esta pestaña. No es un "nunca más".
       try { sessionStorage.setItem(`unify-no:${det.roomKey}`, "1"); } catch { /* sin storage */ }
       quitarUI();
@@ -208,15 +238,37 @@
 
     // CARRIL B: este clic ES la activación que getDisplayMedia necesita.
     si.addEventListener("click", () => {
+      clearInterval(timer);
       void iniciarCarrilB(det, caja);
     });
+  }
+
+  // El auto-SÍ no puede pedir la pantalla (un timer no es un gesto): deja el
+  // pedido listo para el PRÓXIMO clic real en la página. Si la persona cancela
+  // el selector, no se insiste: queda el botón Grabar del overlay.
+  let desarmar = null;
+  function armarGrabacionAlProximoGesto(det) {
+    if (desarmar) desarmar();
+    const handler = () => {
+      limpiar();
+      if (recorder) return; // ya está grabando por otro camino
+      void iniciarCarrilB(det, null);
+    };
+    const limpiar = () => {
+      window.removeEventListener("click", handler, true);
+      desarmar = null;
+    };
+    window.addEventListener("click", handler, true);
+    desarmar = limpiar;
   }
 
   async function iniciarCarrilB(det, caja) {
     let stream;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
+        // 30 fps pedidos explícitamente: sin esto, Chrome puede entregar la
+        // captura de pestaña a 5-10 fps y el video queda a los saltos.
+        video: { frameRate: { ideal: 30 } },
         audio: true,
         // Al revés que en la web de Unify (selfBrowserSurface: "exclude" para
         // no grabar a Unify mismo): acá la pestaña actual ES la reunión.
@@ -257,7 +309,12 @@
     const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
       ? "video/webm;codecs=vp9,opus"
       : "video/webm";
-    recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 3_500_000 });
+    recorder = new MediaRecorder(stream, {
+      mimeType: mime,
+      // Misma calidad que el grabador del documento offscreen (carril A).
+      videoBitsPerSecond: 5_000_000,
+      audioBitsPerSecond: 192_000,
+    });
     recorder.ondataavailable = async (e) => {
       if (!e.data || e.data.size === 0) return;
       // Los chunks viajan al background apenas existen: si la pestaña muere de
@@ -298,7 +355,32 @@
     rec.className = "rec";
     const punto = document.createElement("span");
     punto.className = "punto";
-    rec.append(punto, document.createTextNode(" Unify está acompañando esta reunión"));
+    if (!grabandoAca) punto.style.background = "#10b981"; // verde: subtítulos sin grabar
+    rec.append(
+      punto,
+      document.createTextNode(grabandoAca ? " Grabando y transcribiendo con Unify" : " Subtítulos de Unify activos")
+    );
+
+    // Idioma de la traducción de los subtítulos. La misma clave de storage que
+    // usa el panel de Meet (`lang`), así se elige una vez para toda la
+    // extensión. Vacío = sin traducir.
+    const idioma = document.createElement("select");
+    idioma.className = "sel";
+    for (const [valor, etiqueta] of [
+      ["", "Sin traducir"], ["es", "Español"], ["en", "English"], ["pt", "Português"],
+      ["fr", "Français"], ["de", "Deutsch"], ["it", "Italiano"], ["zh", "中文"],
+    ]) {
+      const op = document.createElement("option");
+      op.value = valor;
+      op.textContent = etiqueta;
+      idioma.appendChild(op);
+    }
+    idioma.value = cfg.lang || "";
+    idioma.addEventListener("change", () => {
+      cfg.lang = idioma.value;
+      traducciones.clear(); // re-traducir lo visible al idioma nuevo
+      try { chrome.storage.local.set({ lang: cfg.lang }); } catch { /* sin permiso */ }
+    });
 
     const subs = document.createElement("div");
     subs.className = "subs";
@@ -313,13 +395,22 @@
     parar.className = "no";
     parar.textContent = grabandoAca ? "Detener" : "Cerrar";
     fila.append(abrir, parar);
+    // Sin grabación local: ofrecer arrancarla acá (este clic es un gesto
+    // válido para getDisplayMedia).
+    if (!grabandoAca) {
+      const grabar = document.createElement("button");
+      grabar.className = "si";
+      grabar.textContent = "Grabar";
+      grabar.addEventListener("click", () => void iniciarCarrilB(det, caja));
+      fila.prepend(grabar);
+    }
 
     const pie = document.createElement("div");
     pie.className = "pie";
     pie.textContent =
       "Acordate: una pestaña sólo escucha tu micrófono. Para transcribir a TODOS, que cada quien abra Unify al lado, o usá la extensión dentro de Google Meet.";
 
-    caja.append(rec, subs, fila, pie);
+    caja.append(rec, idioma, subs, fila, pie);
     root.appendChild(caja);
 
     abrir.addEventListener("click", () => {
@@ -346,10 +437,31 @@
     // El sondeo arranca RECIÉN acá, con la reunión aceptada: pedir /session ya
     // crea la sala companion en el servidor, y eso no debe pasar por el solo
     // hecho de mostrar el toast.
+    // Traducción de una línea, con caché y de a una: los subtítulos de los
+    // idiomas que ya maneja la web (chino, inglés, alemán, francés, portugués
+    // y demás) salen del MISMO endpoint /api/translate del servidor.
+    const traducir = async (linea) => {
+      if (!cfg.lang || traducciones.has(linea.id)) return;
+      traducciones.set(linea.id, ""); // reserva: no pedir dos veces
+      try {
+        const res = await fetch(`${cfg.serverBase}/api/translate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: linea.text, source: "auto", target: cfg.lang }),
+        });
+        if (!res.ok) { traducciones.delete(linea.id); return; }
+        const data = await res.json();
+        if (typeof data.translatedText === "string") traducciones.set(linea.id, data.translatedText);
+      } catch {
+        traducciones.delete(linea.id); // red caída: se reintenta al próximo tick
+      }
+    };
+
     const pintar = (transcript, participantes) => {
       const ultimas = (transcript ?? []).slice(-4);
       if (ultimas.length === 0) return;
       const fotos = new Map((participantes ?? []).map((p) => [p.name, p.avatarUrl ?? null]));
+      for (const linea of ultimas) void traducir(linea);
       subs.textContent = "";
       for (const linea of ultimas) {
         const row = document.createElement("div");
@@ -375,6 +487,13 @@
         dijo.className = "dijo";
         dijo.textContent = linea.text ?? "";
         cuerpo.append(quien, dijo);
+        const trad = traducciones.get(linea.id);
+        if (trad) {
+          const t = document.createElement("div");
+          t.className = "trad";
+          t.textContent = trad;
+          cuerpo.appendChild(t);
+        }
         row.append(foto, cuerpo);
         subs.appendChild(row);
       }
@@ -420,11 +539,12 @@
   });
 
   // --- Arranque: config + vigilar la URL (Zoom y Teams son SPAs) --------------
-  const claves = { serverBase: DEFAULT_SERVER, appBase: DEFAULT_APP, token: null };
+  const claves = { serverBase: DEFAULT_SERVER, appBase: DEFAULT_APP, token: null, lang: "" };
   chrome.storage?.local?.get(claves, (v) => {
     if (v?.serverBase?.startsWith?.("http")) cfg.serverBase = v.serverBase.replace(/\/+$/, "");
     if (v?.appBase?.startsWith?.("http")) cfg.appBase = v.appBase.replace(/\/+$/, "");
     cfg.token = v?.token ?? null;
+    cfg.lang = typeof v?.lang === "string" ? v.lang : "";
   });
 
   let ultimaUrl = "";

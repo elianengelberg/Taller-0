@@ -415,15 +415,26 @@ export async function fetchMeetingDetail(id: string): Promise<MeetingHistoryDeta
   return data.meeting ?? null;
 }
 
+/** Fotograma del video grabado que acompaña una pregunta a la IA. */
+export interface AiVideoFrame {
+  /** Segundo del video del que salió. */
+  atSec: number;
+  /** JPEG en base64 (sin el prefijo data:). */
+  data: string;
+}
+
 export async function askMeetingAI(
   id: string,
-  question: string
+  question: string,
+  // Con fotogramas, la IA no sólo lee la transcripción: MIRA el video grabado
+  // (los captura el navegador desde el reproductor -- ver MeetingDetail).
+  frames: AiVideoFrame[] = []
 ): Promise<{ answer?: string; error?: string }> {
   try {
     const res = await fetchWithTimeout(`${SERVER_URL}/api/meetings/${id}/ask`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify(frames.length > 0 ? { question, frames } : { question }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { error: data.error ?? "No se pudo consultar a la IA." };

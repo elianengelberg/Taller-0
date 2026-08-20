@@ -182,7 +182,16 @@ app.use((_req, res, next) => {
   res.setHeader("Strict-Transport-Security", "max-age=15552000; includeSubDomains");
   next();
 });
-app.use(express.json());
+// Dos parsers de JSON: el chico (100 KB, el default) para todo, y uno grande
+// SOLO para la pregunta a la IA de una reunión, que puede traer fotogramas del
+// video en base64. Subir el límite global habría agrandado la superficie de
+// todos los endpoints por una necesidad de uno solo.
+const jsonChico = express.json();
+const jsonGrande = express.json({ limit: "4mb" });
+const RUTA_ASK = /^\/api\/meetings\/[^/]+\/ask$/;
+app.use((req, res, next) => {
+  (RUTA_ASK.test(req.path) ? jsonGrande : jsonChico)(req, res, next);
+});
 
 // In-memory per-IP limiter to blunt credential brute-forcing on the auth
 // endpoints. Single-instance deploy, so a shared map is enough; the window is
@@ -1320,13 +1329,46 @@ app.post("/api/meetings/:id/claim", requireAuth, async (req, res) => {
   res.json({ ok });
 });
 
+// Tope de fotogramas por pregunta y de tamaño por fotograma. Ocho imágenes
+// chicas alcanzan para "mirar" una reunión entera, y el tope corta en seco a
+// quien quiera usar la IA como OCR gratis de archivos gigantes.
+const MAX_FRAMES = 8;
+const MAX_FRAME_B64_CHARS = 400_000; // ~300 KB de JPEG por fotograma
+
+/** Se queda sólo con los fotogramas bien formados; el resto se descarta. */
+function sanitizeFrames(raw: unknown): { atSec: number; data: string }[] {
+  if (!Array.isArray(raw)) return [];
+  const out: { atSec: number; data: string }[] = [];
+  for (const f of raw.slice(0, MAX_FRAMES)) {
+    const atSec = Number((f as { atSec?: unknown })?.atSec);
+    const rawData = (f as { data?: unknown })?.data;
+    if (typeof rawData !== "string" || !Number.isFinite(atSec) || atSec < 0) continue;
+    let data: string = rawData;
+    // Se acepta con o sin el prefijo data:, pero se guarda pelado.
+    data = data.replace(/^data:image\/jpeg;base64,/, "");
+    if (data.length === 0 || data.length > MAX_FRAME_B64_CHARS) continue;
+    if (!/^[A-Za-z0-9+/=]+$/.test(data)) continue;
+    out.push({ atSec: Math.floor(atSec), data });
+  }
+  return out;
+}
+
 app.post("/api/meetings/:id/ask", requireAuth, aiLimit, async (req, res) => {
   const question = typeof req.body?.question === "string" ? req.body.question : "";
   const userId = (req as AuthedRequest).userId!;
+  // Fotogramas del video grabado, capturados por el navegador: la IA no sólo
+  // lee la transcripción, también MIRA el video (ver ai.ts / VideoFrame).
+  const frames = sanitizeFrames(req.body?.frames);
   // Anyone currently in the live meeting (not just its owner) can ask the AI --
   // this is what makes the in-meeting assistant work for every participant of a
   // shared external companion room, not only whoever opened it first.
-  const result = await answerFromMeeting(req.params.id, question, userId, isLiveParticipant(req.params.id, userId));
+  const result = await answerFromMeeting(
+    req.params.id,
+    question,
+    userId,
+    isLiveParticipant(req.params.id, userId),
+    frames
+  );
   if (!result.ok) {
     res.status(400).json({ error: result.error });
     return;
