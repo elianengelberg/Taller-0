@@ -11,12 +11,52 @@
 import { registerSW } from "virtual:pwa-register";
 import { showToast } from "./lib/toasts";
 
+// --- Instalación con un clic -------------------------------------------------
+// Chrome dispara `beforeinstallprompt` cuando la app es instalable, muchas
+// veces ANTES de que la página de instalación exista siquiera. Se guarda acá
+// (módulo, no React) y /instalar lo consume: si está, el botón instala de
+// verdad con un clic; si no (iOS, Firefox, ya instalada), la página muestra
+// los pasos manuales de cada plataforma.
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+}
+let deferredInstall: BeforeInstallPromptEvent | null = null;
+
+export function canPromptInstall(): boolean {
+  return deferredInstall !== null;
+}
+
+/** true si la persona aceptó instalar. */
+export async function promptInstall(): Promise<boolean> {
+  const ev = deferredInstall;
+  if (!ev) return false;
+  deferredInstall = null;
+  await ev.prompt();
+  const { outcome } = await ev.userChoice;
+  return outcome === "accepted";
+}
+
+export function isStandalone(): boolean {
+  return (
+    window.matchMedia?.("(display-mode: standalone)").matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true
+  );
+}
+
 function enReunion(): boolean {
   const p = window.location.pathname;
   return p === "/reunion" || p === "/externa/reunion";
 }
 
 export function initPwa(): void {
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault(); // sin mini-barra automática: instala /instalar
+    deferredInstall = e as BeforeInstallPromptEvent;
+    // Aviso a la página de instalación, si ya está montada.
+    window.dispatchEvent(new Event("unify:instalable"));
+  });
+
   const updateSW = registerSW({
     onNeedRefresh() {
       // En plena reunión ni se ofrece: el aviso saldrá en la próxima carga.

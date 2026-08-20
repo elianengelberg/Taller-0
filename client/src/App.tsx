@@ -16,6 +16,8 @@ import Login from "./pages/Login";
 import Meeting from "./pages/Meeting";
 import MeetingDetail from "./pages/MeetingDetail";
 import Home from "./pages/Home";
+import Instalar from "./pages/Instalar";
+import Privacidad from "./pages/Privacidad";
 import Register from "./pages/Register";
 import ResetPassword from "./pages/ResetPassword";
 import VerifyEmail from "./pages/VerifyEmail";
@@ -33,6 +35,9 @@ export default function App() {
         <ToastViewport />
         <Routes>
           <Route path="/" element={<Home />} />
+          {/* El centro de instalación: la app (PWA) y la extensión. */}
+          <Route path="/instalar" element={<Instalar />} />
+          <Route path="/privacidad" element={<Privacidad />} />
           <Route path="/ingresar" element={<Login />} />
           <Route path="/registrarse" element={<Register />} />
           {/* Landing spot for the Google OAuth redirect (see googleAuth.ts). */}

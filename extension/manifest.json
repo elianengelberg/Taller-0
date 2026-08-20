@@ -61,7 +61,12 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Unify para Google Meet"
+    "default_title": "Unify para Google Meet",
+    "default_icon": {
+      "16": "icons/16.png",
+      "48": "icons/48.png",
+      "128": "icons/128.png"
+    }
   },
   "commands": {
     "toggle-recording": {
@@ -83,5 +88,10 @@
       ]
     }
   ],
-  "minimum_chrome_version": "116"
+  "minimum_chrome_version": "116",
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  }
 }

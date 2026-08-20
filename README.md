@@ -144,9 +144,13 @@ mensajes) sin activar R2 (grabaciones), la IA, ni el correo, por ejemplo.
 
 ## Instalar como app (PWA)
 
-Unify es una **PWA instalable**: en Chrome/Edge de escritorio o Android aparece
-"Instalar Unify" en la barra de direcciones, y queda como una app más, con su
-ícono, sin la barra del navegador y **abriéndose sola** desde el ícono.
+Unify es una **PWA instalable**, y todo se instala desde la propia web:
+**`/instalar`** tiene el botón de "Instalar Unify" de un clic (donde el
+navegador lo permite; pasos por plataforma donde no) y la descarga de la
+extensión — el ZIP `/unify-extension.zip` se regenera en cada build
+(`client/scripts/pack-extension.mjs`) y es el MISMO archivo que se sube a la
+Chrome Web Store (pasos y ficha completos en `extension/PUBLICAR.md`; la
+política de privacidad que exige la tienda vive en `/privacidad`).
 
 - **Escritorio y Android**: se instala directo desde el navegador. En Android,
   además, Unify aparece en el menú de **Compartir**: si te llega un enlace de

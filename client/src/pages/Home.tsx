@@ -26,6 +26,12 @@ export default function Home() {
         <Logo />
         <div className="flex items-center gap-4 sm:gap-6">
           <Link
+            to="/instalar"
+            className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-strong"
+          >
+            Instalar
+          </Link>
+          <Link
             to="/historial"
             className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-strong"
           >
