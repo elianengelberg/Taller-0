@@ -57,6 +57,19 @@
           "value": "application/x-apple-aspen-config"
         }
       ]
+    },
+    {
+      "source": "/version-extension.json",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, max-age=0"
+        },
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        }
+      ]
     }
   ]
 }

@@ -1,5 +1,6 @@
 // Detecta que la persona está entrando a una reunión externa (Zoom, Teams,
-// Jitsi, Webex) y le ofrece grabarla y transcribirla con Unify, ahí mismo.
+// Jitsi, Webex, Whereby, GoTo) y le ofrece grabarla y transcribirla con
+// Unify, ahí mismo.
 //
 // Este archivo NO corre en Google Meet: ahí manda content.js, que tiene la
 // integración profunda (lee los subtítulos nativos). Acá el trabajo es otro:
@@ -102,6 +103,21 @@
       return { plataforma: "webex", nombre: "Webex", roomKey: `webex:${host}${path}` };
     }
 
+    // Whereby: la sala es el primer segmento del path (mismo cálculo que la web).
+    if (host === "whereby.com" || host.endsWith(".whereby.com")) {
+      const room = url.pathname.replace(/^\/+/, "").split("/")[0];
+      if (!room) return null;
+      return { plataforma: "whereby", nombre: "Whereby", roomKey: `whereby:${host}/${room.toLowerCase()}` };
+    }
+
+    // GoTo Meeting: plataforma "simple" en la web -> clave = host + path.
+    const GOTO_HOSTS = ["gotomeet.me", "goto.com", ".goto.com", "gotomeeting.com", ".gotomeeting.com", "global.gotomeeting.com"];
+    if (GOTO_HOSTS.some((h) => (h.startsWith(".") ? host.endsWith(h) : host === h))) {
+      const path = url.pathname.replace(/\/+$/, "").toLowerCase();
+      if (!path) return null; // la portada de goto.com no es una reunión
+      return { plataforma: "goto", nombre: "GoTo Meeting", roomKey: `goto:${host}${path}` };
+    }
+
     return null;
   }
 
@@ -110,6 +126,10 @@
   let recorder = null;     // MediaRecorder del carril B (si está grabando acá)
   let port = null;         // canal con el background para los chunks
   let overlayTimer = null; // sondeo de la transcripción en vivo
+  let toastTimer = null;   // cuenta regresiva del toast (módulo: si la URL
+                           // cambia de reunión, hay que poder matarla desde
+                           // afuera; un timer huérfano dispararía el auto-SÍ
+                           // de la reunión ANTERIOR)
   let host = null;         // nodo raíz de nuestra UI
   let rootRef = null;      // la shadow root de la UI activa
 
@@ -120,7 +140,7 @@
   css.replaceSync(`
     :host { all: initial; }
     .caja { position: fixed; right: 16px; bottom: 16px; z-index: 2147483647;
-      width: 330px; max-width: calc(100vw - 32px); box-sizing: border-box;
+      width: 368px; max-width: calc(100vw - 32px); box-sizing: border-box;
       background: #0f172a; color: #f5f6fb; border: 1px solid #334155;
       border-radius: 14px; padding: 14px 16px;
       font: 14px/1.45 system-ui, -apple-system, sans-serif;
@@ -137,21 +157,33 @@
     .punto { width: 9px; height: 9px; border-radius: 50%; background: #dc2626;
       animation: latir 1.2s infinite; flex: none; }
     @keyframes latir { 50% { opacity: .35; } }
-    .subs { margin-top: 10px; display: grid; gap: 7px; max-height: 220px;
+    .subs { margin-top: 10px; display: grid; gap: 8px; max-height: 240px;
       overflow-y: auto; }
     .linea { display: flex; gap: 8px; align-items: flex-start; }
-    .foto { width: 22px; height: 22px; border-radius: 50%; flex: none;
+    .foto { width: 24px; height: 24px; border-radius: 50%; flex: none;
       object-fit: cover; background: #334155; color: #fff; font-size: 11px;
       font-weight: 700; display: flex; align-items: center; justify-content: center; }
-    .quien { font-size: 11.5px; color: #94a3b8; }
-    .dijo { font-size: 13px; color: #e2e8f0; overflow-wrap: anywhere; }
-    .vacio { font-size: 12.5px; color: #64748b; }
+    .quien { font-size: 12px; color: #94a3b8; }
+    .dijo { font-size: 15px; line-height: 1.4; color: #f1f5f9; overflow-wrap: anywhere; }
+    .vacio { font-size: 13px; color: #64748b; }
     .sel { margin-top: 8px; width: 100%; background: #1e293b; color: #e2e8f0;
       border: 1px solid #334155; border-radius: 8px; padding: 5px 8px;
       font: 12px system-ui, sans-serif; }
-    .trad { font-size: 12.5px; color: #a5b4fc; margin-top: 1px; }
+    .trad { font-size: 14px; line-height: 1.4; color: #a5b4fc; margin-top: 1px;
+      overflow-wrap: anywhere; }
     .aviso { margin-top: 8px; font-size: 12px; color: #fca5a5; }
     .ok { margin-top: 8px; font-size: 12px; color: #6ee7b7; }
+    .iafila { display: flex; gap: 6px; margin-top: 10px; }
+    .iain { flex: 1; min-width: 0; background: #1e293b; color: #e2e8f0;
+      border: 1px solid #334155; border-radius: 8px; padding: 7px 9px;
+      font: 13px system-ui, sans-serif; }
+    .iain::placeholder { color: #64748b; }
+    .iabtn { background: #334155; color: #e2e8f0; padding: 7px 12px; }
+    .iabtn:hover { background: #475569; }
+    .iaresp { margin-top: 8px; font-size: 13px; line-height: 1.5; color: #e2e8f0;
+      background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+      padding: 8px 10px; max-height: 150px; overflow-y: auto;
+      white-space: pre-wrap; overflow-wrap: anywhere; }
   `);
 
   function raiz() {
@@ -168,6 +200,9 @@
 
   function quitarUI() {
     if (overlayTimer) { clearInterval(overlayTimer); overlayTimer = null; }
+    if (toastTimer) { clearInterval(toastTimer); toastTimer = null; }
+    // Cerrada la UI, ningún clic suelto debe abrir el selector de pantalla.
+    if (desarmar) desarmar();
     if (host) { host.remove(); host = null; }
     rootRef = null;
   }
@@ -183,6 +218,11 @@
 
   // --- Toast inicial -----------------------------------------------------------
   function mostrarToast(det) {
+    // Borrón y cuenta nueva: si quedó un overlay sondeando la reunión
+    // ANTERIOR (o un gesto armado, o una cuenta regresiva vieja), acá muere.
+    // Sin esto, navegar de una reunión a otra dejaba un setInterval huérfano
+    // sondeando la sala equivocada para siempre.
+    quitarUI();
     const root = raiz();
     const caja = document.createElement("div");
     caja.className = "caja";
@@ -217,28 +257,37 @@
     caja.append(texto, fila, cuenta, pie);
     root.appendChild(caja);
 
-    const timer = setInterval(() => {
+    if (toastTimer) clearInterval(toastTimer);
+    toastTimer = setInterval(() => {
+      // Si mientras corría la cuenta la persona navegó a OTRA reunión (o a
+      // ninguna), este timer es de una pantalla que ya no existe: morir en
+      // silencio, no arrancar los subtítulos de la sala equivocada.
+      if (actual?.roomKey !== det.roomKey) {
+        clearInterval(toastTimer);
+        toastTimer = null;
+        return;
+      }
       restante -= 1;
       if (restante > 0) {
         cuenta.textContent = `Si no respondés, en ${restante} arranco solo con los subtítulos.`;
         return;
       }
-      clearInterval(timer);
+      clearInterval(toastTimer);
+      toastTimer = null;
       // Auto-SÍ: subtítulos ya, grabación armada al próximo gesto.
       mostrarOverlay(det, { grabandoAca: false });
       armarGrabacionAlProximoGesto(det);
     }, 1000);
 
     no.addEventListener("click", () => {
-      clearInterval(timer);
       // Sólo esta reunión, en esta pestaña. No es un "nunca más".
       try { sessionStorage.setItem(`unify-no:${det.roomKey}`, "1"); } catch { /* sin storage */ }
-      quitarUI();
+      quitarUI(); // limpia el timer también
     });
 
     // CARRIL B: este clic ES la activación que getDisplayMedia necesita.
     si.addEventListener("click", () => {
-      clearInterval(timer);
+      if (toastTimer) { clearInterval(toastTimer); toastTimer = null; }
       void iniciarCarrilB(det, caja);
     });
   }
@@ -249,7 +298,11 @@
   let desarmar = null;
   function armarGrabacionAlProximoGesto(det) {
     if (desarmar) desarmar();
-    const handler = () => {
+    const handler = (e) => {
+      // Un clic sobre NUESTRA UI no es "el próximo gesto en la página": tocar
+      // el selector de idioma o "Cerrar" no debe abrir el selector de
+      // pantalla. Esos clics se ignoran y el pedido queda armado.
+      try { if (host && e.composedPath().includes(host)) return; } catch { /* sin composedPath */ }
       limpiar();
       if (recorder) return; // ya está grabando por otro camino
       void iniciarCarrilB(det, null);
@@ -283,6 +336,20 @@
 
     try {
       port = chrome.runtime.connect({ name: "unify-ext-rec" });
+      // Si el canal con el background muere en plena grabación (la extensión
+      // se actualizó o se recargó), seguir grabando sería grabar a la nada:
+      // se corta acá y se avisa. Lo que ya viajó, el background lo sube igual
+      // desde su propio onDisconnect.
+      port.onDisconnect.addListener(() => {
+        port = null;
+        if (recorder && recorder.state !== "inactive") {
+          recorder.stop();
+          notaEnOverlay(
+            "Se cortó el canal con la extensión y la grabación se detuvo. Lo que alcanzó a llegar se está guardando en tu historial.",
+            "aviso"
+          );
+        }
+      });
       port.onMessage.addListener((msg) => {
         if (msg?.kind === "subida-ok") {
           notaEnOverlay("Grabación guardada en tu historial de Unify.", "ok");
@@ -333,6 +400,17 @@
       stream.getTracks().forEach((t) => t.stop());
       recorder = null;
     };
+    // Un error del grabador (códec, disco, pestaña descartada) no puede morir
+    // en silencio: se cierra prolijo -- onstop manda el "fin" y el background
+    // sube lo que llegó -- y se DICE, que es la diferencia entre "perdí la
+    // reunión sin saberlo" y "sé exactamente qué tengo".
+    recorder.onerror = () => {
+      notaEnOverlay(
+        "El grabador falló a mitad de camino. Lo grabado hasta acá se está guardando en tu historial.",
+        "aviso"
+      );
+      if (recorder && recorder.state !== "inactive") recorder.stop();
+    };
     // Si la persona corta desde la barra nativa de "dejar de compartir".
     stream.getVideoTracks()[0]?.addEventListener("ended", () => {
       if (recorder && recorder.state !== "inactive") recorder.stop();
@@ -347,6 +425,12 @@
   // panel de Meet): simple, sin CORS nuevos, y 2,5 s de retraso es invisible
   // para leer una conversación.
   function mostrarOverlay(det, { grabandoAca }) {
+    // Un solo sondeo vivo a la vez, y ningún gesto armado de una pantalla
+    // anterior (si carril A arrancó por atajo, un clic armado sumaría una
+    // SEGUNDA grabación de lo mismo). Quien necesite armar, arma DESPUÉS.
+    if (overlayTimer) { clearInterval(overlayTimer); overlayTimer = null; }
+    if (toastTimer) { clearInterval(toastTimer); toastTimer = null; }
+    if (desarmar) desarmar();
     const root = raiz();
     const caja = document.createElement("div");
     caja.className = "caja";
@@ -405,12 +489,72 @@
       fila.prepend(grabar);
     }
 
+    // La IA de la reunión, acá mismo: la misma que responde en la web, contra
+    // la sala companion (con la transcripción como contexto). Pide sesión de
+    // Unify porque cada pregunta cuesta plata -- misma regla que el panel de
+    // Meet -- pero se DICE en vez de fallar mudo.
+    const iaFila = document.createElement("div");
+    iaFila.className = "iafila";
+    const iaIn = document.createElement("input");
+    iaIn.className = "iain";
+    iaIn.type = "text";
+    iaIn.placeholder = "Preguntale a la IA sobre la reunión…";
+    const iaBtn = document.createElement("button");
+    iaBtn.className = "iabtn";
+    iaBtn.textContent = "IA";
+    iaFila.append(iaIn, iaBtn);
+    const iaResp = document.createElement("div");
+    iaResp.className = "iaresp";
+    iaResp.hidden = true;
+
+    const preguntar = async () => {
+      const question = iaIn.value.trim();
+      if (!question || iaBtn.disabled) return;
+      iaResp.hidden = false;
+      if (!cfg.token) {
+        iaResp.textContent =
+          'Iniciá sesión en Unify para usar la IA: tocá "Abrir Unify al lado" y entrá con tu cuenta.';
+        return;
+      }
+      iaBtn.disabled = true;
+      iaResp.textContent = "Pensando…";
+      try {
+        const res = await fetch(
+          `${cfg.serverBase}/api/meet-bridge/${encodeURIComponent(det.roomKey)}/ask`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.token}` },
+            body: JSON.stringify({ question }),
+          }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 401) {
+          iaResp.textContent = 'Tu sesión de Unify venció: entrá de nuevo desde "Abrir Unify al lado".';
+        } else if (!res.ok) {
+          iaResp.textContent = data?.error || "La IA no pudo responder. Probá de nuevo en un rato.";
+        } else {
+          iaResp.textContent = data.answer || "La IA no devolvió respuesta.";
+          iaIn.value = "";
+        }
+      } catch {
+        iaResp.textContent = "Sin conexión con el servidor de Unify. Revisá tu red y probá de nuevo.";
+      } finally {
+        iaBtn.disabled = false;
+      }
+    };
+    iaBtn.addEventListener("click", () => void preguntar());
+    iaIn.addEventListener("keydown", (e) => {
+      // Que escribirle a la IA no dispare los atajos de teclado de Zoom/Teams.
+      e.stopPropagation();
+      if (e.key === "Enter") void preguntar();
+    });
+
     const pie = document.createElement("div");
     pie.className = "pie";
     pie.textContent =
       "Acordate: una pestaña sólo escucha tu micrófono. Para transcribir a TODOS, que cada quien abra Unify al lado, o usá la extensión dentro de Google Meet.";
 
-    caja.append(rec, idioma, subs, fila, pie);
+    caja.append(rec, idioma, subs, iaFila, iaResp, fila, pie);
     root.appendChild(caja);
 
     abrir.addEventListener("click", () => {
@@ -442,6 +586,9 @@
     // y demás) salen del MISMO endpoint /api/translate del servidor.
     const traducir = async (linea) => {
       if (!cfg.lang || traducciones.has(linea.id)) return;
+      // Techo de memoria para reuniones de horas: pasado el tope se vacía y
+      // se re-traduce sólo lo visible (4 líneas), que es barato.
+      if (traducciones.size > 400) traducciones.clear();
       traducciones.set(linea.id, ""); // reserva: no pedir dos veces
       try {
         const res = await fetch(`${cfg.serverBase}/api/translate`, {
@@ -488,7 +635,9 @@
         dijo.textContent = linea.text ?? "";
         cuerpo.append(quien, dijo);
         const trad = traducciones.get(linea.id);
-        if (trad) {
+        // Si la traducción es idéntica al original (ya hablaban en tu idioma),
+        // repetir la línea abajo sólo ensucia: no se muestra.
+        if (trad && trad !== linea.text) {
           const t = document.createElement("div");
           t.className = "trad";
           t.textContent = trad;
@@ -539,12 +688,29 @@
   });
 
   // --- Arranque: config + vigilar la URL (Zoom y Teams son SPAs) --------------
-  const claves = { serverBase: DEFAULT_SERVER, appBase: DEFAULT_APP, token: null, lang: "" };
-  chrome.storage?.local?.get(claves, (v) => {
+  // La traducción arranca sola en el idioma del navegador. La distinción que
+  // importa: `lang` AUSENTE del storage es "nunca eligió" (traducir al idioma
+  // de su Chrome); `lang: ""` es "eligió Sin traducir" (respetarlo).
+  const IDIOMAS = ["es", "en", "pt", "fr", "de", "it", "zh"];
+  function idiomaDelNavegador() {
+    const dos = String(navigator.language || "").slice(0, 2).toLowerCase();
+    return IDIOMAS.includes(dos) ? dos : "";
+  }
+  chrome.storage?.local?.get(["serverBase", "appBase", "token", "lang"], (v) => {
     if (v?.serverBase?.startsWith?.("http")) cfg.serverBase = v.serverBase.replace(/\/+$/, "");
     if (v?.appBase?.startsWith?.("http")) cfg.appBase = v.appBase.replace(/\/+$/, "");
     cfg.token = v?.token ?? null;
-    cfg.lang = typeof v?.lang === "string" ? v.lang : "";
+    cfg.lang = typeof v?.lang === "string" ? v.lang : idiomaDelNavegador();
+  });
+  // La config puede cambiar con el overlay ya abierto (la persona inicia
+  // sesión en Unify en otra pestaña y auth-sync guarda el token): tomarla en
+  // vivo, sin exigir recargar la reunión.
+  chrome.storage?.onChanged?.addListener((c, area) => {
+    if (area !== "local") return;
+    if (c.token) cfg.token = c.token.newValue ?? null;
+    if (c.lang) { cfg.lang = c.lang.newValue ?? ""; traducciones.clear(); }
+    if (c.serverBase?.newValue?.startsWith?.("http")) cfg.serverBase = c.serverBase.newValue.replace(/\/+$/, "");
+    if (c.appBase?.newValue?.startsWith?.("http")) cfg.appBase = c.appBase.newValue.replace(/\/+$/, "");
   });
 
   let ultimaUrl = "";
@@ -552,7 +718,15 @@
     if (location.href === ultimaUrl) return;
     ultimaUrl = location.href;
     const det = detectar();
-    if (!det || det.roomKey === actual?.roomKey) return;
+    if (!det) {
+      // Se fue de la reunión ANTES de contestar el toast: la cuenta regresiva
+      // no puede seguir corriendo en una página que ya no es la reunión. El
+      // overlay (subtítulos/grabación) sí se queda: las SPAs de Zoom y Teams
+      // pasan por URLs intermedias en plena llamada y tirarlo sería un corte.
+      if (toastTimer) quitarUI();
+      return;
+    }
+    if (det.roomKey === actual?.roomKey) return;
     actual = det;
     // Registrar la sala en el background: si la persona aprieta Ctrl+Shift+U
     // (carril A), ya sabe qué capturar sin volver a preguntar nada.

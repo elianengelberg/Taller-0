@@ -60,7 +60,7 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     { key: fs.readFileSync(`${certDir}/k.pem`), cert: fs.readFileSync(`${certDir}/c.pem`) },
     (req, res) => {
       const host = String(req.headers.host || "");
-      const titulo = host.includes("zoom") ? "Zoom falso" : "Jitsi falso";
+      const titulo = host.includes("zoom") ? "Zoom falso" : host.includes("whereby") ? "Whereby falso" : "Jitsi falso";
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(PAGE(titulo));
     }
@@ -82,6 +82,13 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     if (req.url.includes("/api/meet-bridge/") && req.url.endsWith("/session")) {
       res.writeHead(200, { ...cors, "Content-Type": "application/json" });
       res.end(JSON.stringify({ dbId: "stub-db-1", joinCode: "STUB", transcript: [], participants: [] }));
+      return;
+    }
+    if (req.url === "/version-extension.json") {
+      // La web publica la versión del ZIP en cada deploy; acá se finge una
+      // futura para probar el aviso de "hay una versión nueva".
+      res.writeHead(200, { ...cors, "Content-Type": "application/json" });
+      res.end(JSON.stringify({ version: "99.0.0" }));
       return;
     }
     if (req.url.startsWith("/api/meetings/stub-db-1/recording-upload")) {
@@ -115,7 +122,7 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
       `--disable-extensions-except=${EXT}`,
       `--load-extension=${EXT}`,
       "--ignore-certificate-errors",
-      '--host-resolver-rules=MAP *.zoom.us 127.0.0.1, MAP zoom.us 127.0.0.1, MAP meet.jit.si 127.0.0.1',
+      '--host-resolver-rules=MAP *.zoom.us 127.0.0.1, MAP zoom.us 127.0.0.1, MAP meet.jit.si 127.0.0.1, MAP whereby.com 127.0.0.1',
       // Acepta solo el pedido de captura de ESTA pestaña (preferCurrentTab),
       // que es exactamente lo que hace el carril B.
       "--auto-accept-this-tab-capture",
@@ -280,15 +287,101 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     check("y abajo su traducción al idioma elegido",
       /EN: the blue slide shows the sales curve/.test(subs2));
 
+    // Un clic sobre NUESTRA UI (el pie del overlay, el selector) no es "el
+    // próximo gesto en la página": no debe abrir el selector de pantalla ni
+    // desarmar el pedido. (Bug real: elegir idioma disparaba la grabación.)
+    await page.locator(".pie").click();
+    await page.waitForTimeout(1500);
+    const estadoUI = await page.locator(".rec").textContent().catch(() => "");
+    check("un clic sobre el propio overlay NO dispara la grabación armada",
+      /Subtítulos de Unify activos/i.test(estadoUI), estadoUI.slice(0, 60));
+
     // El próximo clic REAL en la página dispara la grabación armada
     // (--auto-accept-this-tab-capture confirma el selector por nosotros).
     await page.mouse.click(320, 180);
     await page.waitForTimeout(2500);
     const estado2 = await page.locator(".rec").textContent().catch(() => "");
-    check("el primer clic en la página dispara la grabación que quedó armada",
+    check("el primer clic en la página sí dispara la grabación que quedó armada",
       /Grabando y transcribiendo/i.test(estado2), estado2.slice(0, 60));
     await page.locator("button.no").click(); // Detener
     await page.waitForTimeout(2500);
+  }
+
+  // ═══════ 5b. Traducción automática: sin elección previa, sale el idioma del navegador ═══════
+  console.log("\n── 5b. Traducción automática por defecto ──");
+  {
+    // Nunca eligió idioma: la clave NO existe en el storage (distinto de "",
+    // que es "elegí Sin traducir" y se respeta).
+    const p = await ctx.newPage();
+    await p.goto(`chrome-extension://${extId}/popup.html`);
+    await p.evaluate(() => new Promise((r) => chrome.storage.local.remove("lang", r)));
+    await p.close();
+
+    const zoomId3 = `9${(Date.now() + 21) % 1e9}7`;
+    await page.goto(`https://acme.zoom.us/j/${zoomId3}`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(9500); // toast + auto-SÍ
+    const valor = await page.locator("select.sel").inputValue().catch(() => "(sin overlay)");
+    // Este Chromium corre en inglés: la traducción tiene que arrancar sola en "en".
+    check("sin elección previa, la traducción arranca sola en el idioma del navegador",
+      valor === "en", `select=${valor}`);
+  }
+
+  // ═══════ 5c. La IA en el overlay ═══════
+  console.log("\n── 5c. La IA dentro del overlay ──");
+  {
+    const pregunta = page.locator(".iain");
+    check("el overlay trae el campo para preguntarle a la IA", (await pregunta.count()) === 1);
+
+    // Sin sesión: la respuesta es una explicación honesta, no un error mudo.
+    await pregunta.fill("¿De qué se habló?");
+    await page.locator(".iabtn").click();
+    await page.waitForTimeout(800);
+    const sinSesion = await page.locator(".iaresp").textContent().catch(() => "");
+    check("sin sesión de Unify, la IA lo DICE (no falla en silencio)",
+      /Iniciá sesión/i.test(sinSesion), sinSesion.slice(0, 70));
+
+    // Con sesión (el token llega por storage.onChanged, sin recargar) y el
+    // endpoint del bridge stubbeado: la respuesta se pinta en el overlay.
+    let authRecibida = null;
+    await ctx.route("**/api/meet-bridge/**/ask", (route) => {
+      authRecibida = route.request().headers()["authorization"] ?? null;
+      route.fulfill({
+        status: 200, contentType: "application/json",
+        body: JSON.stringify({ answer: "Se habló de la curva de ventas del trimestre." }),
+      });
+    });
+    await setStorage({ token: "tok-prueba" });
+    await page.waitForTimeout(600); // que onChanged propague el token
+    await pregunta.fill("¿De qué se habló?");
+    await page.locator(".iabtn").click();
+    await page.waitForTimeout(1500);
+    const conSesion = await page.locator(".iaresp").textContent().catch(() => "");
+    check("con sesión, la respuesta de la IA se pinta en el overlay",
+      /curva de ventas del trimestre/.test(conSesion), conSesion.slice(0, 70));
+    check("y la pregunta viajó autenticada al endpoint del bridge",
+      authRecibida === "Bearer tok-prueba", String(authRecibida));
+    await ctx.unroute("**/api/meet-bridge/**/ask");
+    await setStorage({ token: null });
+  }
+
+  // ═══════ 5d. Navegar ANTES de contestar mata la cuenta regresiva ═══════
+  console.log("\n── 5d. La cuenta regresiva no sobrevive a la navegación ──");
+  {
+    // Zoom y Teams son SPAs: la URL cambia sin recargar y el content script
+    // sigue vivo. Un timer huérfano dispararía el auto-SÍ de la reunión
+    // ANTERIOR en una página que ya no es una reunión. (Bug real corregido.)
+    const zoomId4 = `9${(Date.now() + 33) % 1e9}1`;
+    await page.goto(`https://acme.zoom.us/j/${zoomId4}`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(2500);
+    check("aparece el toast de la reunión", (await page.locator(".caja").count()) === 1);
+    // A los ~2 s (antes del auto-SÍ) la SPA navega a una página que no es reunión.
+    await page.evaluate(() => history.pushState({}, "", "/pricing"));
+    await page.waitForTimeout(2500);
+    check("al irse de la reunión, el toast se va con su cuenta regresiva",
+      (await page.locator(".caja").count()) === 0);
+    await page.waitForTimeout(5000);
+    check("y el auto-SÍ viejo NO revive en una página que no es una reunión",
+      (await page.locator(".caja").count()) === 0);
   }
 
   // ═══════ 6. Jitsi también (segunda plataforma, mismos matches) ═══════
@@ -297,6 +390,49 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
   await page.waitForTimeout(2500);
   const t2 = await page.locator(".caja").textContent().catch(() => "");
   check("el toast también sale en meet.jit.si", /reunión de Jitsi/.test(t2), t2.slice(0, 60));
+
+  // ═══════ 7. Whereby (plataforma nueva, mismos matches del manifest) ═══════
+  console.log("\n── 7. Whereby ──");
+  await page.goto("https://whereby.com/sala-de-prueba-unify", { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(2500);
+  const t3 = await page.locator(".caja").textContent().catch(() => "");
+  check("el toast también sale en whereby.com", /reunión de Whereby/.test(t3), t3.slice(0, 60));
+
+  // ═══════ 8. El aviso de "hay una versión nueva" ═══════
+  console.log("\n── 8. Aviso de versión nueva ──");
+  {
+    // La web (acá, el stub) publica version-extension.json con una versión
+    // futura. Entrar a una reunión dispara el chequeo (throttle reseteado) y
+    // el popup tiene que ofrecer actualizar -- es la única campana de quien
+    // instaló por ZIP, porque la Web Store se actualiza sola pero un ZIP no.
+    const p = await ctx.newPage();
+    await p.goto(`chrome-extension://${extId}/popup.html`);
+    await p.evaluate(
+      (base) => new Promise((r) => chrome.storage.local.set({ appBase: base, lastVersionCheck: 0 }, r)),
+      `http://localhost:${STUB_PORT}`
+    );
+    await p.close();
+
+    // El injector manda unify-external-info al detectar la reunión, y ahí el
+    // background compara versiones contra la web.
+    await page.goto("https://meet.jit.si/OtraSalaUnify", { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(3500);
+
+    const popup = await ctx.newPage();
+    await popup.goto(`chrome-extension://${extId}/popup.html`);
+    await popup.waitForTimeout(600);
+    const guardada = await popup.evaluate(
+      () => new Promise((r) => chrome.storage.local.get("updateAvailable", (v) => r(v.updateAvailable)))
+    );
+    check("el background detectó la versión nueva publicada en la web",
+      guardada === "99.0.0", String(guardada));
+    const update = popup.locator("#update");
+    check("y el popup ofrece actualizar", (await update.count()) === 1);
+    const href = (await update.getAttribute("href").catch(() => "")) || "";
+    check("apuntando al centro de instalación con descarga automática",
+      /\/instalar\?bajar=1$/.test(href), href);
+    await popup.close();
+  }
 
   check("ninguna página tiró errores de JavaScript", errs.length === 0, errs.slice(0, 2).join(" | "));
 

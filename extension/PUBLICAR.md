@@ -45,10 +45,10 @@ manifest) y listo — quienes la tengan instalada se actualizan solos.
 > • Graba la reunión completa (todas las voces) con un atajo: Ctrl+Shift+U.
 > • Roles por participante y un asistente de IA que responde sobre lo que se dijo.
 >
-> EN ZOOM, TEAMS, JITSI Y WEBEX
+> EN ZOOM, TEAMS, JITSI, WEBEX, WHEREBY Y GOTO
 > • Detecta que estás entrando a una reunión y te lo ofrece ahí mismo: “Veo que te estás uniendo a una reunión. ¿Querés los subtítulos y grabar?”
 > • Si no respondés, a los 5 segundos arranca solo con los subtítulos.
-> • Overlay flotante con la transcripción en vivo y la foto de cada hablante.
+> • Overlay flotante con la transcripción en vivo, la foto de cada hablante, la traducción automática en tu idioma y la IA para preguntar ahí mismo.
 > • La grabación queda en tu historial de Unify, con la transcripción sincronizada palabra por palabra y una IA que además MIRA el video grabado.
 >
 > Todo queda guardado en tu cuenta de Unify (unify-meet.com), privado y solo tuyo. Sin analytics, sin trackers, sin venta de datos.
@@ -71,7 +71,7 @@ manifest) y listo — quienes la tengan instalada se actualizan solos.
   (todas las voces), siempre iniciado por una acción del usuario.
 - `scripting` / content scripts — Mostrar el panel de subtítulos y el aviso de
   grabación dentro de las páginas de reuniones (Meet, Zoom, Teams, Jitsi,
-  Webex). No corre en ningún otro sitio.
+  Webex, Whereby, GoTo). No corre en ningún otro sitio.
 - `storage` — Guardar las preferencias del usuario (idioma de los subtítulos,
   servidor) y su sesión de Unify.
 - `offscreen` — En Manifest V3 el service worker no puede usar MediaRecorder:

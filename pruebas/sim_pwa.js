@@ -26,6 +26,20 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
     check("sw.js responde como JavaScript", sw.status === 200 && (sw.headers.get("content-type") ?? "").includes("javascript"));
     check("los bundles pesados NO están en el precache",
       !cuerpo.match(/"url":"assets\/(sdk\.bundle|embedded)-[^"]+"/));
+
+    // La versión de la extensión, publicada junto al ZIP: el background de la
+    // extensión la lee desde su service worker para avisar "hay una versión
+    // nueva" a quien instaló por ZIP. Sin CORS abierto ese fetch moriría.
+    const vers = await fetch(`${B}/version-extension.json`);
+    check("version-extension.json responde 200", vers.status === 200);
+    check("con CORS abierto (la extensión lo lee desde otro origen)",
+      vers.headers.get("access-control-allow-origin") === "*");
+    check("sin caché (un deploy nuevo se ve al toque)",
+      /no-cache/.test(vers.headers.get("cache-control") ?? ""), vers.headers.get("cache-control") ?? "(nada)");
+    const vdata = await vers.json().catch(() => ({}));
+    const manifestExt = JSON.parse(require("fs").readFileSync(require("path").resolve(__dirname, "../extension/manifest.json"), "utf8"));
+    check("y declara la MISMA versión que el manifest de la extensión",
+      vdata.version === manifestExt.version, `web=${vdata.version} ext=${manifestExt.version}`);
   }
 
   console.log("\n── 2. El service worker vivo ──");

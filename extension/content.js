@@ -668,6 +668,9 @@
       get mounted() { return Boolean(host && document.body.contains(host)); },
       toggleDrawer, setStatus, setCaptionsReady, setRecording,
       renderStream, renderRoles, renderMicCard, showSubtitle, refreshAccount,
+      // El idioma puede resolverse DESPUÉS de montar la interfaz (el storage
+      // es asíncrono): esto empareja el selector con cfg.lang cuando llega.
+      syncLang() { if (el.lang) el.lang.value = cfg.lang || ""; },
     };
   })();
 
@@ -841,16 +844,24 @@
   // acto, y leerlo antes de definir la interfaz dejaría la extensión sin arrancar.
   function loadConfig() {
     const code = meetCode();
-    const keys = { serverBase: DEFAULT_SERVER, appBase: DEFAULT_APP, token: null, lang: "" };
-    if (code) keys[`roles:${code}`] = {};
+    const keys = ["serverBase", "appBase", "token", "lang"];
+    if (code) keys.push(`roles:${code}`);
+    // `lang` AUSENTE es "nunca eligió": la traducción arranca sola en el
+    // idioma del navegador. `lang: ""` es "eligió Sin traducir": se respeta.
+    const IDIOMAS = ["es", "en", "pt", "fr", "de", "it", "zh"];
+    const delNavegador = () => {
+      const dos = String(navigator.language || "").slice(0, 2).toLowerCase();
+      return IDIOMAS.includes(dos) ? dos : "";
+    };
     chrome.storage.local.get(keys, (v) => {
       if (v?.serverBase?.startsWith?.("http")) cfg.serverBase = v.serverBase.replace(/\/+$/, "");
       if (v?.appBase?.startsWith?.("http")) cfg.appBase = v.appBase.replace(/\/+$/, "");
       cfg.token = v?.token ?? null;
-      cfg.lang = v?.lang ?? "";
+      cfg.lang = typeof v?.lang === "string" ? v.lang : delNavegador();
       if (code && v?.[`roles:${code}`]) state.roles = v[`roles:${code}`];
       ui.refreshAccount();
       ui.renderRoles();
+      ui.syncLang();
     });
     chrome.storage.onChanged.addListener((c, area) => {
       if (area !== "local") return;

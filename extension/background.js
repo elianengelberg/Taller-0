@@ -25,6 +25,7 @@
 
 const OFFSCREEN = "offscreen.html";
 const DEFAULT_SERVER = "https://taller-0.onrender.com";
+const DEFAULT_APP = "https://www.unify-meet.com";
 let recordingTabId = null;
 
 const lastMeet = new Map(); // tabId -> { dbId, serverBase, token }  (Meet, como siempre)
@@ -55,10 +56,56 @@ function notify(tabId, msg) {
   chrome.tabs.sendMessage(tabId, msg).catch(() => {});
 }
 
+// El badge cuenta dos historias que no pueden pisarse: REC (rojo) mientras se
+// graba, y ↑ (violeta) cuando hay una versión nueva de la extensión esperando
+// en unify-meet.com. Grabar gana; al terminar, el aviso de versión vuelve.
+let hayVersionNueva = false;
 function badge(on) {
-  chrome.action.setBadgeText({ text: on ? "REC" : "" });
-  if (on) chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
+  if (on) {
+    chrome.action.setBadgeText({ text: "REC" });
+    chrome.action.setBadgeBackgroundColor({ color: "#dc2626" });
+    return;
+  }
+  chrome.action.setBadgeText({ text: hayVersionNueva ? "↑" : "" });
+  if (hayVersionNueva) chrome.action.setBadgeBackgroundColor({ color: "#6366f1" });
 }
+
+// --- Actualización de la extensión --------------------------------------------
+// La web publica dist/version-extension.json en cada deploy (lo escribe
+// pack-extension.mjs junto al ZIP). Compararlo con el manifest local avisa
+// "hay una versión nueva" sin pedir ni un permiso más: unify-meet.com ya es
+// nuestro origen. La Web Store actualiza sola; esto cubre a quien instaló por
+// ZIP/instalador, que no tiene otra campana.
+function esMasNueva(remota, local) {
+  const a = String(remota).split(".").map((n) => parseInt(n, 10));
+  const b = String(local).split(".").map((n) => parseInt(n, 10));
+  if (a.some((n) => Number.isNaN(n)) || a.length === 0) return false;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] ?? 0, y = b[i] ?? 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
+const CADA_CUANTO_MS = 6 * 60 * 60 * 1000; // 6 horas: sobra para un aviso
+async function checkVersion() {
+  try {
+    const v = await chrome.storage.local.get({ appBase: DEFAULT_APP, lastVersionCheck: 0, updateAvailable: null });
+    hayVersionNueva = Boolean(v.updateAvailable && esMasNueva(v.updateAvailable, chrome.runtime.getManifest().version));
+    if (recordingTabId == null) badge(false); // re-pintar tras el arranque del SW
+    if (Date.now() - Number(v.lastVersionCheck || 0) < CADA_CUANTO_MS) return;
+    await chrome.storage.local.set({ lastVersionCheck: Date.now() });
+    const appBase = String(v.appBase || DEFAULT_APP).replace(/\/+$/, "");
+    const res = await fetch(`${appBase}/version-extension.json`, { cache: "no-store" });
+    if (!res.ok) return;
+    const data = await res.json();
+    const remota = typeof data?.version === "string" ? data.version : "";
+    hayVersionNueva = esMasNueva(remota, chrome.runtime.getManifest().version);
+    await chrome.storage.local.set({ updateAvailable: hayVersionNueva ? remota : null });
+    if (recordingTabId == null) badge(false); // pinta ↑ o lo borra
+  } catch { /* sin red: el próximo arranque reintenta */ }
+}
+void checkVersion();
 
 // La reunión companion que respalda esa clave de sala. El bridge la crea si
 // no existe, con la MISMA clave que derivaría la web: de ahí sale que las
@@ -237,6 +284,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       serverBase: msg.serverBase,
       token: msg.token ?? null,
     });
+    void checkVersion(); // momento en que la extensión SE USA (throttle adentro)
     sendResponse?.({ ok: true });
     return true;
   }
@@ -249,6 +297,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       plataforma: msg.plataforma,
       url: msg.url,
     });
+    void checkVersion(); // idem: el throttle de 6 h evita el ruido
     sendResponse?.({ ok: true });
     return true;
   }

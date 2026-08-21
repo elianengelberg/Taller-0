@@ -140,6 +140,8 @@ const json = (b) => ({ method: "POST", headers: { "Content-Type": "application/j
       "https://teams.live.com/meet/9351287312?p=clave",
       "https://meet.jit.si/SalaDePrueba",
       "https://8x8.vc/empresa/sala-grande",
+      "https://whereby.com/sala-de-ana?x=1",
+      "https://global.gotomeeting.com/join/123456789",
     ];
     const out = execFileSync("npx", ["tsx", "-e", `
       import { detectMeetingPlatform } from "/home/user/Taller-0/client/src/lib/meetingPlatforms";

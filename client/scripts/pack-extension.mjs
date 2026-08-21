@@ -110,3 +110,13 @@ fs.mkdirSync(path.dirname(OUT), { recursive: true });
 fs.writeFileSync(OUT, Buffer.concat([...partes, dirCentral, eocd]));
 const kb = (fs.statSync(OUT).size / 1024).toFixed(0);
 console.log(`[pack-extension] ${archivos.length} archivos -> ${OUT} (${kb} KB)`);
+
+// La versión del paquete, publicada al lado del ZIP: el background de la
+// extensión la consulta (cada 6 horas como mucho) y avisa "hay una versión
+// nueva" a quien instaló por ZIP o instalador -- la Web Store se actualiza
+// sola, pero un ZIP no. vercel.json le pone CORS abierto y no-cache: es un
+// número de versión público que una extensión necesita leer desde su origen.
+const manifest = JSON.parse(fs.readFileSync(path.join(EXT, "manifest.json"), "utf8"));
+const VERS = path.resolve(aca, "../dist/version-extension.json");
+fs.writeFileSync(VERS, JSON.stringify({ version: manifest.version }) + "\n");
+console.log(`[pack-extension] version ${manifest.version} -> ${VERS}`);

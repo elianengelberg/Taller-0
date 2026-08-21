@@ -15,18 +15,36 @@ const recTip = document.getElementById("recTip");
 
 let tabId = null;
 
-chrome.storage.local.get({ serverBase: DEFAULT_SERVER, appBase: DEFAULT_APP, token: null }, (v) => {
-  server.value = v.serverBase || DEFAULT_SERVER;
-  login.href = `${(v.appBase || DEFAULT_APP).replace(/\/+$/, "")}/ingresar`;
-  if (v.token) {
-    dot.className = "dot ok";
-    status.textContent = "Sesión conectada. La IA está lista.";
-    login.textContent = "Abrir Unify";
-  } else {
-    dot.className = "dot warn";
-    status.textContent = "Sin sesión: transcripción y grabación andan igual; la IA necesita cuenta.";
+chrome.storage.local.get(
+  { serverBase: DEFAULT_SERVER, appBase: DEFAULT_APP, token: null, updateAvailable: null },
+  (v) => {
+    server.value = v.serverBase || DEFAULT_SERVER;
+    const appBase = (v.appBase || DEFAULT_APP).replace(/\/+$/, "");
+    login.href = `${appBase}/ingresar`;
+    if (v.token) {
+      dot.className = "dot ok";
+      status.textContent = "Sesión conectada. La IA está lista.";
+      login.textContent = "Abrir Unify";
+    } else {
+      dot.className = "dot warn";
+      status.textContent = "Sin sesión: transcripción y grabación andan igual; la IA necesita cuenta.";
+    }
+    // Aviso de versión nueva (lo deja el background al comparar contra
+    // unify-meet.com). Va para quien instaló por ZIP/instalador: la Web Store
+    // se actualiza sola, pero un ZIP no tiene otra campana que ésta.
+    if (v.updateAvailable && v.updateAvailable !== chrome.runtime.getManifest().version) {
+      const nota = document.createElement("a");
+      nota.className = "btn";
+      nota.id = "update";
+      nota.target = "_blank";
+      nota.rel = "noreferrer";
+      nota.href = `${appBase}/instalar?bajar=1`;
+      nota.style.background = "#6366f1";
+      nota.textContent = `Hay una versión nueva (${v.updateAvailable}): actualizar`;
+      document.querySelector("main")?.prepend(nota);
+    }
   }
-});
+);
 
 function paintRecording(on) {
   rec.classList.toggle("is-rec", on);

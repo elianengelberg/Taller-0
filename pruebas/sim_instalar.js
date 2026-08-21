@@ -39,9 +39,16 @@ const UA = {
   const desem = path.join(tmp, "ext");
   execFileSync("python3", ["-m", "zipfile", "-e", zipPath, desem]);
 
+  // La versión esperada sale del REPO, no de un número pegado acá: si el
+  // manifest sube de versión, la prueba sigue afirmando lo que importa (que
+  // el ZIP publicado ES la extensión del repositorio, con sus íconos).
+  const versionRepo = JSON.parse(
+    fs.readFileSync(path.resolve(__dirname, "../extension/manifest.json"), "utf8")
+  ).version;
   const manifest = JSON.parse(fs.readFileSync(path.join(desem, "manifest.json"), "utf8"));
   check("manifest v4 con los íconos que exige la Web Store",
-    manifest.version === "4.0.0" && manifest.icons?.["128"] === "icons/128.png");
+    manifest.version === versionRepo && manifest.icons?.["128"] === "icons/128.png",
+    `zip=${manifest.version} repo=${versionRepo}`);
   check("los tres íconos están y pesan algo",
     [16, 48, 128].every((s) => fs.existsSync(path.join(desem, "icons", `${s}.png`)) && fs.statSync(path.join(desem, "icons", `${s}.png`)).size > 200));
   check("las capturas de la ficha (store/) NO viajan en el paquete",
@@ -208,7 +215,7 @@ const UA = {
     });
     const manifiesto = path.join(fakeHome, "Library", "Application Support", "Unify", "extension", "manifest.json");
     check("EJECUTADO de verdad: deja la extensión instalada donde dice",
-      fs.existsSync(manifiesto) && JSON.parse(fs.readFileSync(manifiesto, "utf8")).version === "4.0.0");
+      fs.existsSync(manifiesto) && JSON.parse(fs.readFileSync(manifiesto, "utf8")).version === versionRepo);
   }
 
   // ═══════ 7. Los archivos de Apple ═══════

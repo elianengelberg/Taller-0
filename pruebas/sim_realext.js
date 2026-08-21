@@ -56,9 +56,11 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
 (async () => {
   // --- Copia de la extensión con el manifest apuntando también a localhost ---
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "unify-ext-"));
-  for (const f of fs.readdirSync(SRC)) {
-    if (fs.statSync(path.join(SRC, f)).isFile()) fs.copyFileSync(path.join(SRC, f), path.join(dir, f));
-  }
+  // Copia RECURSIVA: el manifest declara icons/16.png etc., y si la copia
+  // pierde la carpeta icons/, Chrome muestra el modal "Failed to load
+  // extension" y el navegador nunca llega a estar listo (Playwright revienta
+  // por timeout de arranque, sin una sola prueba corrida).
+  fs.cpSync(SRC, dir, { recursive: true });
   const man = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
   const LOCAL = "http://localhost:4189/*";
   man.host_permissions.push(LOCAL);
@@ -78,6 +80,9 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
     headless: false, // las extensiones necesitan modo con ventana (corre bajo xvfb)
     args: [
       "--no-sandbox",
+      // El entorno define HTTPS_PROXY y Chromium lo hereda; acá todo vive en
+      // localhost y el proxy sólo aporta cuelgues en el arranque. Directo.
+      "--no-proxy-server",
       `--disable-extensions-except=${dir}`,
       `--load-extension=${dir}`,
       "--use-fake-ui-for-media-stream",
