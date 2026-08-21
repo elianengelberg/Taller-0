@@ -20,6 +20,7 @@ import Instalar from "./pages/Instalar";
 import Privacidad from "./pages/Privacidad";
 import Register from "./pages/Register";
 import ResetPassword from "./pages/ResetPassword";
+import Soporte from "./pages/Soporte";
 import VerifyEmail from "./pages/VerifyEmail";
 
 export default function App() {
@@ -38,6 +39,8 @@ export default function App() {
           {/* El centro de instalación: la app (PWA) y la extensión. */}
           <Route path="/instalar" element={<Instalar />} />
           <Route path="/privacidad" element={<Privacidad />} />
+          {/* La URL de asistencia de la ficha de la Chrome Web Store. */}
+          <Route path="/soporte" element={<Soporte />} />
           <Route path="/ingresar" element={<Login />} />
           <Route path="/registrarse" element={<Register />} />
           {/* Landing spot for the Google OAuth redirect (see googleAuth.ts). */}

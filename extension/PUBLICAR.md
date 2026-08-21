@@ -67,6 +67,9 @@ ficha de Chrome ya cubre a Edge.
 
 **Categoría:** Productividad · **Idioma:** Español
 
+**Sitio web:** `https://www.unify-meet.com` ·
+**URL de asistencia:** `https://www.unify-meet.com/soporte`
+
 **Capturas (1280×800):** ya están listas en `extension/store/`:
 `captura-1-toast.png` (el aviso al entrar a una reunión) y
 `captura-2-overlay.png` (grabando, con subtítulos traducidos). Subí las dos.

@@ -272,6 +272,14 @@ const UA = {
     await page.goto(`${B}/privacidad`, { waitUntil: "networkidle" });
     const priv = await texto(page);
     check("/privacidad existe (la exige la Web Store)", /Qué guardamos/.test(priv) && /Anthropic/.test(priv));
+    // La "URL de asistencia" de la ficha: tiene que existir y responder lo
+    // que la gente pregunta de verdad (instalar, grabar, dónde queda todo).
+    await page.goto(`${B}/soporte`, { waitUntil: "networkidle" });
+    const sop = await texto(page);
+    check("/soporte existe (la URL de asistencia de la ficha)",
+      /Ayuda de Unify/.test(sop) && /Cómo instalo/.test(sop) && /hola@unify-meet\.com/.test(sop));
+    check("y es honesto con el límite real (la app de escritorio de Zoom)",
+      /extensión de navegador no puede/.test(sop));
     await ctx.close();
   }
 

@@ -419,7 +419,11 @@ export default function Instalar() {
             <li>• Subtítulos traducidos a chino, inglés, alemán, francés, portugués, italiano y español.</li>
           </ul>
           <p className="mt-3 text-xs text-ink-500">
-            Qué guarda Unify y qué no:{" "}
+            ¿Algo no anduvo?{" "}
+            <Link to="/soporte" className="underline hover:text-ink-300">
+              Centro de ayuda
+            </Link>
+            . Qué guarda Unify y qué no:{" "}
             <Link to="/privacidad" className="underline hover:text-ink-300">
               política de privacidad
             </Link>
