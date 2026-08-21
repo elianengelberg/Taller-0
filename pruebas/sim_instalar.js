@@ -280,6 +280,8 @@ const UA = {
     await page.goto(`${B}/privacidad`, { waitUntil: "networkidle" });
     const priv = await texto(page);
     check("/privacidad existe (la exige la Web Store)", /Qué guardamos/.test(priv) && /Anthropic/.test(priv));
+    check("y ahora cubre seguridad (cifrado, scrypt, sesiones, incidentes)",
+      /Seguridad/.test(priv) && /scrypt/.test(priv) && /HTTPS/.test(priv) && /incidente/.test(priv));
     // La "URL de asistencia" de la ficha: tiene que existir y responder lo
     // que la gente pregunta de verdad (instalar, grabar, dónde queda todo).
     await page.goto(`${B}/soporte`, { waitUntil: "networkidle" });
