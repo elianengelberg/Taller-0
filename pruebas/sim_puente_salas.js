@@ -142,6 +142,7 @@ const json = (b) => ({ method: "POST", headers: { "Content-Type": "application/j
       "https://8x8.vc/empresa/sala-grande",
       "https://whereby.com/sala-de-ana?x=1",
       "https://global.gotomeeting.com/join/123456789",
+      "https://acme.webex.com/meet/juan.perez",
     ];
     const out = execFileSync("npx", ["tsx", "-e", `
       import { detectMeetingPlatform } from "/home/user/Taller-0/client/src/lib/meetingPlatforms";

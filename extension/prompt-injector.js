@@ -143,16 +143,21 @@
       width: 368px; max-width: calc(100vw - 32px); box-sizing: border-box;
       background: #0f172a; color: #f5f6fb; border: 1px solid #334155;
       border-radius: 14px; padding: 14px 16px;
-      font: 14px/1.45 system-ui, -apple-system, sans-serif;
+      font: 15px/1.5 system-ui, -apple-system, sans-serif;
       box-shadow: 0 8px 30px rgba(0,0,0,.45); }
-    .fila { display: flex; gap: 8px; margin-top: 10px; }
-    button { border: 0; border-radius: 9px; padding: 8px 14px; font: inherit;
-      font-weight: 600; cursor: pointer; }
+    .fila { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    /* Botones grandes y con foco visible: esto lo usa gente de todas las
+       edades, y un botón de 40px de alto con contraste real es la
+       diferencia entre "lo toco" y "ni lo vi". */
+    button { border: 0; border-radius: 10px; padding: 10px 16px; font: inherit;
+      font-weight: 600; cursor: pointer; min-height: 40px; }
+    button:focus-visible, .sel:focus-visible, .iain:focus-visible {
+      outline: 2px solid #a5b4fc; outline-offset: 2px; }
     .si { background: #6366f1; color: #fff; }
     .si:hover { background: #4f46e5; }
-    .no { background: transparent; color: #94a3b8; }
-    .no:hover { color: #e2e8f0; }
-    .pie { margin-top: 8px; font-size: 11.5px; color: #64748b; }
+    .no { background: transparent; color: #e2e8f0; border: 1px solid #475569; }
+    .no:hover { background: #1e293b; }
+    .pie { margin-top: 8px; font-size: 12.5px; color: #94a3b8; }
     .rec { display: flex; align-items: center; gap: 8px; font-weight: 600; }
     .punto { width: 9px; height: 9px; border-radius: 50%; background: #dc2626;
       animation: latir 1.2s infinite; flex: none; }
@@ -167,16 +172,16 @@
     .dijo { font-size: 15px; line-height: 1.4; color: #f1f5f9; overflow-wrap: anywhere; }
     .vacio { font-size: 13px; color: #64748b; }
     .sel { margin-top: 8px; width: 100%; background: #1e293b; color: #e2e8f0;
-      border: 1px solid #334155; border-radius: 8px; padding: 5px 8px;
-      font: 12px system-ui, sans-serif; }
+      border: 1px solid #334155; border-radius: 8px; padding: 7px 9px;
+      font: 13px system-ui, sans-serif; cursor: pointer; }
     .trad { font-size: 14px; line-height: 1.4; color: #a5b4fc; margin-top: 1px;
       overflow-wrap: anywhere; }
     .aviso { margin-top: 8px; font-size: 12px; color: #fca5a5; }
     .ok { margin-top: 8px; font-size: 12px; color: #6ee7b7; }
     .iafila { display: flex; gap: 6px; margin-top: 10px; }
     .iain { flex: 1; min-width: 0; background: #1e293b; color: #e2e8f0;
-      border: 1px solid #334155; border-radius: 8px; padding: 7px 9px;
-      font: 13px system-ui, sans-serif; }
+      border: 1px solid #334155; border-radius: 8px; padding: 8px 10px;
+      font: 14px system-ui, sans-serif; }
     .iain::placeholder { color: #64748b; }
     .iabtn { background: #334155; color: #e2e8f0; padding: 7px 12px; }
     .iabtn:hover { background: #475569; }
@@ -226,6 +231,9 @@
     const root = raiz();
     const caja = document.createElement("div");
     caja.className = "caja";
+    // Para lectores de pantalla: es un diálogo con nombre, no un div mudo.
+    caja.setAttribute("role", "dialog");
+    caja.setAttribute("aria-label", "Aviso de Unify");
 
     const texto = document.createElement("div");
     texto.textContent = `Veo que te estás uniendo a una reunión de ${det.nombre}. ¿Querés los subtítulos y grabar la reunión?`;
@@ -315,7 +323,15 @@
     desarmar = limpiar;
   }
 
+  // Candado contra la doble captura: dos clics rápidos en "Grabar" (o un
+  // clic armado mientras el selector ya está abierto) dispararían DOS
+  // getDisplayMedia, y los chunks de ambos grabadores se entrelazarían en el
+  // mismo puerto: un webm corrupto. Con el candado, el segundo pedido muere
+  // acá y la grabación que ya está en marcha sigue intacta.
+  let pidiendoPantalla = false;
   async function iniciarCarrilB(det, caja) {
+    if (recorder || pidiendoPantalla) return;
+    pidiendoPantalla = true;
     let stream;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
@@ -331,6 +347,7 @@
       });
     } catch {
       // Canceló el selector: no es un error y no se insiste. El toast queda.
+      pidiendoPantalla = false;
       return;
     }
 
@@ -366,6 +383,7 @@
       port.postMessage({ kind: "inicio", roomKey: det.roomKey, plataforma: det.plataforma });
     } catch {
       stream.getTracks().forEach((t) => t.stop());
+      pidiendoPantalla = false;
       caja?.appendChild(Object.assign(document.createElement("div"), {
         className: "aviso",
         textContent: "La extensión se recargó: recargá la página y probá de nuevo.",
@@ -416,6 +434,7 @@
       if (recorder && recorder.state !== "inactive") recorder.stop();
     });
     recorder.start(3000);
+    pidiendoPantalla = false;
     mostrarOverlay(det, { grabandoAca: true });
   }
 
@@ -434,6 +453,8 @@
     const root = raiz();
     const caja = document.createElement("div");
     caja.className = "caja";
+    caja.setAttribute("role", "dialog");
+    caja.setAttribute("aria-label", "Subtítulos y grabación de Unify");
 
     const rec = document.createElement("div");
     rec.className = "rec";
@@ -468,6 +489,9 @@
 
     const subs = document.createElement("div");
     subs.className = "subs";
+    // Los subtítulos nuevos se anuncian a los lectores de pantalla sin
+    // interrumpir (polite): accesible también para quien no ve la caja.
+    subs.setAttribute("aria-live", "polite");
     subs.innerHTML = `<div class="vacio">Esperando que alguien hable…</div>`;
 
     const fila = document.createElement("div");

@@ -72,6 +72,7 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
   // también se prueba, abajo). El stub guarda los bytes para poder afirmar
   // que lo subido es un webm de verdad, no un puñado de promesas.
   let subida = null;
+  let subidas = 0; // cuántas subidas llegaron: el candado anti doble grabación se mide acá
   const stub = http.createServer((req, res) => {
     const cors = {
       "Access-Control-Allow-Origin": "*",
@@ -96,6 +97,7 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
       req.on("data", (c) => partes.push(c));
       req.on("end", () => {
         subida = { bytes: Buffer.concat(partes), url: req.url };
+        subidas += 1;
         res.writeHead(200, { ...cors, "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true, url: "https://stub/video.webm" }));
       });
@@ -122,7 +124,7 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
       `--disable-extensions-except=${EXT}`,
       `--load-extension=${EXT}`,
       "--ignore-certificate-errors",
-      '--host-resolver-rules=MAP *.zoom.us 127.0.0.1, MAP zoom.us 127.0.0.1, MAP meet.jit.si 127.0.0.1, MAP whereby.com 127.0.0.1',
+      '--host-resolver-rules=MAP *.zoom.us 127.0.0.1, MAP zoom.us 127.0.0.1, MAP meet.jit.si 127.0.0.1, MAP whereby.com 127.0.0.1, MAP *.webex.com 127.0.0.1, MAP global.gotomeeting.com 127.0.0.1',
       // Acepta solo el pedido de captura de ESTA pestaña (preferCurrentTab),
       // que es exactamente lo que hace el carril B.
       "--auto-accept-this-tab-capture",
@@ -274,6 +276,21 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     check("y el botón Grabar a mano (la grabación en sí exige un gesto tuyo)",
       (await page.locator("button.si", { hasText: "Grabar" }).count()) === 1);
 
+    // Usabilidad para todas las edades: MEDIDA, no prometida. Botones altos,
+    // letra grande, botón secundario con borde visible y panel accesible.
+    const alto = (await page.locator("button.si", { hasText: "Grabar" }).boundingBox())?.height ?? 0;
+    check("los botones son grandes (>= 40px de alto)", alto >= 40, `alto=${alto}px`);
+    const fuente = await page.locator(".caja").evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+    check("la letra base del panel es legible (>= 15px)", fuente >= 15, `${fuente}px`);
+    const borde = await page.locator("button.no").evaluate((el) => parseFloat(getComputedStyle(el).borderTopWidth));
+    check("el botón secundario tiene borde visible (no es un texto gris perdido)", borde >= 1, `${borde}px`);
+    const a11y = await page.locator(".caja").evaluate((el) => ({
+      role: el.getAttribute("role"),
+      vivo: el.querySelector(".subs")?.getAttribute("aria-live") ?? null,
+    }));
+    check("y se anuncia a los lectores de pantalla (dialog + subtítulos en vivo)",
+      a11y.role === "dialog" && a11y.vivo === "polite", JSON.stringify(a11y));
+
     // Llega una línea a la sala (otro participante) -> el overlay la muestra
     // y la TRADUCE al idioma elegido.
     await fetch(`${API}/api/meet-bridge/${encodeURIComponent(`zoom:${zoomId2}`)}/transcript`, {
@@ -384,6 +401,42 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
       (await page.locator(".caja").count()) === 0);
   }
 
+  // ═══════ 5e. Dos clics rápidos NO abren dos grabaciones ═══════
+  console.log("\n── 5e. El doble clic no duplica la grabación ──");
+  {
+    // Sin el candado, el segundo getDisplayMedia entrelazaría los chunks de
+    // dos grabadores en el mismo puerto: un webm corrupto. Acá se hace el
+    // doble clic sincrónico (el peor caso) y se afirma que llega UNA subida
+    // y que sigue siendo un webm válido.
+    await setStorage({ serverBase: `http://localhost:${STUB_PORT}` });
+    const antes = subidas;
+    const zoomId5 = `9${(Date.now() + 47) % 1e9}9`;
+    await page.goto(`https://acme.zoom.us/j/${zoomId5}`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(2500);
+    await page.locator("button.si", { hasText: "Sí, dale" }).evaluate((b) => { b.click(); b.click(); });
+    await page.waitForTimeout(2500);
+    const estado5e = await page.locator(".rec").textContent().catch(() => "");
+    check("con dos clics, hay UNA sola grabación en marcha",
+      /Grabando y transcribiendo/i.test(estado5e), estado5e.slice(0, 50));
+    await page.waitForTimeout(7000);
+    await page.locator("button.no").click(); // Detener
+    await page.waitForTimeout(3500);
+    check("al detener llega exactamente UNA subida (no dos entrelazadas)",
+      subidas - antes === 1, `subidas=${subidas - antes}`);
+    const magia5e = subida ? subida.bytes.subarray(0, 4).toString("hex") : "sin subida";
+    check("y es un webm válido (magia EBML)", magia5e === "1a45dfa3", magia5e);
+    // La firma del bug del doble grabador: cada MediaRecorder abre su PROPIO
+    // webm, así que un archivo con chunks de dos grabadores entrelazados trae
+    // DOS encabezados EBML. Uno solo = una sola grabación de verdad.
+    let encabezados = 0;
+    if (subida) {
+      const MAGIA = Buffer.from([0x1a, 0x45, 0xdf, 0xa3]);
+      for (let i = subida.bytes.indexOf(MAGIA); i !== -1; i = subida.bytes.indexOf(MAGIA, i + 1)) encabezados++;
+    }
+    check("con UN solo encabezado EBML (no hay segundo grabador escondido adentro)",
+      encabezados === 1, `encabezados=${encabezados}`);
+  }
+
   // ═══════ 6. Jitsi también (segunda plataforma, mismos matches) ═══════
   console.log("\n── 6. Jitsi ──");
   await page.goto("https://meet.jit.si/SalaDePruebaUnify", { waitUntil: "domcontentloaded" });
@@ -397,6 +450,17 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
   await page.waitForTimeout(2500);
   const t3 = await page.locator(".caja").textContent().catch(() => "");
   check("el toast también sale en whereby.com", /reunión de Whereby/.test(t3), t3.slice(0, 60));
+
+  // ═══════ 7b. Webex y GoTo (el aviso sale en TODAS las plataformas del manifest) ═══════
+  console.log("\n── 7b. Webex y GoTo ──");
+  await page.goto("https://acme.webex.com/meet/juan.perez", { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(2500);
+  const t4 = await page.locator(".caja").textContent().catch(() => "");
+  check("el toast también sale en webex.com", /reunión de Webex/.test(t4), t4.slice(0, 60));
+  await page.goto("https://global.gotomeeting.com/join/123456789", { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(2500);
+  const t5 = await page.locator(".caja").textContent().catch(() => "");
+  check("el toast también sale en gotomeeting.com", /reunión de GoTo Meeting/.test(t5), t5.slice(0, 60));
 
   // ═══════ 8. El aviso de "hay una versión nueva" ═══════
   console.log("\n── 8. Aviso de versión nueva ──");
