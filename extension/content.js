@@ -132,12 +132,26 @@
   // ===========================================================================
   // Lecturas del DOM de Meet
   // ===========================================================================
-  const inCall = () =>
-    Boolean(
-      document.querySelector(
-        'button[aria-label*="Salir de la llamada"], button[aria-label*="Leave call"], button[aria-label*="abandonar la llamada"]'
-      )
-    );
+  // ¿Estamos DENTRO de la llamada (no en la sala de espera)?
+  //
+  // Antes esto se decidía sólo por el texto del botón de colgar, en dos
+  // idiomas. Bastaba con que Meet dijera "Salir de la videollamada", o que la
+  // persona lo tuviera en portugués, para que la extensión no apareciera
+  // NUNCA -- sin un solo error en la consola, que es la peor forma de fallar.
+  //
+  // Ahora hay dos caminos, y alcanza con uno:
+  //  1. El botón de colgar, con muchas más variantes de idioma.
+  //  2. La ESTRUCTURA: los controles de micrófono y cámara ([data-is-muted])
+  //     sólo existen una vez adentro de la llamada. Es independiente del
+  //     idioma y de cómo Google redacte sus etiquetas.
+  const COLGAR_RE = /salir de la (llamada|videollamada)|abandonar la (llamada|videollamada)|leave call|hang up|sair da chamada|quitter l'appel|anruf verlassen|abbandona chiamata/i;
+  const inCall = () => {
+    for (const b of document.querySelectorAll("button[aria-label]")) {
+      if (COLGAR_RE.test(b.getAttribute("aria-label") || "")) return true;
+    }
+    // Camino estructural: mic + cámara juntos = estás en la llamada.
+    return document.querySelectorAll("[data-is-muted]").length >= 2;
+  };
 
   function ownToggle(kind) {
     const el =
@@ -774,6 +788,81 @@
   // de confiar en que lo inyectado sobreviva, se reafirma todo periódicamente
   // (y ante cada mutación, con freno). Reponer algo que ya está es gratis.
   // ===========================================================================
+  // --- El aviso de bienvenida, igual que en Zoom, Teams o Jitsi -------------
+  //
+  // Faltaba, y era un agujero real: en Meet el panel montaba COLAPSADO (un
+  // botón chico en la barra de Google), así que quien creaba una reunión no
+  // veía absolutamente nada y creía que la extensión no andaba. En todas las
+  // demás plataformas aparece un aviso; acá no. Ahora sí, con el mismo trato:
+  // si no contestás, a los 5 segundos se abre solo con los subtítulos.
+  let toastMostrado = null; // código de reunión donde ya se avisó
+  let toastTimer = null;
+  function avisarEnMeet(code) {
+    if (toastMostrado === code) return;
+    toastMostrado = code;
+    try {
+      if (sessionStorage.getItem(`unify-no:${code}`)) return;
+    } catch { /* sin storage */ }
+
+    const host = document.createElement("div");
+    host.id = "unify-aviso";
+    host.style.cssText = "position:fixed;z-index:2147483001;right:16px;bottom:96px;pointer-events:auto;";
+    const root = host.attachShadow({ mode: "open" });
+    root.innerHTML = `
+      <style>
+        :host { all: initial; }
+        .caja { width: 360px; max-width: calc(100vw - 32px); box-sizing: border-box;
+          background: #0f172a; color: #f5f6fb; border: 1px solid #334155;
+          border-radius: 14px; padding: 14px 16px;
+          font: 15px/1.5 system-ui, -apple-system, sans-serif;
+          box-shadow: 0 8px 30px rgba(0,0,0,.45); }
+        .fila { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+        button { border: 0; border-radius: 10px; padding: 10px 16px; font: inherit;
+          font-weight: 600; cursor: pointer; min-height: 40px; }
+        button:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; }
+        .si { background: #6366f1; color: #fff; }
+        .si:hover { background: #4f46e5; }
+        .no { background: transparent; color: #e2e8f0; border: 1px solid #475569; }
+        .no:hover { background: #1e293b; }
+        .pie { margin-top: 8px; font-size: 12.5px; color: #94a3b8; }
+      </style>
+      <div class="caja" role="dialog" aria-label="Aviso de Unify">
+        <div>Veo que estás en una reunión de Google Meet. ¿Querés los subtítulos y grabar la reunión?</div>
+        <div class="fila"><button class="si">Sí, dale</button><button class="no">Ahora no</button></div>
+        <div class="pie"></div>
+      </div>`;
+    (document.body || document.documentElement).appendChild(host);
+
+    const pie = root.querySelector(".pie");
+    let restante = 5;
+    pie.textContent = `Si no respondés, en ${restante} abro los subtítulos solo.`;
+    const cerrar = () => {
+      if (toastTimer) { clearInterval(toastTimer); toastTimer = null; }
+      host.remove();
+    };
+    toastTimer = setInterval(() => {
+      restante -= 1;
+      if (restante > 0) {
+        pie.textContent = `Si no respondés, en ${restante} abro los subtítulos solo.`;
+        return;
+      }
+      cerrar();
+      // Auto-SÍ: se abre el panel con la transcripción. La GRABACIÓN sigue
+      // necesitando tu gesto (Chrome sólo la habilita así), y está a un clic
+      // en el panel que se acaba de abrir.
+      ui.toggleDrawer(true);
+    }, 1000);
+
+    root.querySelector(".si").addEventListener("click", () => {
+      cerrar();
+      ui.toggleDrawer(true);
+    });
+    root.querySelector(".no").addEventListener("click", () => {
+      try { sessionStorage.setItem(`unify-no:${code}`, "1"); } catch { /* sin storage */ }
+      cerrar();
+    });
+  }
+
   function ensureAll() {
     const code = meetCode();
     if (!code || !inCall()) {
@@ -782,12 +871,18 @@
         barButton.remove();
         stopMicFallback();
       }
+      // Salir de la reunión también cancela el aviso: si vuelve a entrar,
+      // vuelve a avisar (y no queda un timer viejo abriendo el panel solo).
+      if (toastTimer) { clearInterval(toastTimer); toastTimer = null; }
+      document.getElementById("unify-aviso")?.remove();
+      toastMostrado = null;
       caps.region = null;
       caps.observer?.disconnect();
       return;
     }
     ui.mount();
     barButton.ensure();
+    avisarEnMeet(code);
 
     const captionsOn = watchCaptions() || ensureCaptionsOn();
     ui.setCaptionsReady(Boolean(caps.region));

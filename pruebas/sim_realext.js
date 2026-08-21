@@ -119,6 +119,32 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
   await page.goto("http://localhost:4189/abc-defg-hij", { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(3000);
 
+  // EL AVISO EN MEET. Faltaba: el panel montaba colapsado (un botón chico en
+  // la barra de Google) y quien creaba una reunión instantánea no veía NADA y
+  // creía que la extensión no funcionaba. Ahora avisa igual que en Zoom.
+  {
+    const aviso = page.locator("#unify-aviso");
+    check("en Meet aparece el aviso de Unify (no sólo un botón escondido)",
+      (await aviso.count()) === 1);
+    // Sólo el texto de la caja: shadowRoot.textContent incluiría el CSS y el
+    // detalle del PASS quedaría lleno de estilos en vez del mensaje real.
+    const texto = await aviso
+      .evaluate((el) => el.shadowRoot?.querySelector(".caja")?.textContent?.trim() ?? "")
+      .catch(() => "");
+    check("dice qué ofrece y avisa que arranca solo",
+      /reunión de Google Meet/.test(texto) && /subtítulos y grabar/.test(texto) && /abro los subtítulos solo/.test(texto),
+      texto.slice(0, 80));
+
+    // Sin responder: a los ~5 s el panel se abre solo con la transcripción.
+    await page.waitForTimeout(6500);
+    check("sin respuesta, a los 5 segundos el panel se abre solo",
+      await page.evaluate(() =>
+        Boolean(document.getElementById("unify-root")?.shadowRoot?.querySelector(".drawer.is-open"))
+      ));
+    check("y el aviso se va cuando ya cumplió su función",
+      (await page.locator("#unify-aviso").count()) === 0);
+  }
+
   check("inyecta el panel con Shadow DOM", (await page.locator("#unify-root").count()) > 0);
   const shadowOk = await page.evaluate(() => Boolean(document.getElementById("unify-root")?.shadowRoot));
   check("el panel usa Shadow DOM aislado (no lo rompe el CSS de Meet)", shadowOk);
@@ -144,6 +170,38 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
 
   const stream = await page.locator(".stream").textContent();
   check("la transcripción del panel muestra a los tres", ["Ana", "Bruno", "Carolina"].every((n) => (stream || "").includes(n)));
+
+  // ═══════ Meet en OTRO IDIOMA (o con otra redacción) ═══════
+  //
+  // La detección de "estoy dentro de la llamada" miraba el botón de colgar en
+  // dos idiomas nada más. Si Meet decía "Sair da chamada" -- o "Salir de la
+  // VIDEOllamada", que Google también usa -- la extensión no aparecía NUNCA y
+  // sin un solo error en consola: el modo más cruel de fallar. Acá se sirve
+  // un Meet en portugués para exigir que igual funcione.
+  console.log("\n── Meet en otro idioma ──");
+  {
+    const p2 = await ctx.newPage();
+    p2.on("pageerror", (e) => errs.push(e.message.slice(0, 160)));
+    await ctx.route("**/idioma-portugues", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/html; charset=utf-8",
+        body: PAGE.replace('aria-label="Salir de la llamada"', 'aria-label="Sair da chamada"'),
+      })
+    );
+    await p2.goto("http://localhost:4189/xyz-abcd-efg?idioma=pt", { waitUntil: "domcontentloaded" });
+    // Se reescribe la etiqueta EN LA PÁGINA, que es lo mismo que hace Meet al
+    // renderizar en otro idioma.
+    await p2.evaluate(() => {
+      const b = document.querySelector('button[aria-label="Salir de la llamada"]');
+      if (b) b.setAttribute("aria-label", "Sair da chamada");
+    });
+    await p2.waitForTimeout(3000);
+    check("con Meet en portugués, la extensión igual aparece",
+      (await p2.locator("#unify-root").count()) > 0);
+    check("y también avisa", (await p2.locator("#unify-aviso").count()) === 1);
+    await p2.close();
+  }
 
   check("sin errores de JavaScript", errs.length === 0, errs[0] || "");
 
