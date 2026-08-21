@@ -55,6 +55,21 @@ function listar(dir, base = "") {
   return out;
 }
 
+// El manifest que VIAJA A LA TIENDA no lleva los orígenes de desarrollo
+// (localhost, el alias de vercel.app): son innecesarios para quien instala,
+// y la Web Store rechaza versiones con permisos que no hacen falta ("quita
+// todos los permisos que no sean necesarios"). El manifest del repo los
+// conserva para el trabajo local; el filtro corre sólo al empaquetar.
+const DEV_ORIGENES = /localhost|taller-0\.vercel\.app/;
+function manifestParaTienda(buf) {
+  const man = JSON.parse(buf.toString("utf8"));
+  man.host_permissions = (man.host_permissions ?? []).filter((m) => !DEV_ORIGENES.test(m));
+  for (const cs of man.content_scripts ?? []) {
+    cs.matches = cs.matches.filter((m) => !DEV_ORIGENES.test(m));
+  }
+  return Buffer.from(JSON.stringify(man, null, 2) + "\n", "utf8");
+}
+
 const archivos = listar(EXT);
 const partes = [];
 const centrales = [];
@@ -62,7 +77,8 @@ let offset = 0;
 const FECHA = 0x5821; // fecha DOS fija (2024-01-01): builds reproducibles
 
 for (const rel of archivos) {
-  const datos = fs.readFileSync(path.join(EXT, rel));
+  const crudo = fs.readFileSync(path.join(EXT, rel));
+  const datos = rel === "manifest.json" ? manifestParaTienda(crudo) : crudo;
   const nombre = Buffer.from(rel, "utf8");
   const crc = crc32(datos);
 

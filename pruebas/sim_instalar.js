@@ -57,6 +57,11 @@ const UA = {
   const esperados = ["background.js", "content.js", "prompt-injector.js", "offscreen.js", "offscreen.html", "popup.html", "popup.js", "auth-sync.js", "panel.css", "shadow.css"];
   check("contenido byte a byte igual al repositorio",
     esperados.every((f) => fs.readFileSync(path.join(desem, f)).equals(fs.readFileSync(path.join(EXT, f)))));
+  // El paquete de la tienda NO puede pedir permisos de desarrollo: la Web
+  // Store rechaza versiones con permisos innecesarios, y localhost lo es.
+  check("el manifest del paquete no pide orígenes de desarrollo",
+    !/localhost|taller-0\.vercel\.app/.test(JSON.stringify(manifest)) &&
+    manifest.host_permissions.includes("https://meet.google.com/*"));
 
   // ═══════ 2. Chromium CARGA la extensión desde el ZIP descargado ═══════
   console.log("\n── 2. El paquete carga en Chromium real ──");
