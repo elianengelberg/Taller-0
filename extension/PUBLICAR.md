@@ -29,6 +29,18 @@ Ese MISMO archivo es el que se sube a la tienda. No hay que armar nada a mano.
 Las actualizaciones futuras son: subir el ZIP nuevo (con `version` mayor en el
 manifest) y listo — quienes la tengan instalada se actualizan solos.
 
+**Edge instala desde la misma tienda:** con la ficha de Chrome publicada, la
+gente de Microsoft Edge también instala con un clic (Edge pregunta una vez
+"¿Permitir extensiones de otras tiendas?" y listo; `/instalar` ya lo explica).
+
+## Bonus opcional: la tienda de Edge (gratis)
+
+Si además querés ficha propia en Edge, el registro de desarrollador de
+[Microsoft Edge Add-ons](https://partner.microsoft.com/dashboard/microsoftedge/overview)
+es **gratuito** (no tiene los US$ 5 de Google) y se sube el MISMO
+`unify-extension.zip` con los mismos textos de abajo. No es obligatorio: la
+ficha de Chrome ya cubre a Edge.
+
 ## Textos de la ficha (copiar y pegar)
 
 **Nombre:** Unify — asistente de reuniones

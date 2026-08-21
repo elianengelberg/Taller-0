@@ -21,6 +21,7 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
 
 const UA = {
   windows: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+  edge: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0",
   mac: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
   iphone: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
 };
@@ -90,12 +91,18 @@ const UA = {
     const { ctx, page } = await abrir(UA.windows, `${B}/instalar`, ["clipboard-read", "clipboard-write"]);
     const t = await texto(page);
     check("detecta Windows y lo dice", /estás en Windows/.test(t));
-    check("ofrece el INSTALADOR como camino principal",
-      (await page.locator('a[href="/instalar-unify.bat"]').count()) === 1 && /instalador hace casi todo solo/i.test(t));
-    check("prepara para el aviso de SmartScreen (sin sustos)", /Ejecutar de todas formas/.test(t));
-    check("dice qué exige Chrome sí o sí (los dos toques finales)", /Modo de desarrollador/.test(t) && /Ctrl\+V/.test(t));
-    check("el ZIP sigue como alternativa manual", /bajar el ZIP/.test(t) && /Extraer todo/.test(t));
-    check("NO muestra los pasos de Mac", !/Terminal/.test(t) && !/Agregar al Dock/.test(t));
+    // Lección de la vida real: el .bat como camino principal hacía saltar los
+    // avisos de seguridad de Edge/SmartScreen en cadena y abría una terminal.
+    // El camino principal es el ZIP: sin terminal, sin sustos.
+    check("ofrece el ZIP como camino principal (sin terminal ni avisos)",
+      (await page.locator('a[href="/unify-extension.zip"][download]').count()) >= 1 &&
+      /sin terminal ni avisos de seguridad/i.test(t));
+    check("con los cuatro pasos claros (Extraer todo → extensiones → cargar)",
+      /Extraer todo/.test(t) && /Modo de desarrollador/.test(t) && /Cargar descomprimida/.test(t));
+    check("el .bat queda como alternativa CON la advertencia dicha de antemano",
+      (await page.locator('a[href="/instalar-unify.bat"]').count()) === 1 &&
+      /avisos de seguridad/i.test(t) && /Bloc de notas/.test(t));
+    check("NO muestra los pasos de Mac", !/Terminal \(/.test(t) && !/Agregar al Dock/.test(t));
     check("muestra el enlace para compartir con ?bajar=1", /instalar\?bajar=1/.test(t));
 
     // El enlace mágico, en una página virgen: es el caso real (a quien le
@@ -108,20 +115,37 @@ const UA = {
     await page2.goto(`${B}/instalar?bajar=1`, { waitUntil: "domcontentloaded" });
     await page2.bringToFront();
     const descarga = await Promise.race([dl, new Promise((r) => setTimeout(() => r(null), 15_000))]);
-    check("abrir /instalar?bajar=1 en Windows descarga el INSTALADOR solo",
-      Boolean(descarga) && descarga.suggestedFilename() === "instalar-unify.bat",
+    check("abrir /instalar?bajar=1 en Windows descarga el ZIP solo (nunca más el .bat)",
+      Boolean(descarga) && descarga.suggestedFilename() === "unify-extension.zip",
       descarga?.suggestedFilename() ?? "no hubo descarga");
     await page2.waitForTimeout(600);
     check("y la página avisa que la descarga ya arrancó", /descarga.*arrancó sola/i.test(await texto(page2)));
     await page2.close();
 
-    // En el camino manual, chrome://extensions es un botón que copia al
-    // tocarlo (Chrome no deja que una página navegue ahí).
+    // chrome://extensions es un botón que copia al tocarlo (Chrome no deja
+    // que una página navegue ahí).
     await page.bringToFront();
     await page.locator("button", { hasText: "chrome://extensions" }).first().click();
     await page.waitForTimeout(400);
     const porta = await page.evaluate(() => navigator.clipboard.readText()).catch(() => "");
     check("tocar chrome://extensions lo deja en el portapapeles", porta === "chrome://extensions", porta);
+    await ctx.close();
+  }
+
+  // ═══════ 3b. EDGE en Windows: sus URLs y sus pasos, no los de Chrome ═══════
+  console.log("\n── 3b. Como Edge en Windows ──");
+  {
+    const { ctx, page } = await abrir(UA.edge, `${B}/instalar`, ["clipboard-read", "clipboard-write"]);
+    const t = await texto(page);
+    check("detecta Edge y lo dice", /estás en Edge/.test(t));
+    check("con el Modo de desarrollador donde Edge lo tiene (a la izquierda)",
+      /panel de la izquierda/.test(t));
+    check("NO ofrece chrome://extensions a alguien de Edge",
+      (await page.locator("button", { hasText: "chrome://extensions" }).count()) === 0);
+    await page.locator("button", { hasText: "edge://extensions" }).first().click();
+    await page.waitForTimeout(400);
+    const porta = await page.evaluate(() => navigator.clipboard.readText()).catch(() => "");
+    check("tocar edge://extensions lo deja en el portapapeles", porta === "edge://extensions", porta);
     await ctx.close();
   }
 
