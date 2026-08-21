@@ -269,6 +269,9 @@ const UA = {
   {
     const { ctx, page } = await abrir(UA.windows, `${B}/`);
     check("la página de inicio enlaza /instalar", (await page.locator('a[href="/instalar"]').count()) >= 1);
+    check("y tiene el botón de soporte abajo (pie de página)",
+      (await page.locator('footer a[href="/soporte"]').count()) === 1 &&
+      /Centro de ayuda y contacto/.test(await texto(page)));
     await page.goto(`${B}/privacidad`, { waitUntil: "networkidle" });
     const priv = await texto(page);
     check("/privacidad existe (la exige la Web Store)", /Qué guardamos/.test(priv) && /Anthropic/.test(priv));
@@ -278,6 +281,9 @@ const UA = {
     const sop = await texto(page);
     check("/soporte existe (la URL de asistencia de la ficha)",
       /Ayuda de Unify/.test(sop) && /Cómo instalo/.test(sop) && /hola@unify-meet\.com/.test(sop));
+    check("con el teléfono de contacto y su enlace de WhatsApp",
+      /11 3025-4522/.test(sop) &&
+      (await page.locator('a[href="https://wa.me/5491130254522"]').count()) === 1);
     check("y es honesto con el límite real (la app de escritorio de Zoom)",
       /extensión de navegador no puede/.test(sop));
     await ctx.close();

@@ -111,11 +111,25 @@ export default function Soporte() {
           <section>
             <h2 className="text-base font-semibold text-strong">Contacto</h2>
             <p className="mt-1.5">
-              ¿Otra cosa? Escribinos a{" "}
-              <a href="mailto:hola@unify-meet.com" className="text-brand-300 underline">
-                hola@unify-meet.com
-              </a>{" "}
-              contando qué pasó y en qué plataforma (Meet, Zoom, etc.). Qué guardamos y qué no:{" "}
+              ¿Otra cosa? Escribinos contando qué pasó y en qué plataforma (Meet, Zoom, etc.):
+            </p>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              <li>
+                <span className="font-medium text-strong">WhatsApp o llamada:</span>{" "}
+                <a href="https://wa.me/5491130254522" className="text-brand-300 underline" target="_blank" rel="noreferrer">
+                  11 3025-4522
+                </a>{" "}
+                (Argentina)
+              </li>
+              <li>
+                <span className="font-medium text-strong">Correo:</span>{" "}
+                <a href="mailto:hola@unify-meet.com" className="text-brand-300 underline">
+                  hola@unify-meet.com
+                </a>
+              </li>
+            </ul>
+            <p className="mt-2">
+              Qué guardamos y qué no:{" "}
               <Link to="/privacidad" className="text-brand-300 underline">
                 política de privacidad
               </Link>

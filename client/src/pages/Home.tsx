@@ -149,6 +149,19 @@ export default function Home() {
           </ul>
         </div>
       </main>
+
+      {/* Pie con la puerta de entrada al soporte: visible sin buscarla. */}
+      <footer className="relative mt-auto border-t border-ink-800 px-5 py-8 text-center">
+        <p className="text-sm text-ink-300">¿Algo no te funcionó o tenés una duda?</p>
+        <Link to="/soporte" className="mt-3 inline-block">
+          <Button variant="secondary">Centro de ayuda y contacto</Button>
+        </Link>
+        <p className="mt-4 text-xs text-ink-500">
+          <Link to="/privacidad" className="underline hover:text-ink-300">
+            Política de privacidad
+          </Link>
+        </p>
+      </footer>
     </div>
   );
 }
