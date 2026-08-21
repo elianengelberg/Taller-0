@@ -11,6 +11,31 @@
 (() => {
   const KEY = "encuentro_token";
 
+  // --- "Estoy acá" -----------------------------------------------------------
+  //
+  // La web no puede ver las otras pestañas (ninguna web puede), así que no
+  // sabe si estás entrando a una reunión: eso lo hace la extensión. Pero SÍ
+  // puede saber si la extensión está instalada EN ESTE navegador, y decirlo.
+  //
+  // Sin esto, quien la instaló en un navegador y abre las reuniones en otro
+  // ve la app abierta, no le aparece ningún aviso y concluye que Unify no
+  // funciona. El content script y la página comparten el DOM (aunque no las
+  // variables), así que una marca en <html> alcanza para que la web lo lea.
+  function anunciarse() {
+    try {
+      const v = chrome.runtime.getManifest().version;
+      document.documentElement.dataset.unifyExtension = v;
+      window.dispatchEvent(new CustomEvent("unify:extension", { detail: { version: v } }));
+    } catch {
+      /* extensión recargándose: se reintenta abajo */
+    }
+  }
+  anunciarse();
+  // La página puede montarse después que el content script; se repite un par
+  // de veces para que la marca no llegue antes que el React que la lee.
+  setTimeout(anunciarse, 400);
+  setTimeout(anunciarse, 1500);
+
   function push() {
     let token = null;
     try {

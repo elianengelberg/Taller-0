@@ -517,6 +517,30 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     await popup.close();
   }
 
+  // ═══════ 8b. La extensión se anuncia en la web de Unify ═══════
+  //
+  // El contrato entre las dos piezas: el content script marca <html> y la web
+  // lee esa marca para poder decir "la extensión está instalada en ESTE
+  // navegador". Se prueba con la extensión REAL sobre el build REAL, porque
+  // si el contrato se rompe, la página mentiría con total seguridad.
+  console.log("\n── 8b. La extensión se anuncia en la web ──");
+  {
+    const web = await ctx.newPage();
+    await web.goto("http://localhost:4174/instalar", { waitUntil: "domcontentloaded" });
+    await web.waitForTimeout(3000);
+    const marca = await web.evaluate(() => document.documentElement.dataset.unifyExtension ?? null);
+    const manifiesto = JSON.parse(
+      require("fs").readFileSync(path.resolve(__dirname, "../extension/manifest.json"), "utf8")
+    );
+    check("la extensión deja su versión en la página de Unify",
+      marca === manifiesto.version, `marca=${marca} manifest=${manifiesto.version}`);
+    const texto = await web.evaluate(() => document.body.innerText);
+    check("y la web lo muestra como “está instalada en este navegador”",
+      /está instalada en este navegador/i.test(texto) && texto.includes(manifiesto.version),
+      texto.slice(0, 90).replace(/\n/g, " "));
+    await web.close();
+  }
+
   // ═══════ 9. Sobrevivir a la actualización de la extensión ═══════
   console.log("\n── 9. Cuando la extensión se actualiza sola ──");
   {

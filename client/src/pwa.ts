@@ -41,6 +41,32 @@ export async function promptInstall(): Promise<boolean> {
   return outcome === "accepted";
 }
 
+/**
+ * ¿Está la extensión de Unify instalada EN ESTE navegador?
+ *
+ * Devuelve su versión, o null. La marca la deja el content script de la
+ * extensión en <html> (ver extension/auth-sync.js): página y content script
+ * no comparten variables, pero sí el DOM.
+ *
+ * Por qué existe: una web no puede ver las otras pestañas, así que la app no
+ * se entera de que entraste a una reunión -- eso lo hace la extensión. Pero
+ * puede decirte si la extensión está acá, que es justo lo que le falta saber
+ * a quien la instaló en un navegador y abre las reuniones en otro.
+ */
+export function extensionInstalada(): string | null {
+  return document.documentElement.dataset.unifyExtension ?? null;
+}
+
+/** Avisa cuando la extensión se anuncia (puede llegar después del render). */
+export function onExtensionDetectada(cb: (version: string) => void): () => void {
+  const handler = (e: Event) => {
+    const v = (e as CustomEvent<{ version: string }>).detail?.version;
+    if (v) cb(v);
+  };
+  window.addEventListener("unify:extension", handler);
+  return () => window.removeEventListener("unify:extension", handler);
+}
+
 export function isStandalone(): boolean {
   return (
     window.matchMedia?.("(display-mode: standalone)").matches ||

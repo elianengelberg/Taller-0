@@ -3,7 +3,13 @@ import { Link, useSearchParams } from "react-router-dom";
 import Button from "../components/Button";
 import GradientBackdrop from "../components/GradientBackdrop";
 import Logo from "../components/Logo";
-import { canPromptInstall, isStandalone, promptInstall } from "../pwa";
+import {
+  canPromptInstall,
+  extensionInstalada,
+  isStandalone,
+  onExtensionDetectada,
+  promptInstall,
+} from "../pwa";
 import { cardClass } from "../lib/ui";
 
 // El centro de instalación: TODO Unify se instala desde esta página, y la
@@ -57,6 +63,21 @@ export default function Instalar() {
   const plataforma = detectarPlataforma();
   const esApple = plataforma === "mac" || plataforma === "ios";
   const movil = plataforma === "ios" || plataforma === "android";
+
+  // ¿La extensión está en ESTE navegador? Es la pregunta que más confunde:
+  // se instala en Edge, se abren las reuniones en Chrome, no aparece ningún
+  // aviso y parece que Unify no funciona. Acá se responde sin adivinar.
+  const [extVersion, setExtVersion] = useState<string | null>(extensionInstalada());
+  useEffect(() => {
+    const soltar = onExtensionDetectada(setExtVersion);
+    // El content script se anuncia al cargar la página; si esta pantalla se
+    // montó antes, la marca ya podría estar puesta.
+    const t = setTimeout(() => setExtVersion(extensionInstalada()), 1200);
+    return () => {
+      soltar();
+      clearTimeout(t);
+    };
+  }, []);
 
   useEffect(() => {
     const onInstalable = () => setInstalable(true);
@@ -140,7 +161,46 @@ export default function Instalar() {
           </p>
         )}
 
+        {/* ── El estado de la extensión, arriba de todo ──────────────
+            Es lo primero que hay que saber: sin extensión en ESTE navegador
+            no hay avisos al entrar a una reunión, por más que la app esté
+            abierta (ninguna web puede ver las otras pestañas). */}
+        {!movil && (
+          <section
+            className={`mt-6 rounded-2xl border px-5 py-4 ${
+              extVersion
+                ? "border-emerald-500/40 bg-emerald-500/10"
+                : "border-amber-500/40 bg-amber-500/10"
+            }`}
+          >
+            {extVersion ? (
+              <>
+                <p className="text-sm font-semibold text-emerald-300">
+                  ✓ La extensión está instalada en este navegador (versión {extVersion})
+                </p>
+                <p className="mt-1 text-sm leading-relaxed text-ink-200">
+                  Entrá a cualquier reunión y Unify te va a avisar solo. No hace falta que tengas la
+                  app abierta.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-semibold text-amber-300">
+                  ⚠ La extensión NO está instalada en este navegador
+                </p>
+                <p className="mt-1 text-sm leading-relaxed text-ink-200">
+                  Por eso no aparece ningún aviso al entrar a una reunión. Ojo: se instala{" "}
+                  <span className="font-semibold text-strong">en cada navegador por separado</span> — si
+                  la pusiste en Edge y abrís las reuniones en Chrome, hay que instalarla también acá.
+                  Los pasos están abajo.
+                </p>
+              </>
+            )}
+          </section>
+        )}
+
         {/* ── 1. La app ─────────────────────────────────────────────── */}
+        {!instalada && (
         <section className={`${cardClass} mt-6`}>
           <h2 className="text-lg font-semibold text-strong">1 · La app de Unify</h2>
           <p className="mt-1 text-sm leading-relaxed text-ink-300">
@@ -149,11 +209,7 @@ export default function Instalar() {
             {esApple && plataforma === "ios" && ", en tu pantalla de inicio"}.
           </p>
 
-          {instalada ? (
-            <p className="mt-4 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
-              Ya estás usando Unify instalada como app. Nada más que hacer acá.
-            </p>
-          ) : instalable ? (
+          {instalable ? (
             <Button className="mt-4 w-full sm:w-auto" onClick={handleInstalar}>
               Instalar Unify en este dispositivo
             </Button>
@@ -223,10 +279,14 @@ export default function Instalar() {
               mensaje tiene que sobrevivirlo. */}
           {estado && !instalada && <p className="mt-3 text-sm text-emerald-300">{estado}</p>}
         </section>
+        )}
 
         {/* ── 2. La extensión ───────────────────────────────────────── */}
         <section className={`${cardClass} mt-6`}>
-          <h2 className="text-lg font-semibold text-strong">2 · La extensión para Chrome</h2>
+          {/* Sin la sección de la app (ya instalada), numerar "2" sobraría. */}
+          <h2 className="text-lg font-semibold text-strong">
+            {instalada ? "La extensión para tu navegador" : "2 · La extensión para Chrome"}
+          </h2>
 
           {movil ? (
             <div className="mt-2 text-sm leading-relaxed text-ink-300">

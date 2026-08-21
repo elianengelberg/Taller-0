@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Unify — asistente de reuniones",
-  "version": "4.2.0",
+  "version": "4.2.1",
   "description": "Detecta tu reunión de Zoom, Meet, Teams, Jitsi, Webex y más; la graba, transcribe y traduce con Unify — subtítulos en vivo e IA.",
   "permissions": [
     "activeTab",

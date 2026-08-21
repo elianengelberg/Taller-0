@@ -7,6 +7,7 @@ import Logo from "../components/Logo";
 import { CaptionsIcon, GlobeIcon, PeopleIcon, SparklesIcon } from "../components/icons";
 import { useAuth } from "../context/AuthContext";
 import { getUnsavedMeeting } from "../lib/unsavedMeeting";
+import { isStandalone } from "../pwa";
 import { cardClass } from "../lib/ui";
 
 export default function Home() {
@@ -25,12 +26,18 @@ export default function Home() {
       <header className="relative flex items-center justify-between gap-3 px-5 py-5 sm:px-10 sm:py-6">
         <Logo />
         <div className="flex items-center gap-4 sm:gap-6">
-          <Link
-            to="/instalar"
-            className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-strong"
-          >
-            Instalar
-          </Link>
+          {/* Ya usando la app instalada, "Instalar" no tiene sentido: ese
+              enlace es para quien entra por la web. (La página sigue estando
+              en /instalar, enlazada desde el pie, porque la EXTENSIÓN se
+              instala aparte y desde ahí se ve si está.) */}
+          {!isStandalone() && (
+            <Link
+              to="/instalar"
+              className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-strong"
+            >
+              Instalar
+            </Link>
+          )}
           <Link
             to="/historial"
             className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-strong"

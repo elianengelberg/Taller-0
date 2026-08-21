@@ -137,6 +137,35 @@ const UA = {
     await ctx.close();
   }
 
+  // ═══════ 3a. ¿La extensión está en ESTE navegador? ═══════
+  //
+  // La confusión más cara del producto: se instala en un navegador, se abren
+  // las reuniones en otro, no aparece ningún aviso y parece que Unify está
+  // roto. La página tiene que responderlo sin que nadie adivine.
+  console.log("\n── 3a. El estado de la extensión ──");
+  {
+    const { ctx, page } = await abrir(UA.windows, `${B}/instalar`);
+    const t = await texto(page);
+    check("sin la extensión, la página lo DICE (no se queda callada)",
+      /NO está instalada en este navegador/i.test(t));
+    check("y explica el enredo de los dos navegadores",
+      /en cada navegador por separado/i.test(t));
+
+    // Con la extensión: el content script marca <html>. Se simula la MISMA
+    // marca que deja auth-sync.js, que es el contrato entre las dos piezas.
+    await page.evaluate(() => {
+      document.documentElement.dataset.unifyExtension = "9.9.9";
+      window.dispatchEvent(new CustomEvent("unify:extension", { detail: { version: "9.9.9" } }));
+    });
+    await page.waitForTimeout(600);
+    const t2 = await texto(page);
+    check("con la extensión presente, lo confirma y muestra la versión",
+      /está instalada en este navegador/i.test(t2) && /9\.9\.9/.test(t2));
+    check("y aclara que no hace falta tener la app abierta",
+      /No hace falta que tengas la app abierta/i.test(t2));
+    await ctx.close();
+  }
+
   // ═══════ 3b. EDGE en Windows: sus URLs y sus pasos, no los de Chrome ═══════
   console.log("\n── 3b. Como Edge en Windows ──");
   {
@@ -267,6 +296,40 @@ const UA = {
     const html = await (await fetch(`${B}/`)).text();
     check("y la página lo declara junto a los metas de Apple",
       html.includes('rel="apple-touch-icon"') && html.includes("apple-mobile-web-app-capable"));
+  }
+
+  // ═══════ 7b. Usando la APP instalada: sin opción de instalar ═══════
+  //
+  // Adentro de la app instalada, ofrecer "instalar la app" es ruido: ya está
+  // instalada. Se simula el modo standalone como lo ve el navegador
+  // (display-mode: standalone), que es lo que mira isStandalone().
+  console.log("\n── 7b. Ya usando la app instalada ──");
+  {
+    const ctx = await browser.newContext({ userAgent: UA.windows });
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => errs.push(e.message.slice(0, 140)));
+    // matchMedia("(display-mode: standalone)") es lo único que distingue a la
+    // app instalada de la web: se fuerza antes de que cargue el bundle.
+    await page.addInitScript(() => {
+      const real = window.matchMedia.bind(window);
+      window.matchMedia = (q) =>
+        q.includes("display-mode: standalone")
+          ? { matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false }
+          : real(q);
+    });
+
+    await page.goto(`${B}/`, { waitUntil: "networkidle" });
+    check("en la app instalada, el inicio ya no ofrece “Instalar”",
+      (await page.locator('header a[href="/instalar"]').count()) === 0);
+
+    await page.goto(`${B}/instalar`, { waitUntil: "networkidle" });
+    await page.waitForTimeout(600);
+    const t = await texto(page);
+    check("y la página de instalación esconde la sección de la app",
+      !/1 · La app de Unify/.test(t) && !/Instalar Unify en este dispositivo/.test(t));
+    check("pero sigue mostrando la extensión, que se instala aparte",
+      /La extensión para tu navegador/.test(t));
+    await ctx.close();
   }
 
   // ═══════ 8. Privacidad + enlace desde el inicio ═══════
