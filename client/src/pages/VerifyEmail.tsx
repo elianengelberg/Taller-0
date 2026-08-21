@@ -114,10 +114,14 @@ export default function VerifyEmail() {
     setDigitos(siguientes);
     const proximo = Math.min(indice + limpio.length, LARGO - 1);
     casillas.current[proximo]?.focus();
-    const completo = siguientes.join("");
     // Con los 6 dígitos puestos, se envía solo: pedir además un clic en un
     // botón es un paso que nadie entiende para qué está.
-    if (completo.length === LARGO && !completo.includes("")) void enviarCodigo(completo);
+    //
+    // El "está completo" se pregunta sobre el ARREGLO, no sobre el texto
+    // unido: `"482913".includes("")` es SIEMPRE true (todo texto contiene la
+    // cadena vacía), así que la versión anterior nunca enviaba nada y había
+    // que adivinar que faltaba algo. Lo encontró sim_botones.js.
+    if (siguientes.every((d) => d !== "")) void enviarCodigo(siguientes.join(""));
   }
 
   function teclas(indice: number, e: React.KeyboardEvent<HTMLInputElement>) {

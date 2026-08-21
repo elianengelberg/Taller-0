@@ -934,6 +934,21 @@ app.post("/api/auth/password-reset/confirm", authRateLimit, async (req, res) => 
   res.json({ ok: true, token: signToken(claim.userId, version), user });
 });
 
+// Señal de vida del proceso. Sirve para dos cosas concretas:
+//
+//  - En producción, para que el monitoreo (Render, un pinger externo) sepa si
+//    el servidor está arriba SIN tocar la base de datos ni una cuenta.
+//  - Para poder afirmar que el proceso NO se reinició: `startedAt` es el
+//    instante en que arrancó, así que si cambia, hubo caída. (Las pruebas lo
+//    usan para eso; antes miraban el PID con pgrep y terminaban midiendo
+//    procesos del propio banco de pruebas en vez del servidor.)
+//
+// No dice nada sensible: ni versiones, ni rutas, ni configuración.
+const ARRANCO_EN = new Date().toISOString();
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true, startedAt: ARRANCO_EN, uptimeSec: Math.round(process.uptime()) });
+});
+
 // Lets the client show/hide "Continuar con Google" without guessing --
 // enabled only once the server has real Google OAuth credentials configured.
 app.get("/api/auth/config", (_req, res) => {

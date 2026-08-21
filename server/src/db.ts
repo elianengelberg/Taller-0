@@ -23,8 +23,29 @@ const pool = DATABASE_URL
   ? new Pool({
       connectionString: DATABASE_URL,
       ssl: sslConfig,
+      // Sin techo, una ráfaga de pedidos abre conexiones hasta que Postgres
+      // las rechaza (Render y Neon cortan bastante abajo). 10 es el default
+      // de la librería y alcanza de sobra para este servidor; explicitarlo
+      // deja claro que es una decisión, no un olvido.
+      max: 10,
+      // Sin esto, con la base caída una consulta espera PARA SIEMPRE: el
+      // pedido HTTP queda colgado, el navegador muestra una ruedita eterna y
+      // nadie se entera de qué pasó. Mejor fallar en 10 segundos y decirlo.
+      connectionTimeoutMillis: 10_000,
+      idleTimeoutMillis: 30_000,
     })
   : null;
+
+// SIN ESTO EL SERVIDOR SE MUERE. El pool emite "error" cuando una conexión
+// OCIOSA se cae sola: la base se reinicia, hay mantenimiento en Render, se
+// corta la red un segundo. Un EventEmitter sin oyente para "error" lanza la
+// excepción al proceso, y arriba (index.ts) uncaughtException hace exit(1):
+// una hipo de la base de datos terminaba tumbando el servidor entero y
+// cortando TODAS las reuniones en vivo. El pool sabe reponer la conexión
+// solo; lo único que hacía falta era escuchar y no morirse.
+pool?.on("error", (err) => {
+  console.error("[db] conexión ociosa caída (el pool la repone):", err.message);
+});
 
 let migration: Promise<void> | null = null;
 
@@ -202,13 +223,24 @@ function migrate(): Promise<void> {
       .then(() => undefined)
       .catch((err) => {
         console.error("No se pudo preparar la base de datos:", err.message);
+        // Y SE VUELVE A INTENTAR. Antes esto sólo se registraba, y como el
+        // resultado quedaba cacheado en `migration`, un tropiezo de diez
+        // segundos al arrancar (la base todavía despertando en Render) dejaba
+        // al servidor hablándole PARA SIEMPRE a una base sin tablas: cada
+        // consulta fallaba, safe() devolvía el valor por defecto y la app
+        // parecía viva mientras no guardaba nada. Nadie se enteraba hasta que
+        // alguien miraba su historial vacío. Soltando la promesa, la próxima
+        // consulta reintenta y el servidor se cura solo cuando la base vuelve.
+        migration = null;
       });
   }
   return migration;
 }
 
 if (pool) {
-  migrate();
+  // El arranque en frío no puede tumbar el proceso: si la base todavía no
+  // está, migrate() ya se reintenta solo en la próxima consulta.
+  void migrate();
 }
 
 export interface PersistedUser {

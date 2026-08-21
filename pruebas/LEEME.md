@@ -30,6 +30,8 @@ cd server && DATABASE_URL="postgres://postgres@localhost:5433/unify" \
 ```bash
 node pruebas/sim_puente_salas.js        # bridge por clave de sala (server)
 node pruebas/sim_codigo.js              # el código de 6 dígitos, atacado (server + MAIL_LOG)
+node pruebas/sim_basecaida.js           # apaga Postgres de verdad: el servidor no debe morir
+node pruebas/sim_botones.js             # botones y pantallas, tocados en navegador real
 node pruebas/sim_pwa.js                 # PWA: manifest, SW, share, offline
 xvfb-run -a node pruebas/sim_instalar.js  # centro de instalación + ZIP + Apple
 xvfb-run -a node pruebas/sim_toast.js     # extensión real: toast/overlay/grabación

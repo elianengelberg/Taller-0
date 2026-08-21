@@ -35,6 +35,40 @@
     try { return decodeURIComponent(value); } catch { return value; }
   }
 
+  // --- Sobrevivir a una actualización de la extensión ------------------------
+  //
+  // Cuando la extensión se actualiza (ahora se actualiza sola), Chrome deja
+  // HUÉRFANO al content script de cada pestaña ya abierta: sigue corriendo,
+  // pero su puente con la extensión está muerto. Y ahí hay una trampa fea:
+  // chrome.runtime.sendMessage LANZA EL ERROR DE FORMA SÍNCRONA
+  // ("Extension context invalidated"), así que un .catch() no lo atrapa --
+  // el error sube, corta la función a la mitad y el aviso de la reunión no
+  // vuelve a aparecer NUNCA en esa pestaña. Con la auto-actualización recién
+  // estrenada, eso pasaría en todas las reuniones abiertas.
+  //
+  // `chrome.runtime.id` es undefined exactamente en ese estado: sirve para
+  // detectarlo, apagar la UI con prolijidad y dejar de intentar.
+  let contextoVivo = true;
+  function extensionViva() {
+    if (!contextoVivo) return false;
+    try {
+      if (chrome.runtime?.id) return true;
+    } catch { /* acceder también puede tirar */ }
+    contextoVivo = false;
+    return false;
+  }
+
+  /** Llama a la API de la extensión sin que un contexto muerto rompa nada. */
+  function seguro(fn, siFalla) {
+    if (!extensionViva()) return siFalla;
+    try {
+      return fn();
+    } catch {
+      contextoVivo = false; // la próxima ni se intenta
+      return siFalla;
+    }
+  }
+
   // ArrayBuffer -> base64 por tramos: String.fromCharCode(...todo) revienta la
   // pila con chunks de más de ~100 KB.
   function aBase64(buf) {
@@ -484,7 +518,7 @@
     idioma.addEventListener("change", () => {
       cfg.lang = idioma.value;
       traducciones.clear(); // re-traducir lo visible al idioma nuevo
-      try { chrome.storage.local.set({ lang: cfg.lang }); } catch { /* sin permiso */ }
+      seguro(() => chrome.storage.local.set({ lang: cfg.lang }));
     });
 
     const subs = document.createElement("div");
@@ -598,7 +632,7 @@
         parar.textContent = "Cerrar";
         return;
       }
-      chrome.runtime.sendMessage({ kind: "unify-record-stop" }).catch(() => {});
+      seguro(() => chrome.runtime.sendMessage({ kind: "unify-record-stop" }).catch(() => {}));
       quitarUI();
     });
 
@@ -720,22 +754,26 @@
     const dos = String(navigator.language || "").slice(0, 2).toLowerCase();
     return IDIOMAS.includes(dos) ? dos : "";
   }
-  chrome.storage?.local?.get(["serverBase", "appBase", "token", "lang"], (v) => {
-    if (v?.serverBase?.startsWith?.("http")) cfg.serverBase = v.serverBase.replace(/\/+$/, "");
-    if (v?.appBase?.startsWith?.("http")) cfg.appBase = v.appBase.replace(/\/+$/, "");
-    cfg.token = v?.token ?? null;
-    cfg.lang = typeof v?.lang === "string" ? v.lang : idiomaDelNavegador();
-  });
+  seguro(() =>
+    chrome.storage?.local?.get(["serverBase", "appBase", "token", "lang"], (v) => {
+      if (v?.serverBase?.startsWith?.("http")) cfg.serverBase = v.serverBase.replace(/\/+$/, "");
+      if (v?.appBase?.startsWith?.("http")) cfg.appBase = v.appBase.replace(/\/+$/, "");
+      cfg.token = v?.token ?? null;
+      cfg.lang = typeof v?.lang === "string" ? v.lang : idiomaDelNavegador();
+    })
+  );
   // La config puede cambiar con el overlay ya abierto (la persona inicia
   // sesión en Unify en otra pestaña y auth-sync guarda el token): tomarla en
   // vivo, sin exigir recargar la reunión.
+  seguro(() =>
   chrome.storage?.onChanged?.addListener((c, area) => {
     if (area !== "local") return;
     if (c.token) cfg.token = c.token.newValue ?? null;
     if (c.lang) { cfg.lang = c.lang.newValue ?? ""; traducciones.clear(); }
     if (c.serverBase?.newValue?.startsWith?.("http")) cfg.serverBase = c.serverBase.newValue.replace(/\/+$/, "");
     if (c.appBase?.newValue?.startsWith?.("http")) cfg.appBase = c.appBase.newValue.replace(/\/+$/, "");
-  });
+  })
+  );
 
   let ultimaUrl = "";
   function tick() {
@@ -754,13 +792,32 @@
     actual = det;
     // Registrar la sala en el background: si la persona aprieta Ctrl+Shift+U
     // (carril A), ya sabe qué capturar sin volver a preguntar nada.
-    chrome.runtime
-      .sendMessage({ kind: "unify-external-info", ...det, url: location.href })
-      .catch(() => {});
+    seguro(() =>
+      chrome.runtime
+        .sendMessage({ kind: "unify-external-info", ...det, url: location.href })
+        .catch(() => {})
+    );
     let silenciada = false;
     try { silenciada = Boolean(sessionStorage.getItem(`unify-no:${det.roomKey}`)); } catch { /* sin storage */ }
     if (!silenciada && !recorder) mostrarToast(det);
   }
   tick();
-  setInterval(tick, 1500);
+  const vigilante = setInterval(() => {
+    // Con la extensión actualizada (o recargada), este script es un fantasma:
+    // no puede hablar con el background ni subir nada. Se apaga con prolijidad
+    // en vez de seguir latiendo para siempre. La pestaña recién cargada -- o
+    // esta misma al recargarla -- ya trae la versión nueva funcionando.
+    if (!extensionViva()) {
+      clearInterval(vigilante);
+      if (recorder && recorder.state !== "inactive") {
+        // Había una grabación en curso: se cierra para que lo capturado hasta
+        // acá se guarde por el camino de siempre (el background sube lo que
+        // ya recibió), en lugar de perderse entero.
+        try { recorder.stop(); } catch { /* ya estaba muerto */ }
+      }
+      notaEnOverlay("Unify se actualizó. Recargá esta pestaña para seguir con la versión nueva.", "aviso");
+      return;
+    }
+    tick();
+  }, 1500);
 })();

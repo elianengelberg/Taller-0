@@ -498,6 +498,52 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     await popup.close();
   }
 
+  // ═══════ 9. Sobrevivir a la actualización de la extensión ═══════
+  console.log("\n── 9. Cuando la extensión se actualiza sola ──");
+  {
+    // Es el caso que la auto-actualización volvió cotidiano: la extensión se
+    // recarga y el content script de cada pestaña abierta queda huérfano. Ahí
+    // chrome.runtime.sendMessage TIRA de forma síncrona, y sin protección el
+    // aviso de reunión no volvía a aparecer nunca más en esa pestaña.
+    // Se deja el overlay ABIERTO (auto-SÍ a los 5 s): es el estado en el que
+    // una actualización realmente encuentra a la gente, en plena reunión.
+    await page.goto("https://meet.jit.si/SalaAntesDeActualizar", { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(8000);
+    check("antes de actualizar, el overlay está trabajando",
+      /Subtítulos de Unify activos/i.test(await page.locator(".rec").textContent().catch(() => "")));
+
+    // Recargar la extensión es exactamente lo que hace una actualización.
+    await ctx.serviceWorkers()[0].evaluate(() => chrome.runtime.reload());
+    await page.waitForTimeout(4000);
+
+    // Hay que NAVEGAR para que el bug aparezca: tick() sale temprano si la
+    // URL no cambió, y recién al cambiar llega a chrome.runtime.sendMessage
+    // -- que en un contexto muerto tira de forma SÍNCRONA. Sin este paso, la
+    // prueba pasaba por el motivo equivocado (nunca ejecutaba la línea
+    // peligrosa), que es la clase de PASS que no vale nada.
+    const antesDeNavegar = errs.length;
+    await page.evaluate(() => history.pushState({}, "", "/OtraSalaTrasActualizar"));
+    await page.waitForTimeout(3000);
+
+    // ESTO es lo que se está probando: el content script huérfano no explota
+    // y además avisa qué hacer, en vez de quedarse mudo para siempre.
+    check("la pestaña huérfana NO tira el error de contexto invalidado (aun navegando)",
+      errs.length === antesDeNavegar,
+      errs.slice(antesDeNavegar, antesDeNavegar + 1).join(" | ") || "sin errores nuevos");
+    const aviso9 = await page.locator(".aviso").textContent().catch(() => "");
+    check("y le dice a la persona que recargue para seguir con la versión nueva",
+      /se actualizó/i.test(aviso9) && /recarg/i.test(aviso9), aviso9.slice(0, 70));
+
+    // Lo que NO se puede probar acá, dicho de frente: en este arnés
+    // (Playwright + extensión descomprimida) chrome.runtime.reload() deja el
+    // navegador SIN la extensión -- ctx.serviceWorkers() queda vacío y no se
+    // reinyecta en ninguna pestaña. Chrome real la reinstala en el acto, así
+    // que "la pestaña nueva anda con la versión nueva" es cierto pero no
+    // demostrable desde este banco de pruebas: se imprime SKIP, no un PASS
+    // regalado.
+    console.log("SKIP tras la actualización, una pestaña nueva funciona sola — el arnés no reinstala la extensión (Chrome real sí)");
+  }
+
   check("ninguna página tiró errores de JavaScript", errs.length === 0, errs.slice(0, 2).join(" | "));
 
   await ctx.close();
