@@ -68,6 +68,10 @@ export default function Instalar() {
   // se instala en Edge, se abren las reuniones en Chrome, no aparece ningún
   // aviso y parece que Unify no funciona. Acá se responde sin adivinar.
   const [extVersion, setExtVersion] = useState<string | null>(extensionInstalada());
+  // Se acaba de instalar la app y sigue la extensión: para resaltar ese paso
+  // y llevar la vista hasta él, en vez de dejar a la persona buscándolo.
+  const [siguientePaso, setSiguientePaso] = useState(false);
+  const seccionExt = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const soltar = onExtensionDetectada(setExtVersion);
     // El content script se anuncia al cargar la página; si esta pantalla se
@@ -116,12 +120,44 @@ export default function Instalar() {
     a.remove();
   }, [bajarSolo, movil, plataforma]);
 
+  // Instalar la app ENCADENA el paso de la extensión.
+  //
+  // "Que al instalar la app se instale también la extensión" no se puede
+  // hacer literalmente: desde 2018 ninguna página puede instalar una
+  // extensión por vos -- Chrome lo prohíbe para que ningún sitio te meta
+  // código en el navegador sin tu permiso. Lo más cerca que se puede llegar,
+  // y lo que hace esto, es que los dos pasos ocurran seguidos sin que tengas
+  // que buscar nada: aceptás la app y aparece la extensión lista para sumar,
+  // con la descarga ya empezada (o la tienda abierta, cuando esté publicada).
   async function handleInstalar() {
     setEstado(null);
     const ok = await promptInstall();
     setInstalable(canPromptInstall());
-    if (ok) setEstado("¡Listo! Unify quedó instalada: buscala con las apps de tu dispositivo.");
-    else setEstado("No hay problema — podés instalarla cuando quieras desde esta página.");
+    if (!ok) {
+      setEstado("No hay problema — podés instalarla cuando quieras desde esta página.");
+      return;
+    }
+    setEstado("¡Listo! Unify quedó instalada. Ahora, el segundo paso: la extensión.");
+    if (movil || extVersion) return; // en el teléfono no hay extensiones; si ya está, nada que hacer
+    setSiguientePaso(true);
+    if (CHROME_WEB_STORE_URL) {
+      // Mismo gesto de la persona: el navegador suele permitir la pestaña.
+      window.open(CHROME_WEB_STORE_URL, "_blank", "noopener");
+    } else {
+      bajarExtension();
+    }
+    // La extensión queda a la vista, no hay que ir a buscarla más abajo.
+    setTimeout(() => seccionExt.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
+  }
+
+  /** Arranca la descarga del ZIP (el mismo archivo que sirve /instalar?bajar=1). */
+  function bajarExtension() {
+    const a = document.createElement("a");
+    a.href = "/unify-extension.zip";
+    a.download = "unify-extension.zip";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }
 
   async function copiar(texto: string, etiqueta: string) {
@@ -282,7 +318,17 @@ export default function Instalar() {
         )}
 
         {/* ── 2. La extensión ───────────────────────────────────────── */}
-        <section className={`${cardClass} mt-6`}>
+        <section
+          ref={seccionExt}
+          className={`${cardClass} mt-6 ${
+            siguientePaso ? "border-brand-500/60 ring-1 ring-brand-500/40" : ""
+          }`}
+        >
+          {siguientePaso && (
+            <p className="mb-3 text-sm font-semibold text-brand-200">
+              Paso 2 de 2 — la descarga ya arrancó, seguí acá abajo
+            </p>
+          )}
           {/* Sin la sección de la app (ya instalada), numerar "2" sobraría. */}
           <h2 className="text-lg font-semibold text-strong">
             {instalada ? "La extensión para tu navegador" : "2 · La extensión para Chrome"}
@@ -291,11 +337,53 @@ export default function Instalar() {
           {movil ? (
             <div className="mt-2 text-sm leading-relaxed text-ink-300">
               <p>
-                Las extensiones de Chrome sólo existen en computadoras — {plataforma === "ios" ? "en iPhone/iPad" : "en el teléfono"},
-                la app de arriba ya te cubre el modo companion.
+                En {plataforma === "ios" ? "iPhone y iPad" : "el teléfono"} las extensiones de navegador no
+                existen — no es algo que podamos agregar, {plataforma === "ios" ? "Apple" : "Google"} no las
+                permite ahí. Pero Unify igual te sirve, con otro camino:
               </p>
+
+              {/* El camino REAL en cada teléfono, sin promesas vacías. */}
+              <div className="mt-3 rounded-xl border border-ink-700 bg-ink-800/60 p-4 text-ink-200">
+                <p className="font-medium text-strong">
+                  {plataforma === "android"
+                    ? "Te llega un enlace de reunión por WhatsApp:"
+                    : "Te llega un enlace de reunión por WhatsApp:"}
+                </p>
+                <ol className="mt-1.5 list-decimal space-y-1 pl-5">
+                  {plataforma === "android" ? (
+                    <>
+                      <li>
+                        Mantené apretado el mensaje y tocá <span className="font-semibold">Compartir</span>.
+                      </li>
+                      <li>
+                        Elegí <span className="font-semibold">Unify</span> en la lista: la reunión se abre
+                        acá con subtítulos, traducción e IA.
+                      </li>
+                    </>
+                  ) : (
+                    <>
+                      <li>
+                        Mantené apretado el enlace y tocá <span className="font-semibold">Copiar</span>.
+                      </li>
+                      <li>
+                        Abrí Unify y tocá el botón de acá abajo: pegás el enlace y entrás con subtítulos,
+                        traducción e IA.
+                      </li>
+                    </>
+                  )}
+                </ol>
+                <Link to="/externa" className="mt-3 inline-block">
+                  <Button>Abrir una reunión con un enlace</Button>
+                </Link>
+                <p className="mt-3 text-xs text-ink-400">
+                  Lo único que el teléfono no puede hacer es transcribir a los DEMÁS mientras la reunión
+                  corre en otra app: para eso está la computadora con la extensión, o que cada quien abra
+                  Unify de su lado.
+                </p>
+              </div>
+
               {plataforma === "ios" && (
-                <p className="mt-2 text-xs text-ink-400">
+                <p className="mt-3 text-xs text-ink-400">
                   Y para que no pierdas tiempo: un ZIP no instala nada en un iPad — iPadOS no ejecuta
                   archivos, es una regla de Apple. El único “archivo que instala” en iPad es el perfil de
                   arriba, y es para la app.

@@ -213,7 +213,14 @@ const UA = {
     check("con el botón del perfil y sus pasos de Ajustes",
       (await page.locator('a[href="/unify-ipad.mobileconfig"]').count()) === 1 && /Perfil descargado/.test(t));
     check("dice sin vueltas que un ZIP no instala nada en un iPad", /un ZIP no instala nada en un iPad/.test(t));
-    check("las extensiones son de computadoras, dicho claro", /sólo existen en computadoras/.test(t));
+    check("dice que en el teléfono no hay extensiones (y de quién es la regla)",
+      /las extensiones de navegador no\s+existen/.test(t.replace(/\s+/g, " ")) || /no existen/.test(t));
+    // Y lo más importante: que en vez de dejarte sin nada, te dé el camino
+    // que SÍ funciona en el teléfono -- pegar el enlace que te mandaron.
+    check("pero ofrece el camino real del teléfono: abrir la reunión por enlace",
+      (await page.locator('a[href="/externa"]').count()) >= 1 &&
+      /Abrir una reunión con un enlace/.test(t));
+    check("con los pasos de copiar el enlace desde WhatsApp", /WhatsApp/.test(t) && /Copiar/.test(t));
     check("y ofrece el enlace para mandarse a la computadora", /instalar\?bajar=1/.test(t));
     check("sin botón de descarga del ZIP en el teléfono", !/Descargar la extensión/.test(t));
     // En el teléfono, abrir ?bajar=1 NO debe disparar ninguna descarga.
@@ -296,6 +303,46 @@ const UA = {
     const html = await (await fetch(`${B}/`)).text();
     check("y la página lo declara junto a los metas de Apple",
       html.includes('rel="apple-touch-icon"') && html.includes("apple-mobile-web-app-capable"));
+  }
+
+  // ═══════ 7a. Instalar la app ENCADENA la extensión ═══════
+  //
+  // "Que al instalar la app se instale sola la extensión" no se puede: desde
+  // 2018 ninguna página puede instalar una extensión por vos (Chrome lo
+  // prohíbe). Lo que sí se puede -- y es lo que se prueba -- es que los dos
+  // pasos ocurran seguidos: aceptás la app y la extensión aparece resaltada
+  // con la descarga ya empezada, sin ir a buscar nada.
+  console.log("\n── 7a. Instalar la app lleva directo a la extensión ──");
+  {
+    const ctx = await browser.newContext({ userAgent: UA.windows, acceptDownloads: true });
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => errs.push(e.message.slice(0, 140)));
+    // beforeinstallprompt no existe en Chromium de pruebas: se fabrica el
+    // evento que Chrome dispara de verdad, con su promesa aceptada.
+    await page.addInitScript(() => {
+      window.addEventListener("load", () => {
+        const ev = new Event("beforeinstallprompt");
+        ev.prompt = async () => {};
+        ev.userChoice = Promise.resolve({ outcome: "accepted" });
+        window.dispatchEvent(ev);
+      });
+    });
+    await page.goto(`${B}/instalar`, { waitUntil: "networkidle" });
+    await page.waitForTimeout(800);
+
+    const boton = page.locator("button", { hasText: "Instalar Unify en este dispositivo" });
+    check("con la app instalable, aparece el botón de un clic", (await boton.count()) === 1);
+    const dl = new Promise((res2) => page.once("download", res2));
+    await boton.click();
+    const bajada = await Promise.race([dl, new Promise((r) => setTimeout(() => r(null), 12_000))]);
+    check("al aceptar la app, la extensión EMPIEZA a bajar sola",
+      Boolean(bajada) && bajada.suggestedFilename() === "unify-extension.zip",
+      bajada?.suggestedFilename() ?? "no bajó nada");
+    await page.waitForTimeout(600);
+    const t = await texto(page);
+    check("y la página marca el paso 2 en vez de dejarte buscándolo",
+      /Paso 2 de 2/.test(t) && /segundo paso: la extensión/i.test(t));
+    await ctx.close();
   }
 
   // ═══════ 7b. Usando la APP instalada: sin opción de instalar ═══════
