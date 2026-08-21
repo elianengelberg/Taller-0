@@ -124,7 +124,7 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
       `--disable-extensions-except=${EXT}`,
       `--load-extension=${EXT}`,
       "--ignore-certificate-errors",
-      '--host-resolver-rules=MAP *.zoom.us 127.0.0.1, MAP zoom.us 127.0.0.1, MAP meet.jit.si 127.0.0.1, MAP whereby.com 127.0.0.1, MAP *.webex.com 127.0.0.1, MAP global.gotomeeting.com 127.0.0.1',
+      '--host-resolver-rules=MAP *.zoom.us 127.0.0.1, MAP zoom.us 127.0.0.1, MAP meet.jit.si 127.0.0.1, MAP whereby.com 127.0.0.1, MAP *.webex.com 127.0.0.1, MAP global.gotomeeting.com 127.0.0.1, MAP bluejeans.com 127.0.0.1, MAP discord.com 127.0.0.1, MAP v.ringcentral.com 127.0.0.1, MAP app.chime.aws 127.0.0.1',
       // Acepta solo el pedido de captura de ESTA pestaña (preferCurrentTab),
       // que es exactamente lo que hace el carril B.
       "--auto-accept-this-tab-capture",
@@ -461,6 +461,25 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
   await page.waitForTimeout(2500);
   const t5 = await page.locator(".caja").textContent().catch(() => "");
   check("el toast también sale en gotomeeting.com", /reunión de GoTo Meeting/.test(t5), t5.slice(0, 60));
+
+  // ═══════ 7c. El enlace puede llegar de CUALQUIER plataforma ═══════
+  //
+  // "Pensá que el link te lo pueden mandar de cualquier lado": la extensión
+  // reconoce ahora todo lo que la web reconoce. Acá se abre una muestra en el
+  // navegador real, con los matches del manifest que se publica.
+  console.log("\n── 7c. Plataformas que llegan por un enlace suelto ──");
+  for (const [url, nombre] of [
+    ["https://bluejeans.com/123456789/1234", "BlueJeans"],
+    ["https://discord.com/channels/123456/789012", "Discord"],
+    ["https://v.ringcentral.com/join/1234567890", "RingCentral"],
+    ["https://app.chime.aws/portal/1234567890?pin=9876", "Amazon Chime"],
+  ]) {
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(2500);
+    const t = await page.locator(".caja").textContent().catch(() => "");
+    check(`el aviso sale en ${nombre}`, new RegExp(`reunión de ${nombre}`).test(t), t.slice(0, 55));
+    await page.locator("button.no").click().catch(() => {}); // no encadenar toasts
+  }
 
   // ═══════ 8. El aviso de "hay una versión nueva" ═══════
   console.log("\n── 8. Aviso de versión nueva ──");

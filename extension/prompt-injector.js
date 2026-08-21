@@ -81,6 +81,25 @@
     return btoa(bin);
   }
 
+  // Espejo de SIMPLE_PLATFORMS (client/src/lib/meetingPlatforms.ts). Mismo
+  // orden, mismos hosts, mismos idParams: si allá se agrega una plataforma,
+  // acá también, y la prueba de paridad avisa si se olvidan.
+  const SIMPLES = [
+    { plataforma: "webex", nombre: "Webex", hosts: [".webex.com", "webex.com", ".webex.com.cn"] },
+    { plataforma: "skype", nombre: "Skype", hosts: ["join.skype.com", "skype.com", ".skype.com"] },
+    { plataforma: "discord", nombre: "Discord", hosts: ["discord.gg", "discord.com", ".discord.com"] },
+    { plataforma: "goto", nombre: "GoTo Meeting", hosts: ["gotomeet.me", "goto.com", ".goto.com", "gotomeeting.com", ".gotomeeting.com", "global.gotomeeting.com"] },
+    { plataforma: "bluejeans", nombre: "BlueJeans", hosts: ["bluejeans.com", ".bluejeans.com"] },
+    { plataforma: "chime", nombre: "Amazon Chime", hosts: ["chime.aws", ".chime.aws", "app.chime.aws"], idParams: ["pin", "meetingId"] },
+    { plataforma: "slack", nombre: "Slack", hosts: ["app.slack.com", ".slack.com"] },
+    { plataforma: "whatsapp", nombre: "WhatsApp", hosts: ["call.whatsapp.com"] },
+    { plataforma: "zoho", nombre: "Zoho Meeting", hosts: ["meeting.zoho.com", ".zoho.com", ".zohomeeting.com"], idParams: ["key", "sessionKey"] },
+    { plataforma: "dialpad", nombre: "Dialpad", hosts: ["dialpad.com", ".dialpad.com", "meetings.dialpad.com"] },
+    { plataforma: "ringcentral", nombre: "RingCentral", hosts: ["v.ringcentral.com", ".ringcentral.com", "ringcentral.com"] },
+    { plataforma: "livestorm", nombre: "Livestorm", hosts: ["app.livestorm.co", ".livestorm.co"] },
+    { plataforma: "gather", nombre: "Gather", hosts: ["app.gather.town", ".gather.town", "gather.town"] },
+  ];
+
   // --- Derivación de clave de sala (espejo de meetingPlatforms.ts) ----------
   function detectar() {
     let url;
@@ -130,13 +149,6 @@
       };
     }
 
-    // Webex: clave = host + path, igual que la tabla SIMPLE_PLATFORMS.
-    if (host.endsWith(".webex.com") || host === "webex.com") {
-      const path = url.pathname.replace(/\/+$/, "").toLowerCase();
-      if (!/^\/(meet|join|wbxmjs|webappng)\//.test(path)) return null;
-      return { plataforma: "webex", nombre: "Webex", roomKey: `webex:${host}${path}` };
-    }
-
     // Whereby: la sala es el primer segmento del path (mismo cálculo que la web).
     if (host === "whereby.com" || host.endsWith(".whereby.com")) {
       const room = url.pathname.replace(/^\/+/, "").split("/")[0];
@@ -144,12 +156,43 @@
       return { plataforma: "whereby", nombre: "Whereby", roomKey: `whereby:${host}/${room.toLowerCase()}` };
     }
 
-    // GoTo Meeting: plataforma "simple" en la web -> clave = host + path.
-    const GOTO_HOSTS = ["gotomeet.me", "goto.com", ".goto.com", "gotomeeting.com", ".gotomeeting.com", "global.gotomeeting.com"];
-    if (GOTO_HOSTS.some((h) => (h.startsWith(".") ? host.endsWith(h) : host === h))) {
+    // Element Call: la clave sale del path (el hash identifica la sala pero
+    // no viaja al servidor), igual que en la web.
+    if (host === "call.element.io" || host.endsWith(".element.io")) {
+      const room = `${url.pathname}${url.hash}`.replace(/^\/+/, "");
+      if (!room) return null;
+      return {
+        plataforma: "element",
+        nombre: "Element Call",
+        roomKey: `element:${host}${url.pathname.toLowerCase()}`,
+      };
+    }
+
+    // --- El resto: la MISMA tabla de plataformas simples que la web ---------
+    //
+    // Un enlace de reunión puede llegarte de cualquier lado, así que la
+    // extensión reconoce todo lo que la web ya sabe reconocer. La clave se
+    // arma igual que en SIMPLE_PLATFORMS (host + path + los ids que viajan en
+    // el query de algunas plataformas), para que overlay y web caigan en la
+    // misma sala. La prueba de paridad (sim_puente_salas) compara las dos
+    // derivaciones URL por URL, así que esto no puede desincronizarse en
+    // silencio.
+    for (const s of SIMPLES) {
+      const pega = s.hosts.some((h) => (h.startsWith(".") ? host.endsWith(h) : host === h));
+      if (!pega) continue;
       const path = url.pathname.replace(/\/+$/, "").toLowerCase();
-      if (!path) return null; // la portada de goto.com no es una reunión
-      return { plataforma: "goto", nombre: "GoTo Meeting", roomKey: `goto:${host}${path}` };
+      // Webex tiene portada, ayuda y mil páginas más: sólo sus rutas de
+      // reunión cuentan, si no el aviso saltaría leyendo el sitio.
+      if (s.plataforma === "webex" && !/^\/(meet|join|wbxmjs|webappng)\//.test(path)) return null;
+      const ids = (s.idParams ?? [])
+        .map((k) => url.searchParams.get(k))
+        .filter(Boolean)
+        .map((v) => v.toLowerCase());
+      const tail = [path, ...ids].filter(Boolean).join("/");
+      // Sin nada que distinga ESTA reunión de otra de la misma plataforma no
+      // se arma clave: la portada de discord.com no es una reunión.
+      if (!tail) return null;
+      return { plataforma: s.plataforma, nombre: s.nombre, roomKey: `${s.plataforma}:${host}${tail}` };
     }
 
     return null;

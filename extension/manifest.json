@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Unify — asistente de reuniones",
-  "version": "4.1.5",
+  "version": "4.2.0",
   "description": "Detecta tu reunión de Zoom, Meet, Teams, Jitsi, Webex y más; la graba, transcribe y traduce con Unify — subtítulos en vivo e IA.",
   "permissions": [
     "activeTab",
@@ -42,7 +42,22 @@
         "https://*.whereby.com/*",
         "https://gotomeet.me/*",
         "https://*.goto.com/*",
-        "https://*.gotomeeting.com/*"
+        "https://*.gotomeeting.com/*",
+        "https://call.element.io/*",
+        "https://join.skype.com/*",
+        "https://*.skype.com/*",
+        "https://discord.com/*",
+        "https://*.discord.com/*",
+        "https://*.bluejeans.com/*",
+        "https://*.chime.aws/*",
+        "https://app.slack.com/*",
+        "https://call.whatsapp.com/*",
+        "https://*.zoho.com/*",
+        "https://*.zohomeeting.com/*",
+        "https://*.dialpad.com/*",
+        "https://*.ringcentral.com/*",
+        "https://*.livestorm.co/*",
+        "https://*.gather.town/*"
       ],
       "js": [
         "prompt-injector.js"

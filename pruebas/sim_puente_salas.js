@@ -143,6 +143,21 @@ const json = (b) => ({ method: "POST", headers: { "Content-Type": "application/j
       "https://whereby.com/sala-de-ana?x=1",
       "https://global.gotomeeting.com/join/123456789",
       "https://acme.webex.com/meet/juan.perez",
+      // El enlace puede llegarte de cualquier lado: todas las plataformas que
+      // la web reconoce tienen que derivar la MISMA clave en la extensión, o
+      // el overlay fabricaría una sala aparte.
+      "https://call.element.io/room/!abc:matrix.org#/sala",
+      "https://join.skype.com/AbCdEfGh",
+      "https://discord.com/channels/123456/789012",
+      "https://bluejeans.com/123456789/1234",
+      "https://app.chime.aws/portal/1234567890?pin=9876",
+      "https://app.slack.com/huddle/T01ABC/C02DEF",
+      "https://call.whatsapp.com/video/AbCdEfGhIjK",
+      "https://meeting.zoho.com/meeting/join?key=ABC123xyz",
+      "https://meetings.dialpad.com/room/ana-perez",
+      "https://v.ringcentral.com/join/1234567890",
+      "https://app.livestorm.co/p/abc-def-ghi",
+      "https://app.gather.town/app/AbCd1234/oficina",
     ];
     const out = execFileSync("npx", ["tsx", "-e", `
       import { detectMeetingPlatform } from "/home/user/Taller-0/client/src/lib/meetingPlatforms";
@@ -154,9 +169,14 @@ const json = (b) => ({ method: "POST", headers: { "Content-Type": "application/j
     const fs = require("fs");
     const src = fs.readFileSync("/home/user/Taller-0/extension/prompt-injector.js", "utf8");
     const cuerpo = src.match(/function detectar\(\) \{[\s\S]*?\n  \}/)[0];
+    // detectar() se apoya en la tabla SIMPLES (el espejo de SIMPLE_PLATFORMS):
+    // se extrae del MISMO archivo, no se copia acá. Una copia se desactualiza
+    // en silencio y esta prueba dejaría de significar algo.
+    const tabla = src.match(/const SIMPLES = \[[\s\S]*?\n  \];/)[0];
     const extKeys = URLS.map((u) => {
       const sandbox = new Function("location", `
         function safeDecode(v){ try { return decodeURIComponent(v); } catch { return v; } }
+        ${tabla}
         ${cuerpo}
         return detectar();
       `);

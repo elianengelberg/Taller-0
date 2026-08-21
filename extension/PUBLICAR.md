@@ -132,14 +132,20 @@ ficha de Chrome ya cubre a Edge.
 
 **Justificación del permiso de host:**
 > meet.google.com: leer los subtítulos nativos de Meet para transcribir con
-> el nombre de quien habla y mostrar el panel. Los dominios de reuniones
-> (zoom.us, teams.microsoft.com, teams.live.com, meet.jit.si, 8x8.vc,
-> webex.com, whereby.com, gotomeet.me/goto.com/gotomeeting.com): detectar que
-> el usuario está entrando a una reunión y ofrecerle ahí mismo los subtítulos
-> y la grabación. unify-meet.com: sincronizar con la extensión la sesión que
-> el usuario inició en el sitio. taller-0.onrender.com: es el servidor propio
-> del servicio, adonde viajan (por HTTPS) la transcripción y las grabaciones
-> del usuario para su historial privado. No se accede a ningún otro host.
+> el nombre de quien habla y mostrar el panel. Los dominios de plataformas de
+> videollamada (zoom.us, teams.microsoft.com, teams.live.com, meet.jit.si,
+> 8x8.vc, webex.com, whereby.com, gotomeet.me/goto.com/gotomeeting.com,
+> call.element.io, join.skype.com, discord.com, bluejeans.com, chime.aws,
+> app.slack.com, call.whatsapp.com, zoho.com/zohomeeting.com, dialpad.com,
+> ringcentral.com, livestorm.co, gather.town): detectar que el usuario está
+> entrando a una reunión y ofrecerle ahí mismo los subtítulos y la grabación.
+> Un enlace de reunión puede llegarle al usuario por cualquier vía (chat,
+> correo, calendario), así que la extensión reconoce las plataformas de
+> videollamada más usadas; en cada una hace exactamente lo mismo y sólo eso.
+> unify-meet.com: sincronizar con la extensión la sesión que el usuario inició
+> en el sitio. taller-0.onrender.com: es el servidor propio del servicio,
+> adonde viajan (por HTTPS) la transcripción y las grabaciones del usuario
+> para su historial privado. No se accede a ningún otro host.
 
 **Uso de datos (declaración):** la extensión envía contenido de la reunión
 (subtítulos leídos, audio/video grabado por pedido del usuario) únicamente al
