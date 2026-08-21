@@ -206,6 +206,30 @@ export async function confirmEmailVerification(
   }
 }
 
+/**
+ * Canje por los 6 dígitos del correo. Es el mismo canje que el enlace (deja
+ * sesión iniciada), pero sirve cuando el mail llegó al teléfono y Unify está
+ * abierto en la computadora.
+ */
+export async function confirmEmailWithCode(
+  email: string,
+  code: string
+): Promise<{ user?: AuthUser; error?: string }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/verify-email/code`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, code }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo confirmar el código." };
+    if (typeof data.token === "string") setAuthToken(data.token);
+    return { user: data.user };
+  } catch {
+    return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };
+  }
+}
+
 export async function requestPasswordReset(email: string): Promise<{ ok?: boolean; error?: string }> {
   try {
     const res = await fetchWithTimeout(`${SERVER_URL}/api/auth/password-reset/request`, {

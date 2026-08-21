@@ -4,6 +4,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import { answerFromMeeting, generateMeetingReport } from "./ai";
 import {
+  createNumericCode,
   createSecretToken,
   hashPassword,
   hashSecretToken,
@@ -20,6 +21,7 @@ import {
   claimAccountForVerifiedEmail,
   claimMeeting,
   consumeAuthToken,
+  consumeAuthTokenByCode,
   countRecentAuthTokens,
   createAuthToken,
   createMeetingRecord,
@@ -175,11 +177,26 @@ app.use(cors(corsDelegate));
 // the app HTML -- that's on Vercel -- so no CSP here; these are the ones that
 // matter for an API: no MIME sniffing, no framing, no referrer leakage, and
 // HSTS since Render terminates TLS.)
-app.use((_req, res, next) => {
+app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("Strict-Transport-Security", "max-age=15552000; includeSubDomains");
+  // Esta API devuelve JSON, nunca páginas: con `default-src 'none'` un
+  // endpoint que alguna vez devolviera HTML (por un error, por un bug futuro)
+  // no podría ejecutar absolutamente nada en el navegador.
+  res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; sandbox");
+  // Que otro sitio no pueda incrustar nuestras respuestas como si fueran un
+  // recurso suyo (imagen, script) para espiar tamaños o contenido.
+  res.setHeader("Cross-Origin-Resource-Policy", "same-site");
+  res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
+  // Nada de lo que sale de /api/auth puede quedar guardado: esas respuestas
+  // llevan el token de sesión y los datos de la cuenta, y un proxy corporativo
+  // o el disco del navegador son lugares donde eso no debe sobrevivir.
+  if (req.path.startsWith("/api/auth")) {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    res.setHeader("Pragma", "no-cache");
+  }
   next();
 });
 // Dos parsers de JSON: el chico (100 KB, el default) para todo, y uno grande
@@ -409,12 +426,17 @@ async function issueEmailLink(
   const recent = await countRecentAuthTokens(user.id, purpose, 60 * 60_000);
   if (recent >= LINKS_PER_HOUR) return "throttled";
   const token = createSecretToken();
+  // El código de 6 dígitos SÓLO para verificar el email. Restablecer la
+  // contraseña se queda con el enlace de 256 bits: es la llave de la cuenta y
+  // ahí la comodidad no compensa el riesgo.
+  const code = purpose === "verify-email" ? createNumericCode() : null;
   // Primero se guarda el hash y sólo después sale el correo: al revés, un
   // fallo de la base mandaría un enlace que nadie puede canjear.
   const stored = await createAuthToken({
     userId: user.id,
     purpose,
     tokenHash: hashSecretToken(token),
+    codeHash: code ? hashSecretToken(code) : undefined,
     email: user.email,
     ttlMs: purpose === "verify-email" ? VERIFY_TTL_MS : RESET_TTL_MS,
   });
@@ -425,6 +447,7 @@ async function issueEmailLink(
           to: user.email,
           name: user.name,
           token,
+          code: code!,
           appOrigin: CLIENT_ORIGIN,
         })
       : await sendPasswordResetEmail({
@@ -763,6 +786,62 @@ app.post("/api/auth/verify-email/confirm", authRateLimit, async (req, res) => {
   }
   // Se devuelve sesión: abrir el enlace ya probó que el buzón es tuyo, así que
   // obligarte a escribir la contraseña de nuevo no agrega nada.
+  res.json({
+    ok: true,
+    token: signToken(user.id, user.tokenVersion),
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      avatarUrl: user.avatarUrl,
+      emailVerified: true,
+    },
+  });
+});
+
+// Canje por CÓDIGO: los 6 dígitos que van grandes en el correo, para quien lo
+// lee en el teléfono y tiene Unify abierto en la computadora.
+//
+// Seguridad de un código corto, en tres capas: la base cuenta los intentos y
+// quema el token al quinto fallo; el límite por IP de authRateLimit frena el
+// martilleo; y el tope por cuenta (LINKS_PER_HOUR) impide fabricarse ventanas
+// nuevas pidiendo correos sin parar.
+app.post("/api/auth/verify-email/code", authRateLimit, async (req, res) => {
+  if (!dbEnabled) {
+    res.status(503).json({ error: accountsUnavailable });
+    return;
+  }
+  const email = String(req.body?.email ?? "").trim().toLowerCase();
+  const code = String(req.body?.code ?? "").replace(/\D/g, "");
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || code.length !== 6) {
+    res.status(400).json({ error: "Escribí tu email y los 6 dígitos del código." });
+    return;
+  }
+  const intento = await consumeAuthTokenByCode({
+    email,
+    purpose: "verify-email",
+    codeHash: hashSecretToken(code),
+  });
+  if (!intento.ok) {
+    // Los tres mensajes hablan del CÓDIGO, nunca de la cuenta: contestar
+    // distinto para un email que no existe delataría quién tiene cuenta acá.
+    const mensaje =
+      intento.reason === "sin-intentos"
+        ? "Probaste demasiadas veces con ese código. Pedí uno nuevo."
+        : intento.reason === "sin-codigo"
+          ? "Ese código venció o ya se usó. Pedí uno nuevo."
+          : `Ese código no es correcto. Te ${intento.left === 1 ? "queda 1 intento" : `quedan ${intento.left} intentos`}.`;
+    res.status(400).json({ error: mensaje });
+    return;
+  }
+  await markEmailVerified(intento.userId);
+  await invalidateAuthTokens(intento.userId, "verify-email");
+  const user = await getUserAuthById(intento.userId);
+  if (!user) {
+    res.status(400).json({ error: "Esa cuenta ya no existe." });
+    return;
+  }
+  // Igual que el enlace: escribir el código prueba que el buzón es tuyo.
   res.json({
     ok: true,
     token: signToken(user.id, user.tokenVersion),

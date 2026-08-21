@@ -37,6 +37,15 @@ const json = (b, extra = {}) => ({
   const pg = new Client({ connectionString: "postgres://postgres@localhost:5433/unify" });
   await pg.connect();
 
+  // Con el correo configurado (MAIL_LOG=1 o Resend), el servidor exige
+  // verificar el email antes de dejar entrar: correcto, y lo prueban
+  // sim_email/sim_verificacion. Acá se está midiendo OTRA cosa (fuerza bruta,
+  // secuestro de cuenta, sesiones), así que las cuentas de prueba se dan por
+  // verificadas en la base y el test mide lo suyo en vez de chocar con un 403
+  // que no es su tema.
+  const verificar = (email) =>
+    pg.query(`UPDATE users SET email_verified = TRUE WHERE lower(email) = lower($1)`, [email]);
+
   // ═══════ 1. Contraseñas que no protegen nada ═══════
   console.log("\n── 1. Contraseñas débiles ──");
   for (const [label, pw] of [
@@ -75,6 +84,7 @@ const json = (b, extra = {}) => ({
     // Y el freno es por CUENTA: otra cuenta sigue pudiendo entrar.
     const otro = `otro${Date.now()}${rnd(4)}@test.com`;
     await api("/api/auth/register", json({ otro, email: otro, password: "melon42Trueno", name: "Otro" }));
+    await verificar(otro);
     const ok = await api("/api/auth/login", json({ email: otro, password: "melon42Trueno" }));
     check("frenar una cuenta no bloquea a las demás", ok.status === 200, `HTTP ${ok.status}`);
   }
@@ -127,6 +137,7 @@ const json = (b, extra = {}) => ({
   {
     const email = `sesion${Date.now()}${rnd(4)}@test.com`;
     const reg = await api("/api/auth/register", json({ email, password: "melon42Trueno", name: "Dueña" }));
+    await verificar(email);
     const tokenRobado = reg.body.token;
 
     const antes = await api("/api/auth/me", { headers: { Authorization: `Bearer ${tokenRobado}` } });

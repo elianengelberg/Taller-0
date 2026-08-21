@@ -23,25 +23,98 @@ function esc(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function layout(params: { title: string; intro: string; cta?: { label: string; url: string }; footer: string }): string {
-  const { title, intro, cta, footer } = params;
+// La plantilla del correo.
+//
+// Un correo no es una página web: Gmail, Outlook y Apple Mail recortan el CSS
+// moderno sin avisar. Por eso todo acá es deliberadamente "antiguo" -- tablas
+// anidadas, estilos EN LÍNEA, nada de flex, grid ni clases -- que es lo único
+// que se ve igual en los tres. Las concesiones que sí se hacen (border-radius,
+// que Outlook de escritorio ignora) degradan a esquinas rectas, no a un correo
+// roto.
+//
+// El código de 6 dígitos es el protagonista: caja propia, 34px, monoespaciado
+// y con separación entre dígitos, para que se lea de un vistazo en el teléfono
+// y se pueda copiar a mano sin equivocarse un 0 por una O.
+function layout(params: {
+  title: string;
+  intro: string;
+  code?: { value: string; caption: string };
+  cta?: { label: string; url: string };
+  vence?: string;
+  footer: string;
+}): string {
+  const { title, intro, code, cta, vence, footer } = params;
+  // Los dígitos van separados por un espacio fino: sin esto, en algunos
+  // clientes "111111" se lee como un borrón.
+  const digitos = code ? esc(code.value).split("").join("&#8202;") : "";
   return `<!doctype html>
-<html lang="es"><body style="margin:0;padding:0;background:#0b0d17;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0b0d17;padding:32px 16px;">
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>${esc(title)}</title>
+</head>
+<body style="margin:0;padding:0;background:#0b0d17;-webkit-font-smoothing:antialiased;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <!-- Vista previa de la bandeja: lo que se lee ANTES de abrir el correo. -->
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${
+    code ? `Tu código de Unify es ${esc(code.value)}` : esc(title)
+  }</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#0b0d17;padding:32px 16px;">
     <tr><td align="center">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#141728;border:1px solid #262a45;border-radius:16px;padding:32px;">
-        <tr><td>
-          <p style="margin:0 0 24px;font-size:20px;font-weight:700;color:#f5f6fb;">Unify</p>
-          <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3;color:#f5f6fb;">${esc(title)}</h1>
-          <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#b9bdd4;">${intro}</p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
+
+        <!-- Marca -->
+        <tr><td align="center" style="padding:0 0 22px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+            <td style="background:#6366f1;border-radius:12px;width:40px;height:40px;text-align:center;vertical-align:middle;font-size:22px;font-weight:800;color:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">U</td>
+            <td style="padding-left:11px;font-size:20px;font-weight:700;color:#f5f6fb;letter-spacing:-0.2px;">Unify</td>
+          </tr></table>
+        </td></tr>
+
+        <!-- Tarjeta -->
+        <tr><td style="background:#141728;border:1px solid #262a45;border-radius:18px;padding:34px 32px;">
+          <h1 style="margin:0 0 12px;font-size:23px;line-height:1.3;color:#f5f6fb;font-weight:700;">${esc(title)}</h1>
+          <p style="margin:0 0 26px;font-size:15px;line-height:1.65;color:#b9bdd4;">${intro}</p>
           ${
-            cta
-              ? `<p style="margin:0 0 24px;"><a href="${esc(cta.url)}" style="display:inline-block;background:#6366f1;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 24px;border-radius:12px;">${esc(cta.label)}</a></p>
-          <p style="margin:0 0 24px;font-size:13px;line-height:1.6;color:#8b90ad;">Si el botón no funciona, copiá y pegá este enlace en el navegador:<br><span style="color:#a5a9c4;word-break:break-all;">${esc(cta.url)}</span></p>`
+            code
+              ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;">
+            <tr><td align="center" style="background:#0b1223;border:1px solid #2f3660;border-radius:14px;padding:22px 16px 18px;">
+              <p style="margin:0 0 10px;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:#8b90ad;font-weight:600;">${esc(code.caption)}</p>
+              <p style="margin:0;font-size:34px;line-height:1.1;font-weight:700;color:#ffffff;letter-spacing:9px;font-family:'SFMono-Regular',Menlo,Consolas,'Liberation Mono',monospace;">${digitos}</p>
+            </td></tr>
+          </table>`
               : ""
           }
-          <p style="margin:0;font-size:13px;line-height:1.6;color:#8b90ad;">${footer}</p>
+          ${
+            cta
+              ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px;"><tr>
+            <td style="background:#6366f1;border-radius:12px;">
+              <a href="${esc(cta.url)}" style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">${esc(cta.label)}</a>
+            </td>
+          </tr></table>
+          <p style="margin:0 0 22px;font-size:12.5px;line-height:1.6;color:#8b90ad;">¿El botón no anda? Copiá y pegá este enlace:<br><span style="color:#a5a9c4;word-break:break-all;">${esc(cta.url)}</span></p>`
+              : ""
+          }
+          ${
+            vence
+              ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 4px;border-top:1px solid #262a45;">
+            <tr><td style="padding-top:18px;font-size:13px;line-height:1.6;color:#8b90ad;">${vence}</td></tr>
+          </table>`
+              : ""
+          }
         </td></tr>
+
+        <!-- Pie -->
+        <tr><td style="padding:20px 8px 0;">
+          <p style="margin:0 0 14px;font-size:12.5px;line-height:1.65;color:#8b90ad;">${footer}</p>
+          <p style="margin:0;font-size:11.5px;line-height:1.6;color:#5f6482;">
+            Unify — subtítulos, transcripción y grabación para tus reuniones.<br>
+            Este correo es automático: si necesitás ayuda, escribinos a
+            <a href="mailto:hola@unify-meet.com" style="color:#7f86ab;">hola@unify-meet.com</a>.
+          </p>
+        </td></tr>
+
       </table>
     </td></tr>
   </table>
@@ -60,27 +133,32 @@ export function sendVerificationEmail(params: {
   to: string;
   name: string;
   token: string;
+  /** Los 6 dígitos: el camino corto para quien lee el mail en el teléfono. */
+  code: string;
   appOrigin: string;
 }): Promise<boolean> {
   const url = `${params.appOrigin}/verificar-email#token=${params.token}`;
   const firstName = params.name.split(/\s+/)[0] || "Hola";
   return sendMail({
     to: params.to,
-    subject: "Confirmá tu email en Unify",
+    subject: `${params.code} es tu código de Unify`,
     text:
       `${firstName}, confirmá que este email es tuyo para terminar de crear tu cuenta en Unify.\n\n` +
-      `${url}\n\n` +
-      `El enlace vence en 24 horas.\n\n` +
-      `Si vos no creaste ninguna cuenta en Unify, NO abras el enlace: alguien usó tu email. ` +
+      `Tu código de verificación: ${params.code}\n\n` +
+      `Escribilo en Unify, o abrí este enlace:\n${url}\n\n` +
+      `El código y el enlace vencen en 24 horas.\n\n` +
+      `Si vos no creaste ninguna cuenta en Unify, ignorá este correo: alguien usó tu email. ` +
       `Podés quedarte con esa cuenta desde "Olvidé mi contraseña" en ${params.appOrigin}/ingresar.`,
     html: layout({
       title: `${esc(firstName)}, confirmá tu email`,
       intro:
-        "Con esto terminás de crear tu cuenta en Unify y podés entrar desde cualquier dispositivo. El enlace vence en 24 horas.",
+        "Con esto terminás de crear tu cuenta en Unify y podés entrar desde cualquier dispositivo. Escribí el código en la pantalla que dejaste abierta, o tocá el botón.",
+      code: { value: params.code, caption: "Tu código de verificación" },
       cta: { label: "Confirmar mi email", url },
+      vence: "⏳ El código y el enlace vencen en <strong style=\"color:#b9bdd4;\">24 horas</strong>.",
       footer:
-        "Si vos no creaste ninguna cuenta en Unify, <strong style=\"color:#f0a2a2;\">no abras el enlace</strong>: alguien usó tu dirección. " +
-        `Podés quedarte con esa cuenta usando “Olvidé mi contraseña” en <a href="${esc(params.appOrigin)}/ingresar" style="color:#a5b4fc;">Unify</a>.`,
+        "Si vos no creaste ninguna cuenta en Unify, <strong style=\"color:#f0a2a2;\">ignorá este correo</strong>: alguien escribió tu dirección al registrarse. " +
+        `Nadie puede usar tu email sin este código. Podés quedarte con esa cuenta usando “Olvidé mi contraseña” en <a href="${esc(params.appOrigin)}/ingresar" style="color:#a5b4fc;">Unify</a>.`,
     }),
   });
 }
@@ -105,8 +183,12 @@ export function sendPasswordResetEmail(params: {
     html: layout({
       title: `${esc(firstName)}, elegí una contraseña nueva`,
       intro:
-        "Pediste volver a entrar a tu cuenta de Unify. El enlace vence en 1 hora y sirve una sola vez. Al usarlo se cierran todas las sesiones abiertas de tu cuenta.",
+        "Pediste volver a entrar a tu cuenta de Unify. Tocá el botón para elegir una contraseña nueva; al hacerlo se cierran todas las sesiones abiertas de tu cuenta.",
+      // A propósito SIN código: cambiar la contraseña es la llave de la
+      // cuenta, y un secreto de 256 bits en el enlace es mucho más difícil de
+      // adivinar que seis dígitos. La comodidad va donde el riesgo es menor.
       cta: { label: "Elegir contraseña nueva", url },
+      vence: "⏳ El enlace vence en <strong style=\"color:#b9bdd4;\">1 hora</strong> y sirve una sola vez.",
       footer:
         "Si no fuiste vos, ignorá este correo: tu contraseña actual sigue funcionando y nadie entró a tu cuenta.",
     }),

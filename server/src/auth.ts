@@ -3,7 +3,7 @@
 // install/build on the host. Accounts exist so each person's meeting history
 // is private to them (see db.ts owner_id + the /api/auth/* and /api/meetings
 // routes in index.ts).
-import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from "crypto";
+import { createHash, createHmac, randomBytes, randomInt, scryptSync, timingSafeEqual } from "crypto";
 
 // Clave con la que se firman los tokens de sesión. DEBE estar en el entorno
 // (Render) para que los tokens sobrevivan a un reinicio. Rotarla cierra la
@@ -81,6 +81,22 @@ export function createSecretToken(): string {
  */
 export function hashSecretToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
+}
+
+/**
+ * El código de 6 dígitos que se escribe a mano (el que va grande en el correo).
+ *
+ * Convive con el enlace y NO lo reemplaza: son dos formas de canjear el mismo
+ * token. El enlace es un secreto de 256 bits; el código son 6 dígitos, y eso
+ * es adivinable por fuerza bruta SI se lo deja probar un millón de veces. Por
+ * eso el código nunca viaja solo: la base cuenta los intentos y quema el token
+ * al sexto fallo (ver consumeAuthTokenByCode).
+ *
+ * `randomInt` es rechazo-muestreo del propio Node: no tiene el sesgo de
+ * `random() % 1000000`, donde los primeros números salen más seguido.
+ */
+export function createNumericCode(): string {
+  return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }
 
 // --- Session tokens (JWT HS256) --------------------------------------------

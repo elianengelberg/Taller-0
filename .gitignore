@@ -7,3 +7,6 @@ dist-local/
 *.tsbuildinfo
 __pycache__/
 *.pyc
+
+# Salidas de las pruebas (vistas previas renderizadas, capturas): se regeneran.
+pruebas/salida/

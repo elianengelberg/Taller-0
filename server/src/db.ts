@@ -132,6 +132,22 @@ function migrate(): Promise<void> {
           `CREATE INDEX IF NOT EXISTS auth_tokens_user_purpose_idx ON auth_tokens(user_id, purpose);`
         )
       )
+      // El código de 6 dígitos del correo: la segunda forma de canjear el
+      // MISMO token (para quien prefiere escribirlo a tocar el enlace, o
+      // recibe el mail en el teléfono y trabaja en la computadora). Se guarda
+      // hasheado igual que el enlace, y `attempts` es lo que hace que 6
+      // dígitos sean seguros: sin contador, un millón de intentos lo rompen.
+      .then(() => pool.query(`ALTER TABLE auth_tokens ADD COLUMN IF NOT EXISTS code_hash TEXT;`))
+      .then(() =>
+        pool.query(`ALTER TABLE auth_tokens ADD COLUMN IF NOT EXISTS attempts INT NOT NULL DEFAULT 0;`)
+      )
+      // Buscar "el código vigente de este email": el canje por código no
+      // conoce el hash del token, llega con la dirección y seis dígitos.
+      .then(() =>
+        pool.query(
+          `CREATE INDEX IF NOT EXISTS auth_tokens_email_purpose_idx ON auth_tokens(email, purpose);`
+        )
+      )
       // Outlook/Microsoft calendar: the long-lived refresh token so we can
       // fetch the person's upcoming meetings on their behalf. NULL until they
       // connect their calendar; cleared when they disconnect.
@@ -537,6 +553,8 @@ export function createAuthToken(params: {
   userId: string;
   purpose: AuthTokenPurpose;
   tokenHash: string;
+  /** Hash del código de 6 dígitos que va grande en el correo. */
+  codeHash?: string;
   email: string;
   ttlMs: number;
 }): Promise<boolean> {
@@ -544,13 +562,103 @@ export function createAuthToken(params: {
     // Barrido barato de lo que ya no sirve, aprovechando que estamos acá: sin
     // esto la tabla crece para siempre con enlaces vencidos.
     await pool!.query(`DELETE FROM auth_tokens WHERE expires_at < now() - INTERVAL '7 days'`);
+    // Un código nuevo apaga los CÓDIGOS anteriores, y sólo los códigos: si no,
+    // cada reenvío dejaría otro número de 6 dígitos vivo y multiplicaría las
+    // chances de acertar a ciegas.
+    //
+    // Los ENLACES de esos correos siguen valiendo a propósito. Son secretos de
+    // 256 bits, no hay fuerza bruta que los alcance, y matarlos rompía algo
+    // real: el servidor manda un correo nuevo solo cuando alguien intenta
+    // entrar sin verificar, así que el enlace del primer correo se moría en la
+    // mano de la persona sin que hiciera nada. (Lo encontró sim_email.)
+    if (params.codeHash) {
+      await pool!.query(
+        `UPDATE auth_tokens SET code_hash = NULL
+          WHERE user_id = $1 AND purpose = $2 AND used_at IS NULL`,
+        [params.userId, params.purpose]
+      );
+    }
     await pool!.query(
-      `INSERT INTO auth_tokens (id, user_id, purpose, token_hash, email, expires_at)
-       VALUES ($1, $2, $3, $4, $5, now() + ($6::bigint * INTERVAL '1 millisecond'))`,
-      [randomUUID(), params.userId, params.purpose, params.tokenHash, params.email, params.ttlMs]
+      `INSERT INTO auth_tokens (id, user_id, purpose, token_hash, code_hash, email, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, now() + ($7::bigint * INTERVAL '1 millisecond'))`,
+      [
+        randomUUID(),
+        params.userId,
+        params.purpose,
+        params.tokenHash,
+        params.codeHash ?? null,
+        params.email,
+        params.ttlMs,
+      ]
     );
     return true;
   }, false);
+}
+
+/**
+ * Canje por CÓDIGO (los 6 dígitos del correo), buscando por email.
+ *
+ * Lo que hace seguro a un código corto no es el código: es este contador. Cada
+ * intento fallido suma uno y al sexto el token queda quemado, así que un
+ * atacante tiene 6 tiros sobre un millón de combinaciones -- y para conseguir
+ * otros 6 necesita provocar otro correo, cosa que el tope por cuenta
+ * (LINKS_PER_HOUR) limita a 5 por hora. La comparación es por hash, y el
+ * UPDATE atómico impide que dos pedidos simultáneos canjeen el mismo token.
+ *
+ * Devuelve el motivo del fallo para poder decir la verdad ("te quedan 3
+ * intentos" / "ese código venció") sin filtrar si el email existe: eso lo
+ * decide quien llama.
+ */
+export function consumeAuthTokenByCode(params: {
+  email: string;
+  purpose: AuthTokenPurpose;
+  codeHash: string;
+}): Promise<
+  | { ok: true; userId: string; email: string }
+  | { ok: false; reason: "sin-codigo" | "incorrecto" | "sin-intentos"; left?: number }
+> {
+  return safe(async () => {
+    const MAX_INTENTOS = 5;
+    const { rows } = await pool!.query(
+      `SELECT id, user_id, email, code_hash, attempts FROM auth_tokens
+        WHERE lower(email) = lower($1) AND purpose = $2 AND used_at IS NULL
+          AND expires_at > now() AND code_hash IS NOT NULL
+        ORDER BY created_at DESC LIMIT 1`,
+      [params.email, params.purpose]
+    );
+    const fila = rows[0];
+    if (!fila) return { ok: false as const, reason: "sin-codigo" as const };
+    if (fila.attempts >= MAX_INTENTOS) {
+      await pool!.query(`UPDATE auth_tokens SET used_at = now() WHERE id = $1`, [fila.id]);
+      return { ok: false as const, reason: "sin-intentos" as const };
+    }
+    if (fila.code_hash !== params.codeHash) {
+      const { rows: tras } = await pool!.query(
+        `UPDATE auth_tokens SET attempts = attempts + 1 WHERE id = $1 RETURNING attempts`,
+        [fila.id]
+      );
+      const usados = (tras[0]?.attempts as number) ?? MAX_INTENTOS;
+      // Agotados los intentos, el token muere: no se le regala al atacante
+      // una ventana más grande sólo porque siga probando.
+      if (usados >= MAX_INTENTOS) {
+        await pool!.query(`UPDATE auth_tokens SET used_at = now() WHERE id = $1`, [fila.id]);
+        return { ok: false as const, reason: "sin-intentos" as const };
+      }
+      return { ok: false as const, reason: "incorrecto" as const, left: MAX_INTENTOS - usados };
+    }
+    const { rows: canje } = await pool!.query(
+      `UPDATE auth_tokens SET used_at = now()
+        WHERE id = $1 AND used_at IS NULL
+        RETURNING user_id, email`,
+      [fila.id]
+    );
+    if (!canje[0]) return { ok: false as const, reason: "sin-codigo" as const };
+    return {
+      ok: true as const,
+      userId: canje[0].user_id as string,
+      email: canje[0].email as string,
+    };
+  }, { ok: false as const, reason: "sin-codigo" as const });
 }
 
 /**
