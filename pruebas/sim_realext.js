@@ -171,6 +171,62 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
   const stream = await page.locator(".stream").textContent();
   check("la transcripción del panel muestra a los tres", ["Ana", "Bruno", "Carolina"].every((n) => (stream || "").includes(n)));
 
+  // ═══════ El enlace que te mandan por WhatsApp ═══════
+  //
+  // El caso de todos los días: te pasan un link de Meet, lo abrís y caés en
+  // la SALA DE ESPERA ("Unirse ahora"), todavía afuera de la llamada. Ahí es
+  // donde tiene que avisar -- no después, con la reunión ya empezada. Y lo
+  // que se responde ahí tiene que valer del otro lado.
+  console.log("\n── El enlace de WhatsApp: sala de espera → entrar ──");
+  {
+    // La página se sirve YA como sala de espera, que es como cae quien abre
+    // el enlace: sin botón de colgar, con la vista previa de micrófono y
+    // cámara, y "Unirse ahora". (Cargar una llamada y recortarla después no
+    // sería el mismo caso: el aviso ya habría salido con el texto de adentro.)
+    const SALA_DE_ESPERA = PAGE.replace(
+      '<button aria-label="Salir de la llamada">Salir</button>',
+      '<button id="entrar">Unirse ahora</button>'
+    );
+    await ctx.route("**/lmn-opqr-stu", (route) =>
+      route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: SALA_DE_ESPERA })
+    );
+    const p3 = await ctx.newPage();
+    p3.on("pageerror", (e) => errs.push(e.message.slice(0, 160)));
+    await p3.goto("http://localhost:4189/lmn-opqr-stu", { waitUntil: "domcontentloaded" });
+    await p3.waitForTimeout(3000);
+
+    check("al abrir el enlace, avisa YA en la sala de espera",
+      (await p3.locator("#unify-aviso").count()) === 1);
+    const t3 = await p3
+      .locator("#unify-aviso")
+      .evaluate((el) => el.shadowRoot?.querySelector(".caja")?.textContent?.trim() ?? "")
+      .catch(() => "");
+    check("y dice que te estás UNIENDO (no que ya estás adentro)",
+      /te estás uniendo a una reunión de Google Meet/.test(t3), t3.slice(0, 70));
+    check("sin montar el panel todavía (no hay nada que transcribir aún)",
+      (await p3.locator("#unify-root").count()) === 0);
+
+    // Dice que sí ANTES de entrar, y recién después entra a la llamada.
+    await p3.evaluate(() =>
+      document.getElementById("unify-aviso").shadowRoot.querySelector(".si").click()
+    );
+    await p3.evaluate(() => {
+      document.getElementById("entrar")?.remove();
+      const b = document.createElement("button");
+      b.setAttribute("aria-label", "Salir de la llamada");
+      document.body.appendChild(b);
+    });
+    await p3.waitForTimeout(3000);
+
+    check("al entrar, el panel se abre solo con lo que ya había aceptado",
+      await p3.evaluate(() =>
+        Boolean(document.getElementById("unify-root")?.shadowRoot?.querySelector(".drawer.is-open"))
+      ));
+    check("y no le vuelve a preguntar lo mismo del otro lado",
+      (await p3.locator("#unify-aviso").count()) === 0);
+    await p3.close();
+  }
+
   // ═══════ Meet en OTRO IDIOMA (o con otra redacción) ═══════
   //
   // La detección de "estoy dentro de la llamada" miraba el botón de colgar en

@@ -145,13 +145,39 @@
   //     sólo existen una vez adentro de la llamada. Es independiente del
   //     idioma y de cómo Google redacte sus etiquetas.
   const COLGAR_RE = /salir de la (llamada|videollamada)|abandonar la (llamada|videollamada)|leave call|hang up|sair da chamada|quitter l'appel|anruf verlassen|abbandona chiamata/i;
+  // El botón de ENTRAR: es lo que distingue la sala de espera de la llamada.
+  // Hace falta porque los controles de micrófono y cámara ([data-is-muted])
+  // existen en LAS DOS pantallas -- Meet muestra la vista previa antes de
+  // entrar -- así que sin esto la sala de espera se confundiría con estar
+  // adentro, y la extensión pediría el micrófono antes de que la persona
+  // decidiera entrar.
+  const ENTRAR_RE = /unirte ahora|unirse ahora|pedir unirse|participar ahora|join now|ask to join|entrar agora|pedir para participar|rejoindre|demander à participer|jetzt teilnehmen|partecipa ora/i;
+  const botonEntrar = () => {
+    for (const b of document.querySelectorAll("button, [role='button']")) {
+      const t = `${b.getAttribute("aria-label") || ""} ${b.textContent || ""}`;
+      if (ENTRAR_RE.test(t)) return true;
+    }
+    return false;
+  };
+
+  const controlesLlamada = () => document.querySelectorAll("[data-is-muted]").length >= 2;
+
   const inCall = () => {
     for (const b of document.querySelectorAll("button[aria-label]")) {
       if (COLGAR_RE.test(b.getAttribute("aria-label") || "")) return true;
     }
-    // Camino estructural: mic + cámara juntos = estás en la llamada.
-    return document.querySelectorAll("[data-is-muted]").length >= 2;
+    // Camino estructural, independiente del idioma: los controles de la
+    // llamada están presentes y YA NO hay botón de entrar.
+    return controlesLlamada() && !botonEntrar();
   };
+
+  /**
+   * La sala de espera: abriste el enlace (el que te mandaron por WhatsApp) y
+   * Meet te muestra la vista previa con "Unirse ahora". Es EL momento de
+   * avisar -- "veo que te estás uniendo" -- y no después, cuando la reunión ya
+   * empezó y estás hablando.
+   */
+  const enSalaDeEspera = () => !inCall() && (botonEntrar() || controlesLlamada());
 
   function ownToggle(kind) {
     const el =
@@ -797,7 +823,8 @@
   // si no contestás, a los 5 segundos se abre solo con los subtítulos.
   let toastMostrado = null; // código de reunión donde ya se avisó
   let toastTimer = null;
-  function avisarEnMeet(code) {
+  let aceptado = null;      // código donde ya dijo que sí (o venció la cuenta)
+  function avisarEnMeet(code, { enEspera = false } = {}) {
     if (toastMostrado === code) return;
     toastMostrado = code;
     try {
@@ -827,10 +854,16 @@
         .pie { margin-top: 8px; font-size: 12.5px; color: #94a3b8; }
       </style>
       <div class="caja" role="dialog" aria-label="Aviso de Unify">
-        <div>Veo que estás en una reunión de Google Meet. ¿Querés los subtítulos y grabar la reunión?</div>
+        <div class="msg"></div>
         <div class="fila"><button class="si">Sí, dale</button><button class="no">Ahora no</button></div>
         <div class="pie"></div>
       </div>`;
+    // El texto cambia según el momento: en la sala de espera se está
+    // "uniendo" (es el caso del enlace que te mandaron por WhatsApp), ya
+    // adentro se está "en" la reunión. Decirlo mal suena a robot.
+    root.querySelector(".msg").textContent = enEspera
+      ? "Veo que te estás uniendo a una reunión de Google Meet. ¿Querés los subtítulos y grabar la reunión?"
+      : "Veo que estás en una reunión de Google Meet. ¿Querés los subtítulos y grabar la reunión?";
     (document.body || document.documentElement).appendChild(host);
 
     const pie = root.querySelector(".pie");
@@ -850,12 +883,21 @@
       // Auto-SÍ: se abre el panel con la transcripción. La GRABACIÓN sigue
       // necesitando tu gesto (Chrome sólo la habilita así), y está a un clic
       // en el panel que se acaba de abrir.
-      ui.toggleDrawer(true);
+      aceptar();
     }, 1000);
+
+    // Aceptar en la SALA DE ESPERA no puede abrir un panel que todavía no
+    // existe: se recuerda la respuesta y el panel se abre solo al entrar a la
+    // llamada. Así, quien abrió el enlace de WhatsApp y dijo "sí" no tiene
+    // que volver a decirlo del otro lado.
+    const aceptar = () => {
+      aceptado = code;
+      if (ui.mounted) ui.toggleDrawer(true);
+    };
 
     root.querySelector(".si").addEventListener("click", () => {
       cerrar();
-      ui.toggleDrawer(true);
+      aceptar();
     });
     root.querySelector(".no").addEventListener("click", () => {
       try { sessionStorage.setItem(`unify-no:${code}`, "1"); } catch { /* sin storage */ }
@@ -871,18 +913,39 @@
         barButton.remove();
         stopMicFallback();
       }
-      // Salir de la reunión también cancela el aviso: si vuelve a entrar,
+      caps.region = null;
+      caps.observer?.disconnect();
+
+      // ANTES DE ENTRAR: éste es el momento del enlace que te mandaron por
+      // WhatsApp. Meet muestra la vista previa con "Unirse ahora" y Unify
+      // avisa ahí mismo -- no después, cuando la reunión ya arrancó. El panel
+      // NO se monta todavía y el micrófono ni se toca: hasta que no entres,
+      // no hay nada que transcribir.
+      if (code && enSalaDeEspera()) {
+        avisarEnMeet(code, { enEspera: true });
+        return;
+      }
+
+      // Ni reunión ni sala de espera: se limpia todo. Si vuelve a entrar,
       // vuelve a avisar (y no queda un timer viejo abriendo el panel solo).
       if (toastTimer) { clearInterval(toastTimer); toastTimer = null; }
       document.getElementById("unify-aviso")?.remove();
       toastMostrado = null;
-      caps.region = null;
-      caps.observer?.disconnect();
+      aceptado = null;
       return;
     }
     ui.mount();
     barButton.ensure();
-    avisarEnMeet(code);
+    // Si ya dijo que sí en la sala de espera, el panel se abre solo al entrar
+    // y no se le vuelve a preguntar lo mismo.
+    if (aceptado === code) {
+      document.getElementById("unify-aviso")?.remove();
+      if (toastTimer) { clearInterval(toastTimer); toastTimer = null; }
+      ui.toggleDrawer(true);
+      aceptado = null; // ya se cumplió; no reabrir si la persona lo cierra
+    } else {
+      avisarEnMeet(code);
+    }
 
     const captionsOn = watchCaptions() || ensureCaptionsOn();
     ui.setCaptionsReady(Boolean(caps.region));
