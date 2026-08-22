@@ -59,18 +59,21 @@ ficha de Chrome ya cubre a Edge.
 > Subtítulos en vivo con traducción, transcripción y grabación de tus videollamadas, con un asistente de IA.
 
 **Descripción larga:**
-> Unify te acompaña durante tus videollamadas: pone subtítulos en vivo, los traduce a tu idioma, guarda la transcripción y, si se lo pedís, graba la reunión.
+> Unify te acompaña en cualquier reunión, sin cambiar de plataforma.
 >
-> Cómo funciona
+> Dentro de la reunión
+> • Transcribe a todos los participantes: en Google Meet lee los subtítulos que genera la propia reunión, con el nombre de quien habla.
+> • Subtítulos traducidos en vivo: español, inglés, portugués, francés, alemán, italiano y chino.
+> • Graba la reunión completa, con el atajo Ctrl+Shift+U o desde el ícono de la barra.
+> • Roles por participante y un asistente de IA que responde sobre lo que se dijo.
 >
-> • Al entrar a una videollamada, Unify te ofrece activar los subtítulos y la grabación. Si no respondés, los subtítulos arrancan solos a los cinco segundos.
-> • Los subtítulos se ven sobre la llamada, con el nombre de quien habla y la traducción debajo. Elegís el idioma: español, inglés, portugués, francés, alemán, italiano o chino.
-> • La grabación la iniciás vos, desde el ícono de la barra o con Ctrl+Shift+U, y queda guardada en tu cuenta con la transcripción sincronizada palabra por palabra.
-> • Un asistente de IA responde preguntas sobre lo que se dijo — y sobre lo que se vio, porque también mira el video grabado.
+> Al entrar a una videollamada
+> • Unify te lo ofrece ahí mismo: “Veo que te estás uniendo a una reunión. ¿Querés los subtítulos y grabar?”.
+> • Si no respondés, a los cinco segundos arrancan solos los subtítulos.
+> • Un panel flotante muestra la transcripción en vivo, la foto de cada hablante y la traducción a tu idioma, con la IA para preguntar ahí mismo.
+> • La grabación queda en tu historial, con la transcripción sincronizada palabra por palabra y una IA que además mira el video grabado.
 >
-> En Google Meet, además, Unify lee los subtítulos que genera la propia reunión para transcribir a todos los participantes con su nombre, y permite asignarle un rol a cada persona.
->
-> Todo queda en tu cuenta de unify-meet.com, privado y sólo tuyo. Sin analytics, sin rastreadores y sin venta de datos.
+> Todo queda guardado en tu cuenta de Unify (unify-meet.com), privado y solo tuyo. Sin analytics, sin rastreadores y sin venta de datos.
 
 **Categoría:** Productividad · **Idioma:** Español
 
