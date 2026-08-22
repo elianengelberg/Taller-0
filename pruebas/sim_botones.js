@@ -26,7 +26,8 @@ const rnd = () => Math.random().toString(36).slice(2, 9);
 
   // ═══════ 1. Ninguna pantalla tiene botones muertos ═══════
   console.log("\n── 1. Botones que hacen algo ──");
-  const PANTALLAS = ["/", "/ingresar", "/registrarse", "/recuperar", "/instalar", "/soporte", "/privacidad", "/verificar-email"];
+  const PANTALLAS = ["/", "/ingresar", "/registrarse", "/recuperar", "/restablecer", "/instalar",
+    "/soporte", "/privacidad", "/verificar-email", "/crear", "/unirse", "/externa"];
   for (const ruta of PANTALLAS) {
     await page.goto(`${B}${ruta}`, { waitUntil: "networkidle" });
     await page.waitForTimeout(600);
@@ -66,6 +67,25 @@ const rnd = () => Math.random().toString(36).slice(2, 9);
     );
     const raros = internos.filter((h) => !rutasValidas.has((h || "").split("?")[0].split("#")[0]) && !h.startsWith("/instalar"));
     check(`${ruta}: los enlaces internos apuntan a rutas reales`, raros.length === 0, raros.join(" | "));
+
+    // SALIDA VISIBLE. Toda pantalla tiene que ofrecer una forma EVIDENTE de
+    // volver al inicio. El logo linkeado no cuenta: es un ícono, y quien
+    // entró por error a "iniciar sesión" no adivina que se puede tocar --
+    // termina usando el botón atrás del navegador, o yéndose.
+    if (ruta !== "/") {
+      const salida = await page.evaluate(() => {
+        const dice = (t) => /volver|inicio|cancelar/i.test((t || "").trim());
+        for (const a of document.querySelectorAll('a[href="/"]')) {
+          if (a.offsetParent !== null && dice(a.textContent)) return (a.textContent || "").trim();
+        }
+        for (const b of document.querySelectorAll("button")) {
+          if (b.offsetParent !== null && dice(b.textContent)) return (b.textContent || "").trim();
+        }
+        return null;
+      });
+      check(`${ruta}: hay una salida VISIBLE al inicio (no sólo el logo)`,
+        Boolean(salida), salida ?? "no se encontró ningún “volver”");
+    }
   }
 
   // ═══════ 2. Doble clic no manda dos veces ═══════

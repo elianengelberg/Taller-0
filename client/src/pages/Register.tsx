@@ -53,9 +53,18 @@ export default function Register() {
     <div className="relative flex min-h-screen flex-col items-center justify-center bg-ink-950 px-6 py-10">
       <GradientBackdrop />
       <div className="relative w-full max-w-md">
-        <div className="mb-8 flex justify-center">
+        {/* El logo lleva al inicio, pero nadie lo sabe: hay que VER un botón
+            que lo diga. Sin esto, quien abre "iniciar sesión" por error queda
+            sin salida visible y usa el botón atrás del navegador (o se va). */}
+        <div className="mb-8 flex flex-col items-center gap-3">
           <Link to="/" aria-label="Ir al inicio">
             <Logo tagline />
+          </Link>
+          <Link
+            to="/"
+            className="text-sm font-medium text-ink-300 underline-offset-4 hover:text-strong hover:underline"
+          >
+            ← Volver al inicio
           </Link>
         </div>
         <div className={`${cardClass} pop-enter`}>

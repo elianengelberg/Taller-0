@@ -6,7 +6,14 @@ const results = [];
 const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" : "FAIL"} ${n}${d ? " — " + d : ""}`); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const CODE = "xyz-" + Math.random().toString(36).slice(2, 6) + "-abc";
-const code = "xyz-qwer-abc"; // formato válido: 3-4-3
+// Código ÚNICO por corrida. Estaba fijo ("xyz-qwer-abc") y eso hacía fallar
+// la suite contra un servidor que llevaba horas prendido: la sala en memoria
+// de una corrida anterior seguía viva, con la reunión de OTRO usuario de
+// prueba adentro, y el historial que se leía no era el que se acababa de
+// escribir. Con servidor recién arrancado pasaba; con uno real, no. Una
+// prueba que depende de cuándo se reinició el servidor no prueba nada.
+const rnd3 = () => Array.from({ length: 3 }, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join("");
+const code = `${rnd3()}-${rnd3()}${rnd3()[0]}-${rnd3()}`; // formato válido: 3-4-3
 
 async function register(name) {
   const r = await fetch(`${API}/api/auth/register`, { method: "POST", headers: { "Content-Type": "application/json" },
@@ -48,13 +55,23 @@ const post = (p, b, token) => fetch(API + p, { method: "POST",
   const speakers = [...new Set(live.map((l) => l.speakerName))];
   check("llegan TODOS los hablantes, no solo uno", speakers.length === 3, speakers.join(", "));
   check("cada línea trae el nombre de quien habló", live.every((l) => l.speakerName && l.text));
-  check("la reunión es la misma para la web y para la extensión", live.length > 0 && dbId === joined.meeting.dbId);
+  // Esta comprobación era VACÍA: comparaba dbId con joined.meeting.dbId, y
+  // dbId se había definido como joined.meeting.dbId dos líneas antes -- una
+  // variable contra sí misma, siempre verdadera. Ahora compara de verdad la
+  // sala del SOCKET (la web) contra la que devuelve el BRIDGE (la extensión),
+  // que es lo único que importa: si difieren, las transcripciones se parten
+  // en dos historiales distintos.
+  const puente = await post(`/api/meet-bridge/${code}/transcript`,
+    { speaker: "Ana", text: "control de sala", lang: "es-AR" });
+  check("la reunión es la misma para la web y para la extensión",
+    live.length > 0 && puente.body?.dbId === joined.meeting.dbId,
+    `bridge=${puente.body?.dbId} socket=${joined.meeting.dbId}`);
 
   // Persistencia: el historial del dueño debe tener todo.
   const det = await fetch(`${API}/api/meetings/${dbId}`, { headers: { Authorization: `Bearer ${token}` } });
   const detail = await det.json();
   const msgs = detail?.meeting?.messages ?? [];
-  check("todo queda guardado en el historial", msgs.length >= 4, `mensajes=${msgs.length}`);
+  check("todo queda guardado en el historial", msgs.length >= 5, `mensajes=${msgs.length}`);
   const savedSpeakers = [...new Set(msgs.map((m) => m.senderName))];
   check("el historial conserva quién dijo cada cosa", savedSpeakers.length === 3, savedSpeakers.join(", "));
 
