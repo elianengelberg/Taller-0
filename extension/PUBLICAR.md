@@ -43,27 +43,34 @@ ficha de Chrome ya cubre a Edge.
 
 ## Textos de la ficha (copiar y pegar)
 
+> **POR QUÉ ESTOS TEXTOS SON ASÍ.** La versión 4.1.1 fue RECHAZADA por
+> "Yellow Argon: spam de palabras clave". Lo señalado fue textual el título
+> `EN ZOOM, TEAMS, JITSI, WEBEX, WHEREBY Y GOTO`: una lista de marcas en
+> mayúsculas se lee como relleno para posicionar, no como descripción. La
+> regla que sigue este texto: describir QUÉ HACE la extensión; nombrar una
+> plataforma sólo donde aporta información real (Google Meet, porque ahí hay
+> una integración distinta), nunca como enumeración. Las plataformas
+> soportadas se declaran donde corresponde: en los permisos de host y su
+> justificación.
+
 **Nombre:** Unify — asistente de reuniones
 
-**Descripción corta** (máx. 132 caracteres):
-> Subtítulos traducidos, transcripción y grabación en tus reuniones de Meet, Zoom, Teams y Jitsi — con IA sobre lo que se habló.
+**Descripción corta** (la toma del manifest, máx. 132 caracteres):
+> Subtítulos en vivo con traducción, transcripción y grabación de tus videollamadas, con un asistente de IA.
 
 **Descripción larga:**
-> Unify te acompaña en cualquier reunión, sin cambiar de plataforma.
+> Unify te acompaña durante tus videollamadas: pone subtítulos en vivo, los traduce a tu idioma, guarda la transcripción y, si se lo pedís, graba la reunión.
 >
-> DENTRO DE GOOGLE MEET
-> • Transcribe a TODOS los participantes (lee los subtítulos nativos de Meet, con el nombre de quien habla).
-> • Subtítulos traducidos en vivo: chino, inglés, alemán, francés, portugués, italiano y español.
-> • Graba la reunión completa (todas las voces) con un atajo: Ctrl+Shift+U.
-> • Roles por participante y un asistente de IA que responde sobre lo que se dijo.
+> Cómo funciona
 >
-> EN ZOOM, TEAMS, JITSI, WEBEX, WHEREBY Y GOTO
-> • Detecta que estás entrando a una reunión y te lo ofrece ahí mismo: “Veo que te estás uniendo a una reunión. ¿Querés los subtítulos y grabar?”
-> • Si no respondés, a los 5 segundos arranca solo con los subtítulos.
-> • Overlay flotante con la transcripción en vivo, la foto de cada hablante, la traducción automática en tu idioma y la IA para preguntar ahí mismo.
-> • La grabación queda en tu historial de Unify, con la transcripción sincronizada palabra por palabra y una IA que además MIRA el video grabado.
+> • Al entrar a una videollamada, Unify te ofrece activar los subtítulos y la grabación. Si no respondés, los subtítulos arrancan solos a los cinco segundos.
+> • Los subtítulos se ven sobre la llamada, con el nombre de quien habla y la traducción debajo. Elegís el idioma: español, inglés, portugués, francés, alemán, italiano o chino.
+> • La grabación la iniciás vos, desde el ícono de la barra o con Ctrl+Shift+U, y queda guardada en tu cuenta con la transcripción sincronizada palabra por palabra.
+> • Un asistente de IA responde preguntas sobre lo que se dijo — y sobre lo que se vio, porque también mira el video grabado.
 >
-> Todo queda guardado en tu cuenta de Unify (unify-meet.com), privado y solo tuyo. Sin analytics, sin trackers, sin venta de datos.
+> En Google Meet, además, Unify lee los subtítulos que genera la propia reunión para transcribir a todos los participantes con su nombre, y permite asignarle un rol a cada persona.
+>
+> Todo queda en tu cuenta de unify-meet.com, privado y sólo tuyo. Sin analytics, sin rastreadores y sin venta de datos.
 
 **Categoría:** Productividad · **Idioma:** Español
 

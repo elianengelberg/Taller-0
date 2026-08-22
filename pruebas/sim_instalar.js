@@ -99,6 +99,33 @@ const UA = {
       sinRegla.length === 0, sinRegla.join(", ") || "ninguno nuevo");
   }
 
+  // Nada de spam de palabras clave. La 4.1.1 fue rechazada por esto
+  // ("Yellow Argon"): la descripción llevaba el título
+  // "EN ZOOM, TEAMS, JITSI, WEBEX, WHEREBY Y GOTO", una lista de marcas que
+  // se lee como relleno para posicionar en las búsquedas. Los textos de la
+  // ficha describen la función; las plataformas se declaran donde
+  // corresponde, en los permisos de host.
+  {
+    const MARCAS = /\b(zoom|teams|jitsi|webex|whereby|goto|gotomeeting|skype|discord|bluejeans|chime|slack|whatsapp|zoho|dialpad|ringcentral|livestorm|gather|element)\b/gi;
+    const desc = manifest.description ?? "";
+    const enDesc = [...new Set((desc.match(MARCAS) ?? []).map((m) => m.toLowerCase()))];
+    check("el resumen del paquete no enumera marcas (spam de palabras clave)",
+      enDesc.length === 0, enDesc.join(", ") || "ninguna");
+    check("y describe la función, no las plataformas",
+      /subtítulo|transcri|grab|traduc/i.test(desc), desc.slice(0, 60));
+
+    // La descripción LARGA vive en PUBLICAR.md (es lo que se pega en la
+    // consola). Se revisa igual: una mención puntual con contexto está bien;
+    // una enumeración de cinco marcas es lo que hizo saltar la revisión.
+    const guia = fs.readFileSync(path.resolve(__dirname, "../extension/PUBLICAR.md"), "utf8");
+    const larga = guia.split("**Descripción larga:**")[1]?.split("**Categoría:**")[0] ?? "";
+    const enLarga = [...new Set((larga.match(MARCAS) ?? []).map((m) => m.toLowerCase()))];
+    check("la descripción larga no enumera plataformas",
+      enLarga.length <= 1, enLarga.join(", ") || "ninguna");
+    check("y no quedó ningún título de marcas en mayúsculas",
+      !/\b(ZOOM|TEAMS|JITSI|WEBEX|WHEREBY|GOTO)\b/.test(larga));
+  }
+
   // ═══════ 2. Chromium CARGA la extensión desde el ZIP descargado ═══════
   console.log("\n── 2. El paquete carga en Chromium real ──");
   {
