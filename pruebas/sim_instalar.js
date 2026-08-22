@@ -63,6 +63,42 @@ const UA = {
     !/localhost|taller-0\.vercel\.app/.test(JSON.stringify(manifest)) &&
     manifest.host_permissions.includes("https://meet.google.com/*"));
 
+  // Ningún permiso de adorno. La Web Store rechaza los paquetes que piden
+  // permisos que no usan -- y nos pasó de verdad: pedíamos "scripting" sin
+  // llamar jamás a chrome.scripting (nuestros content scripts se declaran en
+  // el manifest, que no necesita ese permiso). Un permiso de más es un
+  // rechazo, y además es pedirle a la gente acceso que no hace falta.
+  {
+    const codigo = ["background.js", "content.js", "prompt-injector.js", "offscreen.js", "popup.js", "auth-sync.js"]
+      .map((f) => fs.readFileSync(path.join(desem, f), "utf8"))
+      .join("\n");
+    // Cómo se comprueba cada permiso: por la API que lo necesita. activeTab no
+    // tiene API propia -- es lo que habilita tabCapture tras la invocación --
+    // así que se valida por su compañero.
+    const USO = {
+      scripting: /chrome\.scripting\./,
+      tabCapture: /chrome\.tabCapture\./,
+      storage: /chrome\.storage[.?]/,
+      offscreen: /chrome\.offscreen\./,
+      activeTab: /chrome\.tabCapture\./,
+      notifications: /chrome\.notifications\./,
+      alarms: /chrome\.alarms\./,
+      downloads: /chrome\.downloads\./,
+      cookies: /chrome\.cookies\./,
+      webRequest: /chrome\.webRequest\./,
+      declarativeNetRequest: /chrome\.declarativeNetRequest\./,
+    };
+    const sinUsar = (manifest.permissions ?? []).filter((perm) => {
+      const re = USO[perm];
+      return re ? !re.test(codigo) : false; // permiso desconocido: no se afirma nada
+    });
+    check("no se pide ningún permiso que el código no use",
+      sinUsar.length === 0, sinUsar.join(", ") || "todos en uso");
+    const sinRegla = (manifest.permissions ?? []).filter((perm) => !(perm in USO));
+    check("y todos los permisos del manifest están contemplados por esta prueba",
+      sinRegla.length === 0, sinRegla.join(", ") || "ninguno nuevo");
+  }
+
   // ═══════ 2. Chromium CARGA la extensión desde el ZIP descargado ═══════
   console.log("\n── 2. El paquete carga en Chromium real ──");
   {

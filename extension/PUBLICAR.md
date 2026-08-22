@@ -94,19 +94,16 @@ ficha de Chrome ya cubre a Edge.
 > ve su historial. No recopila datos de navegación ni ejecuta nada en otros
 > sitios.
 
+> Nota: el paquete ya NO pide el permiso `scripting` (se pedía sin usarse; la
+> versión 4.1.1 fue rechazada y esa era una causa segura). Si el formulario lo
+> sigue mostrando, es del borrador viejo: subir el ZIP nuevo lo saca.
+
 **Justificación de activeTab:**
 > Complementa a tabCapture para grabar la reunión: cuando el usuario invoca
 > la extensión (clic en el ícono de la barra o atajo Ctrl+Shift+U), activeTab
 > habilita la captura de la pestaña activa de la reunión. Es un acceso
 > puntual, otorgado por esa acción explícita del usuario, y no se usa para
 > leer contenido ni navegación de otras pestañas.
-
-**Justificación de scripting:**
-> Se usa para inyectar la interfaz de Unify (el panel de subtítulos y los
-> avisos de estado de la grabación) en las páginas de reuniones ya declaradas
-> en el manifest, por ejemplo al activar una función en una pestaña de
-> reunión que ya estaba abierta. Nunca ejecuta código fuera de las páginas de
-> reuniones listadas.
 
 **Justificación de tabCapture:**
 > Es la función central de grabación: captura el audio y el video de la
