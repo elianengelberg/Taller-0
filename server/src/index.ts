@@ -81,6 +81,7 @@ import {
   refreshAccessToken,
 } from "./microsoftAuth";
 import { addNamedTranscriptLine, getOrCreateCompanionMeeting, isLiveParticipant } from "./meetingStore";
+import { cleanTranscriptFragment, translateFragmentToAll } from "./transcriptCleanup";
 import { mailerEnabled } from "./mailer";
 import { rateLimit, userOrIp } from "./rateLimit";
 import { registerSocketHandlers } from "./socketHandlers";
@@ -95,7 +96,7 @@ import {
   uploadRecordingStream,
 } from "./storage";
 import { createTeamsUserToken, teamsEnabled } from "./teams";
-import { translateText } from "./translate";
+import { shortLang, translateText } from "./translate";
 import { generateMeetingSdkSignature, zoomEnabled } from "./zoom";
 
 // Since Node 15 an unhandled promise rejection CRASHES the process by
@@ -1744,13 +1745,44 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
   const speaker = String(req.body?.speaker ?? "").slice(0, 60);
   const text = String(req.body?.text ?? "").trim().slice(0, 2000);
   const lang = String(req.body?.lang ?? "es-AR").slice(0, 16);
+  // Lecturas alternativas del reconocimiento, si el cliente las tiene: más
+  // hipótesis para que la IA reconstruya la palabra que de verdad se dijo.
+  const alts = Array.isArray(req.body?.alts)
+    ? (req.body.alts as unknown[])
+        .filter((a): a is string => typeof a === "string")
+        .map((a) => a.trim().slice(0, 2000))
+        .filter(Boolean)
+        .slice(0, 3)
+    : [];
   if (!text) {
     res.status(400).json({ error: "text es obligatorio." });
     return;
   }
 
   const meeting = companionForRoomKey(roomKey);
-  const line = addNamedTranscriptLine(meeting, speaker, text, lang);
+
+  // El MISMO cerebro que las reuniones nativas (sin clave de Anthropic las
+  // dos funciones se apagan solas y esto queda exactamente como antes): la
+  // IA reconstruye la frase más probable a partir de las lecturas candidatas
+  // y el contexto reciente -- el reconocimiento confunde palabras que suenan
+  // parecido -- y las traducciones a los idiomas de los PRESENTES se calculan
+  // en paralelo y se emparchan sobre la línea apenas están listas.
+  const recentContext = meeting.transcript.slice(-4).map((l) => `${l.speakerName}: ${l.text}`);
+  const candidatas = [text, ...alts.filter((a) => a !== text)];
+  const targetLangs = Array.from(
+    new Set(
+      Array.from(meeting.participants.values())
+        .map((p) => shortLang(p.language ?? ""))
+        .filter((c) => c && c !== shortLang(lang))
+    )
+  );
+  const traduccionesPromise = translateFragmentToAll(candidatas, recentContext, targetLangs, lang);
+  const cleanup = await cleanTranscriptFragment(candidatas, recentContext, lang);
+  const textoFinal = cleanup.text || text;
+  const mismatch = cleanup.detectedLang !== null && cleanup.detectedLang !== shortLang(lang);
+  const sourceLang = mismatch ? cleanup.detectedLang! : lang;
+
+  const line = addNamedTranscriptLine(meeting, speaker, textoFinal, sourceLang);
   io.to(roomFor(meeting.id)).emit("transcript-line", { line });
   void recordMessage({
     meetingId: meeting.dbId,
@@ -1758,8 +1790,13 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
     senderName: line.speakerName,
     roleName: null,
     text: line.text,
-    sourceLang: lang,
+    sourceLang: line.sourceLang,
     spokenAt: new Date(),
+  });
+  void traduccionesPromise.then((translations) => {
+    if (Object.keys(translations).length === 0) return;
+    line.translations = translations;
+    io.to(roomFor(meeting.id)).emit("transcript-line-translations", { lineId: line.id, translations });
   });
   res.json({ ok: true, dbId: meeting.dbId, lineId: line.id });
 });

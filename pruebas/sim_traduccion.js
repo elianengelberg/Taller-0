@@ -33,6 +33,7 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
           { responseData: { translatedText: "MYMEMORY WARNING: YOU USED ALL AVAILABLE FREE TRANSLATIONS FOR TODAY" }, responseStatus: 200 };
         return { ok: true, json: async () => cuerpo } as any;
       };
+      (async () => {
       const out: any = {};
       out.hola = await translateText("Hello world", "auto", "es");
       out.urlAuto = llamadas[0];
@@ -47,6 +48,7 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
       try { await translateText("y otra mas", "en-US", "es"); out.errorWarning = "NO TIRO"; }
       catch { out.errorWarning = "tiro"; }
       console.log("RESULTADO:" + JSON.stringify(out));
+      })().catch((e) => { console.error(e); process.exit(1); });
     `;
     const salida = execFileSync("env", ["-u", "ANTHROPIC_API_KEY", "npx", "tsx", "-e", script], {
       cwd: "/home/user/Taller-0/server",
@@ -121,6 +123,9 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
       `panel=${j(codigosCnt)} web=${j(codigosWeb)}`);
     check("la autodetección del navegador (overlay) cubre los mismos", j(autoInj) === j(codigosWeb), j(autoInj));
     check("la autodetección del navegador (panel de Meet) también", j(autoCnt) === j(codigosWeb), j(autoCnt));
+    check("inglés, alemán y chino están SÍ O SÍ en todas las superficies",
+      ["en", "de", "zh"].every((c) =>
+        codigosWeb.includes(c) && codigosSrv.includes(c) && codigosInj.includes(c) && codigosCnt.includes(c)));
   }
 
   // ═══════ 4. La voz propia del overlay (la fábrica real, con dobles) ═══════
@@ -146,7 +151,7 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
       const crear = new Function("window", `${fabrica}; return crearVozPropia;`)(win);
       const voz = crear({
         lang: "es-AR",
-        alTextoFinal: (t) => finales.push(t),
+        alTextoFinal: (t, alts) => finales.push({ t, alts }),
         alTextoInterino: (t) => interinas.push(t),
         alFaltarPermiso: () => { sinPermiso += 1; },
       });
@@ -155,10 +160,14 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
         instancias[0].interimResults === true && instancias[0].lang === "es-AR");
       const r = instancias[0];
       r.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: " hola a todos " }], { isFinal: false })] });
-      r.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: "hola a todos" }], { isFinal: true })] });
+      r.onresult({ resultIndex: 0, results: [Object.assign(
+        [{ transcript: "hola a todos" }, { transcript: "ola a todos" }], { isFinal: true })] });
       check("lo interino y lo final llegan cada uno por su canal",
-        interinas[0] === "hola a todos" && finales[0] === "hola a todos",
+        interinas[0] === "hola a todos" && finales[0]?.t === "hola a todos",
         `int=${interinas.length} fin=${finales.length}`);
+      check("y las lecturas candidatas viajan con lo final",
+        JSON.stringify(finales[0]?.alts) === JSON.stringify(["ola a todos"]),
+        JSON.stringify(finales[0]?.alts));
       // Si el reconocimiento se corta solo (silencio largo), se relevanta
       // (con un setTimeout: el freno anti-martilleo vive ahí).
       r.onend();
@@ -187,13 +196,97 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
       const cfg = { serverBase: "https://srv.prueba" };
       const fetchFalso = async (url, opts) => { pedidos.push({ url, body: JSON.parse(opts.body) }); return { ok: true }; };
       const pub = new Function("cfg", "fetch", `${publicar}; return publicarVozPropia;`)(cfg, fetchFalso);
-      await pub({ roomKey: "zoom:91234567890" }, "hola a todos", "es-AR");
+      await pub({ roomKey: "zoom:91234567890" }, "hola a todos", "es-AR", ["ola a todos"]);
       check("publica en el bridge de ESA sala",
         pedidos[0]?.url === "https://srv.prueba/api/meet-bridge/zoom%3A91234567890/transcript", pedidos[0]?.url);
-      check("con hablante, texto e idioma de origen",
-        pedidos[0]?.body.speaker === "Vos" && pedidos[0]?.body.text === "hola a todos" && pedidos[0]?.body.lang === "es-AR",
+      check("con hablante, texto, idioma de origen y candidatas",
+        pedidos[0]?.body.speaker === "Vos" && pedidos[0]?.body.text === "hola a todos" &&
+        pedidos[0]?.body.lang === "es-AR" && JSON.stringify(pedidos[0]?.body.alts) === JSON.stringify(["ola a todos"]),
         JSON.stringify(pedidos[0]?.body));
     }
+  }
+
+  // ═══════ 5. El bridge pasa por la MISMA IA que las reuniones nativas ═══════
+  console.log("\n── 5. Bridge + IA: corrige la frase y trae la traducción pegada ──");
+  {
+    const http = require("http");
+    const { spawn } = require("child_process");
+    const { io } = require("/home/user/Taller-0/client/node_modules/socket.io-client");
+    // El doble de Anthropic: corrige la frase en el formato del cleanup y
+    // contesta las TRAD_xx que el prompt de traducción múltiple pida.
+    const vistos = [];
+    const stub = http.createServer((req, res) => {
+      let cuerpo = "";
+      req.on("data", (c) => (cuerpo += c));
+      req.on("end", () => {
+        let body = {};
+        try { body = JSON.parse(cuerpo || "{}"); } catch {}
+        vistos.push(body);
+        const sys = String(body.system ?? "");
+        const texto = /TRAD_/.test(sys)
+          ? [...new Set([...sys.matchAll(/TRAD_([a-z]{2})/g)].map((m) => m[1]))]
+              .map((c) => `TRAD_${c}: [${c}] the blue slide shows the sales curve`).join("\n")
+          : "IDIOMA: es\nTEXTO: la lámina azul muestra la curva de ventas";
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ id: "msg_1", type: "message", role: "assistant", model: "x",
+          content: [{ type: "text", text: texto }], stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1 } }));
+      });
+    });
+    await new Promise((r) => stub.listen(4179, r));
+
+    const server = spawn("npx", ["tsx", "src/index.ts"], {
+      cwd: "/home/user/Taller-0/server",
+      env: { ...process.env,
+        DATABASE_URL: "postgres://postgres@localhost:5433/unify",
+        AUTH_SECRET: "clave-de-pruebas-local-larga-1234567890",
+        PORT: "4009", CLIENT_ORIGIN: "http://localhost:4174", MAIL_LOG: "1",
+        ANTHROPIC_API_KEY: "sk-prueba-falsa", ANTHROPIC_BASE_URL: "http://localhost:4179",
+      }, stdio: "ignore",
+    });
+    let arriba = false;
+    for (let i = 0; i < 60 && !arriba; i++) {
+      try { arriba = (await fetch("http://localhost:4009/api/health")).ok; } catch {}
+      if (!arriba) await new Promise((r) => setTimeout(r, 500));
+    }
+    check("el servidor de prueba con la IA estubada levanta", arriba);
+
+    const key = `zoom:7${Date.now() % 1e9}${Math.floor(Math.random() * 9)}`;
+    const socket = io("http://localhost:4009", { transports: ["websocket"] });
+    const lineas = []; const parches = [];
+    socket.on("transcript-line", (p) => lineas.push(p.line));
+    socket.on("transcript-line-translations", (p) => parches.push(p));
+    await new Promise((resolve) => {
+      socket.emit("join-companion", { externalKey: key, name: "Viewer EN", language: "en-US" }, resolve);
+      setTimeout(resolve, 4000);
+    });
+
+    const res = await fetch(`http://localhost:4009/api/meet-bridge/${encodeURIComponent(key)}/transcript`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ speaker: "Vos", text: "la lamina asul muestra la curba de bentas",
+        alts: ["la lámina azul muestra la curva de ventas"], lang: "es-AR" }),
+    });
+    check("el bridge acepta la línea con sus lecturas candidatas", res.ok, `HTTP ${res.status}`);
+    await new Promise((r) => setTimeout(r, 2000));
+
+    check("la línea sale CORREGIDA por la IA, no la lectura cruda",
+      lineas.some((l) => l.text === "la lámina azul muestra la curva de ventas"),
+      JSON.stringify(lineas.map((l) => l.text)).slice(0, 100));
+    const mensajes = vistos.map((v) => JSON.stringify(v.messages ?? ""));
+    check("las candidatas viajaron JUNTAS hasta la IA (1. cruda, 2. alternativa)",
+      mensajes.some((m) => m.includes("1. la lamina asul") && m.includes("2. la lámina azul")));
+    check("la traducción al idioma del espectador llega como parche por el socket",
+      parches.some((p) => p.translations?.en?.includes("blue slide")),
+      JSON.stringify(parches).slice(0, 100));
+    const ses = await fetch(`http://localhost:4009/api/meet-bridge/${encodeURIComponent(key)}/session`).then((r) => r.json());
+    const linea = (ses.transcript ?? []).find((l) => (l.text ?? "").includes("lámina azul"));
+    check("el overlay (sondeo de /session) ve el texto corregido con su traducción pegada",
+      Boolean(linea) && linea.translations?.en?.includes("blue slide"),
+      JSON.stringify(linea)?.slice(0, 140));
+
+    socket.close();
+    server.kill();
+    await new Promise((r) => stub.close(r));
   }
 
   const failed = results.filter((r) => !r).length;

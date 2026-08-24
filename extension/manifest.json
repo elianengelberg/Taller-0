@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Unify — asistente de reuniones",
-  "version": "4.3.2",
+  "version": "4.4.0",
   "description": "Subtítulos en vivo con traducción, transcripción y grabación de tus videollamadas, con un asistente de IA.",
   "permissions": [
     "activeTab",

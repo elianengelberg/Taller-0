@@ -1,5 +1,5 @@
 // La extensión v4 REAL en Chromium real (bajo xvfb): detección de reuniones
-// externas, el toast "Veo que te estás uniendo…", el auto-SÍ a los 5
+// externas, el toast "Uy, veo que te estás uniendo…", el auto-SÍ a los 5
 // segundos, la grabación del carril B (getDisplayMedia con la pestaña
 // preseleccionada), el overlay en vivo y los subtítulos traducidos.
 //
@@ -158,8 +158,8 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
   const toast = page.locator(".caja");
   check("el toast aparece con los matches del manifest PUBLICADO", (await toast.count()) === 1);
   const texto = await toast.textContent().catch(() => "");
-  check("dice “Veo que te estás uniendo…” y ofrece subtítulos + grabación",
-    /Veo que te estás uniendo a una reunión de Zoom/.test(texto) && /subtítulos y grabar/.test(texto),
+  check("dice “Uy, veo que te estás uniendo…” y ofrece grabarla",
+    /Uy, veo que te estás uniendo a una reunión de Zoom/.test(texto) && /¿Querés grabarla\?/.test(texto) && /subtítulos/.test(texto),
     texto.slice(0, 80));
   check("avisa la cuenta regresiva del auto-SÍ", /arranco solo/.test(texto));
   check("ofrece el atajo del carril A en el pie", /Ctrl\+Shift\+U/.test(texto));

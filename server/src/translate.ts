@@ -186,9 +186,15 @@ function cacheKey(text: string, source: string, target: string): string {
 }
 
 async function translateWithClaude(text: string, from: string, to: string): Promise<string> {
-  const expertise = languageExpertiseHints([from, to]);
+  const sinOrigen = ORIGEN_DESCONOCIDO.has(from);
+  const expertise = languageExpertiseHints(sinOrigen ? [to] : [from, to]);
   const system =
-    `Translate the user's message from ${languageName(from)} to ${languageName(to)}. ` +
+    (sinOrigen
+      ? `Translate the user's message into ${languageName(to)}, detecting the source language yourself. `
+      : `Translate the user's message from ${languageName(from)} to ${languageName(to)}. `) +
+    `The message is a live-caption fragment from speech recognition and may contain misheard ` +
+    `words; translate the meaning the speaker most likely intended, in natural, idiomatic ` +
+    `${languageName(to)}. ` +
     `Reply with ONLY the translated text -- no quotes, no notes, no explanations.` +
     (expertise ? `\n\n${expertise}` : "");
   const response = await anthropicClient!.messages.create({
@@ -207,7 +213,8 @@ async function translateWithClaude(text: string, from: string, to: string): Prom
 async function translateWithMyMemory(text: string, from: string, to: string): Promise<string> {
   const url = new URL("https://api.mymemory.translated.net/get");
   url.searchParams.set("q", text);
-  url.searchParams.set("langpair", `${from}|${to}`);
+  // Su palabra clave de autodetección es "Autodetect", no "auto".
+  url.searchParams.set("langpair", `${ORIGEN_DESCONOCIDO.has(from) ? "Autodetect" : from}|${to}`);
 
   const response = await fetch(url.toString());
   if (!response.ok) {
@@ -216,15 +223,31 @@ async function translateWithMyMemory(text: string, from: string, to: string): Pr
 
   const data = (await response.json()) as {
     responseData?: { translatedText?: string };
-    responseStatus?: number;
+    responseStatus?: number | string;
   };
+
+  // MyMemory contesta HTTP 200 hasta cuando falla: su estado real viene en el
+  // JSON, y sus errores vienen como TEXTO adentro de translatedText. Sin
+  // estas dos guardas, "'AUTO' IS AN INVALID SOURCE LANGUAGE" (o el cartel de
+  // cuota agotada) aparecía EN PANTALLA como si fuera la traducción.
+  if (data.responseStatus !== undefined && Number(data.responseStatus) !== 200) {
+    throw new Error(`Translation provider status ${data.responseStatus}`);
+  }
 
   const translated = data.responseData?.translatedText;
   if (!translated) {
     throw new Error("Translation provider returned no result");
   }
+  if (/INVALID (SOURCE|TARGET) LANGUAGE|MYMEMORY WARNING|NO QUERY|QUERY LENGTH LIMIT/i.test(translated)) {
+    throw new Error("Translation provider returned an error message instead of a translation");
+  }
   return translated;
 }
+
+// "No sé en qué idioma está": el overlay de la extensión no siempre lo sabe.
+// Cada proveedor tiene su forma de decirlo -- y NO es pasarle el literal
+// "auto", que para MyMemory es "un idioma inválido".
+const ORIGEN_DESCONOCIDO = new Set(["auto", "", "und"]);
 
 export async function translateText(
   text: string,

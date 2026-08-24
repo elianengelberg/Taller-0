@@ -255,6 +255,8 @@
       font: 13px system-ui, sans-serif; cursor: pointer; }
     .trad { font-size: 14px; line-height: 1.4; color: #a5b4fc; margin-top: 1px;
       overflow-wrap: anywhere; }
+    .interina { font-size: 14px; line-height: 1.4; color: #94a3b8; font-style: italic;
+      overflow-wrap: anywhere; margin-top: 4px; }
     .aviso { margin-top: 8px; font-size: 12px; color: #fca5a5; }
     .ok { margin-top: 8px; font-size: 12px; color: #6ee7b7; }
     .iafila { display: flex; gap: 6px; margin-top: 10px; }
@@ -283,6 +285,7 @@
   }
 
   function quitarUI() {
+    if (vozPropia) { vozPropia.parar(); vozPropia = null; }
     if (overlayTimer) { clearInterval(overlayTimer); overlayTimer = null; }
     if (toastTimer) { clearInterval(toastTimer); toastTimer = null; }
     // Cerrada la UI, ningún clic suelto debe abrir el selector de pantalla.
@@ -315,6 +318,92 @@
     try { return Boolean(sessionStorage.getItem(`unify-si:${roomKey}`)); } catch { return false; }
   }
 
+  // --- Tu voz, transcripta de verdad -----------------------------------------
+  // El overlay muestra lo que llega al bridge, pero alguien tiene que PONER
+  // líneas ahí. En Meet lo hace el panel leyendo los subtítulos nativos; en
+  // las demás plataformas no hay subtítulos que leer, así que se escucha el
+  // micrófono con el reconocimiento del navegador (la misma técnica del
+  // respaldo por micrófono del panel de Meet). Una pestaña sólo escucha TU
+  // voz: los demás aparecen cuando cada quien abre Unify de su lado.
+  function crearVozPropia({ lang, alTextoFinal, alTextoInterino, alFaltarPermiso }) {
+    const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let rec = null;
+    let activa = false;
+    let fallasSeguidas = 0;
+    function arrancar() {
+      if (!Ctor || activa) return false;
+      const r = new Ctor();
+      r.lang = lang;
+      r.continuous = true;
+      r.interimResults = true;
+      // Tres lecturas candidatas por fragmento: la primera es la mejor, y
+      // las otras dos le dan a la IA de limpieza del servidor más hipótesis
+      // para reconstruir la palabra que de verdad se dijo.
+      r.maxAlternatives = 3;
+      r.onresult = (ev) => {
+        fallasSeguidas = 0;
+        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+          const res = ev.results[i];
+          const texto = res[0]?.transcript?.trim();
+          if (!texto) continue;
+          if (res.isFinal) {
+            const alts = [];
+            for (let j = 1; j < res.length && j < 3; j++) {
+              const otra = res[j]?.transcript?.trim();
+              if (otra && otra !== texto) alts.push(otra);
+            }
+            alTextoFinal(texto, alts);
+          } else {
+            alTextoInterino(texto);
+          }
+        }
+      };
+      r.onerror = (ev) => {
+        if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
+          // Sin micrófono no hay drama: los subtítulos de los DEMÁS siguen
+          // llegando por el bridge. Se avisa una vez y no se insiste.
+          activa = false;
+          alFaltarPermiso();
+          return;
+        }
+        fallasSeguidas += 1;
+      };
+      r.onend = () => {
+        // El reconocimiento se corta solo tras un silencio: relevantarlo es
+        // lo que lo vuelve continuo. Pero si falla y falla (sin red hacia el
+        // servicio de voz), insistir sería martillar: varias seguidas y listo.
+        if (!activa) return;
+        if (fallasSeguidas >= 8) { activa = false; return; }
+        setTimeout(() => {
+          if (activa) { try { r.start(); } catch { /* ya estaba arrancando */ } }
+        }, fallasSeguidas ? 800 : 0);
+      };
+      try { r.start(); } catch { return false; }
+      rec = r;
+      activa = true;
+      return true;
+    }
+    function parar() {
+      activa = false;
+      try { rec?.stop(); } catch { /* ya estaba muerto */ }
+      rec = null;
+    }
+    return { arrancar, parar };
+  }
+  let vozPropia = null;
+
+  // La línea final viaja al bridge de ESTA sala: así la ven el overlay (al
+  // próximo sondeo), el companion web si está abierto, el historial y la IA.
+  async function publicarVozPropia(det, texto, lang, alts = []) {
+    try {
+      await fetch(`${cfg.serverBase}/api/meet-bridge/${encodeURIComponent(det.roomKey)}/transcript`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ speaker: "Vos", text: texto, lang, alts }),
+      });
+    } catch { /* sin red: la próxima línea lo reintenta sola */ }
+  }
+
   // --- Toast inicial -----------------------------------------------------------
   function mostrarToast(det) {
     // Borrón y cuenta nueva: si quedó un overlay sondeando la reunión
@@ -330,7 +419,7 @@
     caja.setAttribute("aria-label", "Aviso de Unify");
 
     const texto = document.createElement("div");
-    texto.textContent = `Veo que te estás uniendo a una reunión de ${det.nombre}. ¿Querés los subtítulos y grabar la reunión?`;
+    texto.textContent = `Uy, veo que te estás uniendo a una reunión de ${det.nombre}. ¿Querés grabarla? Los subtítulos con traducción y la transcripción van incluidos.`;
 
     const fila = document.createElement("div");
     fila.className = "fila";
@@ -350,7 +439,7 @@
     const cuenta = document.createElement("div");
     cuenta.className = "pie";
     let restante = 5;
-    cuenta.textContent = `Si no respondés, en ${restante} arranco solo con los subtítulos.`;
+    cuenta.textContent = `Si no respondés, en ${restante} arranco solo con los subtítulos y la transcripción.`;
 
     const pie = document.createElement("div");
     pie.className = "pie";
@@ -371,7 +460,7 @@
       }
       restante -= 1;
       if (restante > 0) {
-        cuenta.textContent = `Si no respondés, en ${restante} arranco solo con los subtítulos.`;
+        cuenta.textContent = `Si no respondés, en ${restante} arranco solo con los subtítulos y la transcripción.`;
         return;
       }
       clearInterval(toastTimer);
@@ -442,8 +531,11 @@
         systemAudio: "include",
       });
     } catch {
-      // Canceló el selector: no es un error y no se insiste. El toast queda.
+      // Canceló el selector: no es un error y no se insiste con la pantalla
+      // (queda el botón Grabar del overlay). Pero dijo que SÍ: si el overlay
+      // no está todavía (venía del toast), los subtítulos arrancan igual.
       pidiendoPantalla = false;
+      if (!rootRef?.querySelector(".subs")) mostrarOverlay(det, { grabandoAca: false });
       return;
     }
 
@@ -569,7 +661,7 @@
     idioma.className = "sel";
     for (const [valor, etiqueta] of [
       ["", "Sin traducir"], ["es", "Español"], ["en", "English"], ["pt", "Português"],
-      ["fr", "Français"], ["de", "Deutsch"], ["it", "Italiano"], ["zh", "中文"],
+      ["fr", "Français"], ["de", "Deutsch"], ["it", "Italiano"], ["zh", "中文"], ["ja", "日本語"],
     ]) {
       const op = document.createElement("option");
       op.value = valor;
@@ -672,7 +764,7 @@
     const pie = document.createElement("div");
     pie.className = "pie";
     pie.textContent =
-      "Acordate: una pestaña sólo escucha tu micrófono. Para transcribir a TODOS, que cada quien abra Unify al lado, o usá la extensión dentro de Google Meet.";
+      "Unify transcribe TU voz con el micrófono. Para transcribir a TODOS, que cada quien abra Unify de su lado (o usá la extensión dentro de Google Meet).";
 
     caja.append(rec, idioma, subs, iaFila, iaResp, fila, pie);
     root.appendChild(caja);
@@ -706,6 +798,13 @@
     // y demás) salen del MISMO endpoint /api/translate del servidor.
     const traducir = async (linea) => {
       if (!cfg.lang || traducciones.has(linea.id)) return;
+      // El idioma de origen viene en la línea: si ya es el tuyo, ni se pide
+      // (ahorra red y rate limit; el render igual oculta las idénticas).
+      const origen = (linea.sourceLang || "").split("-")[0].toLowerCase();
+      if (origen && origen === cfg.lang) return;
+      // Si el servidor ya la calculó (viene pegada a la línea), ni se pide.
+      const hecha = linea.translations?.[cfg.lang];
+      if (hecha) { traducciones.set(linea.id, hecha); return; }
       // Techo de memoria para reuniones de horas: pasado el tope se vacía y
       // se re-traduce sólo lo visible (4 líneas), que es barato.
       if (traducciones.size > 400) traducciones.clear();
@@ -714,7 +813,7 @@
         const res = await fetch(`${cfg.serverBase}/api/translate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: linea.text, source: "auto", target: cfg.lang }),
+          body: JSON.stringify({ text: linea.text, source: linea.sourceLang || "auto", target: cfg.lang }),
         });
         if (!res.ok) { traducciones.delete(linea.id); return; }
         const data = await res.json();
@@ -766,6 +865,8 @@
         row.append(foto, cuerpo);
         subs.appendChild(row);
       }
+      // La línea interina (lo que estás diciendo AHORA) va siempre última.
+      if (textoInterino) pintarInterina();
       subs.scrollTop = subs.scrollHeight;
     };
 
@@ -779,6 +880,46 @@
         pintar(s.transcript, s.participants);
       } catch { /* red caída: el próximo tick reintenta */ }
     };
+    // Tu voz: arranca junto con el overlay. Lo interino se pinta al instante
+    // (sin esperar al sondeo) y lo final viaja al bridge.
+    const idiomaVoz = navigator.language || "es-AR";
+    let textoInterino = "";
+    const pintarInterina = () => {
+      if (textoInterino) subs.querySelector(".vacio")?.remove();
+      let el = subs.querySelector(".interina");
+      if (!textoInterino) { el?.remove(); return; }
+      if (!el) {
+        el = document.createElement("div");
+        el.className = "interina";
+        subs.appendChild(el);
+      }
+      el.textContent = `Vos: ${textoInterino}`;
+      subs.scrollTop = subs.scrollHeight;
+    };
+    if (vozPropia) vozPropia.parar();
+    vozPropia = crearVozPropia({
+      lang: idiomaVoz,
+      alTextoFinal: (texto, alts) => {
+        textoInterino = "";
+        pintarInterina();
+        void publicarVozPropia(det, texto, idiomaVoz, alts).then(() => sondear());
+      },
+      alTextoInterino: (texto) => {
+        textoInterino = texto;
+        pintarInterina();
+      },
+      alFaltarPermiso: () => {
+        // En el lugar de los subtítulos, no como alarma aparte: sin micrófono
+        // el overlay sigue sirviendo (los demás llegan por el bridge).
+        const vacio = subs.querySelector(".vacio");
+        if (vacio) {
+          vacio.textContent =
+            "Sin permiso de micrófono no puedo transcribir tu voz; los subtítulos de los demás llegan igual.";
+        }
+      },
+    });
+    vozPropia.arrancar();
+
     void sondear();
     overlayTimer = setInterval(sondear, 2500);
   }
@@ -811,7 +952,7 @@
   // La traducción arranca sola en el idioma del navegador. La distinción que
   // importa: `lang` AUSENTE del storage es "nunca eligió" (traducir al idioma
   // de su Chrome); `lang: ""` es "eligió Sin traducir" (respetarlo).
-  const IDIOMAS = ["es", "en", "pt", "fr", "de", "it", "zh"];
+  const IDIOMAS = ["es", "en", "pt", "fr", "de", "it", "zh", "ja"];
   function idiomaDelNavegador() {
     const dos = String(navigator.language || "").slice(0, 2).toLowerCase();
     return IDIOMAS.includes(dos) ? dos : "";

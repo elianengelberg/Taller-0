@@ -110,7 +110,7 @@
     }
   }
 
-  async function emit(speaker, text) {
+  async function emit(speaker, text, alts = []) {
     const code = meetCode();
     if (!code || !text) return;
     const line = pushLocal(speaker, text);
@@ -120,7 +120,7 @@
     try {
       const r = await api(`/api/meet-bridge/${code}/transcript`, {
         method: "POST",
-        body: JSON.stringify({ speaker: line.speaker, text, lang: navigator.language || "es-AR" }),
+        body: JSON.stringify({ speaker: line.speaker, text, lang: navigator.language || "es-AR", alts }),
       });
       if (r?.dbId) state.session.dbId = r.dbId;
       ui.setStatus("live");
@@ -337,15 +337,25 @@
     r.lang = navigator.language || "es-AR";
     r.continuous = true;
     r.interimResults = true;
-    r.maxAlternatives = 1;
+    // Tres lecturas candidatas: la IA del servidor elige la palabra que de
+    // verdad tiene sentido (ver transcriptCleanup.ts del lado del servidor).
+    r.maxAlternatives = 3;
     r.onresult = (ev) => {
       state.micDenied = false;
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const res = ev.results[i];
         const text = res[0]?.transcript?.trim();
         if (!text) continue;
-        if (res.isFinal) void emit("Vos", text);
-        else ui.showSubtitle({ speaker: "Vos", text, translated: null });
+        if (res.isFinal) {
+          const alts = [];
+          for (let j = 1; j < res.length && j < 3; j++) {
+            const otra = res[j]?.transcript?.trim();
+            if (otra && otra !== text) alts.push(otra);
+          }
+          void emit("Vos", text, alts);
+        } else {
+          ui.showSubtitle({ speaker: "Vos", text, translated: null });
+        }
       }
     };
     r.onerror = (ev) => {
@@ -422,7 +432,11 @@
             <option value="es">ES</option>
             <option value="en">EN</option>
             <option value="pt">PT</option>
+            <option value="fr">FR</option>
             <option value="de">DE</option>
+            <option value="it">IT</option>
+            <option value="zh">中文</option>
+            <option value="ja">日本語</option>
           </select>
         </div>
 
@@ -1006,7 +1020,7 @@
     if (code) keys.push(`roles:${code}`);
     // `lang` AUSENTE es "nunca eligió": la traducción arranca sola en el
     // idioma del navegador. `lang: ""` es "eligió Sin traducir": se respeta.
-    const IDIOMAS = ["es", "en", "pt", "fr", "de", "it", "zh"];
+    const IDIOMAS = ["es", "en", "pt", "fr", "de", "it", "zh", "ja"];
     const delNavegador = () => {
       const dos = String(navigator.language || "").slice(0, 2).toLowerCase();
       return IDIOMAS.includes(dos) ? dos : "";
