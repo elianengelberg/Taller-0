@@ -1,0 +1,44 @@
+# Mantener el servidor despierto.
+#
+# El plan gratuito de Render apaga la instancia tras ~15 minutos sin visitas.
+# La siguiente persona que entra paga el despertar: hasta un minuto mirando
+# una pantalla que parece rota. Este cron le da un golpecito cada 10 minutos
+# para que eso no pase.
+#
+# Se pega a /api/health a propósito: no toca la base de datos ni ninguna
+# cuenta, es la ruta más barata que existe en el servidor.
+#
+# Dos verdades sobre este arreglo, para no venderlo mejor de lo que es:
+#  - GitHub desactiva los cron de repositorios sin actividad por 60 días. Si
+#    el proyecto queda quieto, hay que volver a habilitarlo desde la pestaña
+#    Actions (o hacer un commit).
+#  - Los horarios de GitHub no son exactos: bajo carga, una corrida puede
+#    demorarse varios minutos. Alcanza igual para el objetivo.
+#
+# La solución definitiva es un plan pago de Render (la instancia no duerme).
+# Esto es lo mejor que se puede hacer sin gastar un peso.
+name: Mantener el servidor despierto
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Despertar la API
+        run: |
+          for intento in 1 2 3; do
+            codigo=$(curl -sS -o /tmp/salud.json -w "%{http_code}" --max-time 90 \
+              https://taller-0.onrender.com/api/health || echo "000")
+            echo "intento $intento -> HTTP $codigo"
+            if [ "$codigo" = "200" ]; then
+              cat /tmp/salud.json
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "La API no respondió 200 después de 3 intentos."
+          exit 1

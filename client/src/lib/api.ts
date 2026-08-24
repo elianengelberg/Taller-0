@@ -101,14 +101,53 @@ export interface MeetingHistoryDetail extends MeetingHistorySummary {
 // something is genuinely broken (bad CORS config, wrong URL, etc.).
 const TIMEOUT_MS = 55_000;
 
+// El servidor duerme, y eso se AVISA.
+//
+// El plan gratuito de Render apaga la instancia tras un rato sin visitas, y
+// la primera llamada la despierta: puede tardar casi un minuto. La app no se
+// cayó -- está esperando -- pero en silencio se siente exactamente igual que
+// si estuviera rota. Pasados unos segundos se avisa una sola vez, y cuando
+// vuelve la primera respuesta se avisa que ya está.
+const AVISO_LENTO_MS = 4_000;
+let avisadoDormido = false;
+
+function avisarDespertando(): void {
+  if (avisadoDormido) return;
+  avisadoDormido = true;
+  window.dispatchEvent(new CustomEvent("unify:servidor-despertando"));
+}
+function avisarDespierto(): void {
+  if (!avisadoDormido) return;
+  avisadoDormido = false;
+  window.dispatchEvent(new CustomEvent("unify:servidor-despierto"));
+}
+
 async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const lento = setTimeout(avisarDespertando, AVISO_LENTO_MS);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const res = await fetch(url, { ...init, signal: controller.signal });
+    avisarDespierto();
+    return res;
   } finally {
     clearTimeout(timeout);
+    clearTimeout(lento);
   }
+}
+
+/**
+ * Golpea /api/health apenas abre la app, sin esperar la respuesta.
+ *
+ * Si el servidor estaba dormido, empieza a despertarse MIENTRAS la persona
+ * mira la pantalla de inicio, en vez de hacerlo cuando ya apuró un botón. Es
+ * la diferencia entre "tardó un poco" y "no anda". No toca la base de datos
+ * ni la cuenta: es el endpoint más barato que hay.
+ */
+export function despertarServidor(): void {
+  const ctl = new AbortController();
+  setTimeout(() => ctl.abort(), 60_000);
+  void fetch(`${SERVER_URL}/api/health`, { signal: ctl.signal, cache: "no-store" }).catch(() => {});
 }
 
 // --- Auth ------------------------------------------------------------------

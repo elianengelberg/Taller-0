@@ -79,7 +79,31 @@ function enReunion(): boolean {
   return p === "/reunion" || p === "/externa/reunion";
 }
 
+/**
+ * El aviso de "el servidor estaba dormido".
+ *
+ * El plan gratuito de Render apaga la instancia tras un rato sin visitas y la
+ * primera llamada la despierta: puede tardar casi un minuto. Sin decir nada,
+ * eso se siente idéntico a que la app está rota, y la gente cierra la
+ * pestaña. Con una línea honesta, espera.
+ */
+function avisosDeServidorDormido(): void {
+  window.addEventListener("unify:servidor-despertando", () => {
+    showToast(
+      {
+        kind: "info",
+        text: "El servidor estaba en reposo y se está encendiendo. Puede tardar hasta un minuto la primera vez.",
+      },
+      60_000
+    );
+  });
+  window.addEventListener("unify:servidor-despierto", () => {
+    showToast({ kind: "info", text: "Listo, el servidor ya está despierto." }, 4000);
+  });
+}
+
 export function initPwa(): void {
+  avisosDeServidorDormido();
   window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault(); // sin mini-barra automática: instala /instalar
     deferredInstall = e as BeforeInstallPromptEvent;
