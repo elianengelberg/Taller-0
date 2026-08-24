@@ -243,6 +243,10 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
         PORT: "4009", CLIENT_ORIGIN: "http://localhost:4174", MAIL_LOG: "1",
         ANTHROPIC_API_KEY: "sk-prueba-falsa", ANTHROPIC_BASE_URL: "http://localhost:4179",
       }, stdio: "ignore",
+      // Grupo propio: matar sólo el npx deja al tsx HUÉRFANO (le pasó a esta
+      // suite: el huérfano confundía a las corridas siguientes). Con detached
+      // se mata el grupo entero al final.
+      detached: true,
     });
     let arriba = false;
     for (let i = 0; i < 60 && !arriba; i++) {
@@ -285,7 +289,7 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
       JSON.stringify(linea)?.slice(0, 140));
 
     socket.close();
-    server.kill();
+    try { process.kill(-server.pid); } catch { server.kill(); }
     await new Promise((r) => stub.close(r));
   }
 
