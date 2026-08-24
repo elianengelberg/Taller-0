@@ -1,7 +1,29 @@
-# Publicar la extensión en la Chrome Web Store
+# La extensión en la Chrome Web Store
 
-Todo lo de abajo está listo para copiar y pegar. El único trámite que no se
-puede automatizar es tuyo: la cuenta de desarrollador y la revisión de Google.
+**PUBLICADA el 22 de agosto de 2026.**
+Ficha: https://chromewebstore.google.com/detail/elnehilolmbolklgagfegbkibmdjgpbb
+(ID del elemento: `elnehilolmbolklgagfegbkibmdjgpbb`)
+
+`/instalar` ya usa esa URL: el botón principal es "Agregar a Chrome" y el ZIP
+quedó como alternativa para equipos con la tienda bloqueada por política.
+
+## Actualizar (lo único que queda por hacer de acá en más)
+
+1. Subir la `version` en `extension/manifest.json`.
+2. `npm run build` en `client/` deja el ZIP nuevo en `client/dist/` y lo
+   publica en la web.
+3. Consola → el elemento → **Paquete** → subir el ZIP → **Enviar a revisión**.
+4. Quienes ya la tengan instalada se actualizan solos.
+
+Dos rechazos que ya nos pasaron, para no repetirlos (hay pruebas que los
+vigilan, en `pruebas/sim_instalar.js`):
+
+- **Permiso de más:** pedíamos `scripting` sin usarlo nunca. Un permiso que
+  el código no llama es rechazo directo.
+- **"Yellow Argon", spam de palabras clave:** la descripción tenía el título
+  `EN ZOOM, TEAMS, JITSI, WEBEX, WHEREBY Y GOTO`. Una lista de marcas se lee
+  como relleno para posicionar. Los textos de abajo ya están corregidos: se
+  describe la función, y las plataformas se declaran en los permisos de host.
 
 ## El paquete
 

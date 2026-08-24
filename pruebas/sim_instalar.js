@@ -162,14 +162,16 @@ const UA = {
     // Lección de la vida real: el .bat como camino principal hacía saltar los
     // avisos de seguridad de Edge/SmartScreen en cadena y abría una terminal.
     // El camino principal es el ZIP: sin terminal, sin sustos.
-    check("ofrece el ZIP como camino principal (sin terminal ni avisos)",
+    // Con la ficha PUBLICADA (22/8/2026), el camino principal es la tienda:
+    // un clic, y la extensión se actualiza sola. El ZIP no se retira porque
+    // hay equipos con la tienda bloqueada por política de la empresa.
+    check("ofrece la tienda como camino principal (un clic)",
+      (await page.locator('a[href^="https://chromewebstore.google.com/detail/"]').count()) >= 1 &&
+      /Agregar a Chrome/.test(t));
+    check("y explica que desde la tienda se actualiza sola", /se actualiza sola/i.test(t));
+    check("el ZIP queda como alternativa para la tienda bloqueada",
       (await page.locator('a[href="/unify-extension.zip"][download]').count()) >= 1 &&
-      /sin terminal ni avisos de seguridad/i.test(t));
-    check("con los cuatro pasos claros (Extraer todo → extensiones → cargar)",
-      /Extraer todo/.test(t) && /Modo de desarrollador/.test(t) && /Cargar descomprimida/.test(t));
-    check("el .bat queda como alternativa CON la advertencia dicha de antemano",
-      (await page.locator('a[href="/instalar-unify.bat"]').count()) === 1 &&
-      /avisos de seguridad/i.test(t) && /Bloc de notas/.test(t));
+      /tienda está bloqueada/i.test(t));
     check("NO muestra los pasos de Mac", !/Terminal \(/.test(t) && !/Agregar al Dock/.test(t));
     check("muestra el enlace para compartir con ?bajar=1", /instalar\?bajar=1/.test(t));
 
@@ -182,12 +184,14 @@ const UA = {
     const dl = new Promise((res2) => page2.once("download", res2));
     await page2.goto(`${B}/instalar?bajar=1`, { waitUntil: "domcontentloaded" });
     await page2.bringToFront();
-    const descarga = await Promise.race([dl, new Promise((r) => setTimeout(() => r(null), 15_000))]);
-    check("abrir /instalar?bajar=1 en Windows descarga el ZIP solo (nunca más el .bat)",
-      Boolean(descarga) && descarga.suggestedFilename() === "unify-extension.zip",
-      descarga?.suggestedFilename() ?? "no hubo descarga");
-    await page2.waitForTimeout(600);
-    check("y la página avisa que la descarga ya arrancó", /descarga.*arrancó sola/i.test(await texto(page2)));
+    const descarga = await Promise.race([dl, new Promise((r) => setTimeout(() => r(null), 8_000))]);
+    // Con la ficha publicada, el enlace compartido YA NO baja un ZIP: sería
+    // mandar a alguien por el camino largo teniendo el de un clic. Muestra la
+    // página con el botón de la tienda.
+    check("el enlace compartido ya no descarga un ZIP (ahora está la tienda)",
+      descarga === null, descarga?.suggestedFilename() ?? "sin descarga");
+    check("y ofrece el botón de la tienda",
+      (await page2.locator('a[href^="https://chromewebstore.google.com/detail/"]').count()) >= 1);
     await page2.close();
 
     // chrome://extensions es un botón que copia al tocarlo (Chrome no deja
@@ -234,9 +238,10 @@ const UA = {
   {
     const { ctx, page } = await abrir(UA.edge, `${B}/instalar`, ["clipboard-read", "clipboard-write"]);
     const t = await texto(page);
-    check("detecta Edge y lo dice", /estás en Edge/.test(t));
-    check("con el Modo de desarrollador donde Edge lo tiene (a la izquierda)",
-      /panel de la izquierda/.test(t));
+    check("a Edge se le ofrece la tienda en sus términos",
+      /Agregar a Edge desde la Chrome Web Store/.test(t));
+    check("con la aclaración de permitir extensiones de otras tiendas",
+      /Permitir extensiones de otras tiendas/.test(t));
     check("NO ofrece chrome://extensions a alguien de Edge",
       (await page.locator("button", { hasText: "chrome://extensions" }).count()) === 0);
     await page.locator("button", { hasText: "edge://extensions" }).first().click();
@@ -252,15 +257,14 @@ const UA = {
     const { ctx, page } = await abrir(UA.mac, `${B}/instalar`, ["clipboard-read", "clipboard-write"]);
     const t = await texto(page);
     check("detecta Mac y lo dice", /estás en Mac/.test(t));
-    check("ofrece el comando de Terminal como camino principal",
-      /curl -fsSL https:\/\/www\.unify-meet\.com\/instalar-unify\.command \| bash/.test(t));
-    await page.locator("button", { hasText: /^Copiar$/ }).first().click();
-    await page.waitForTimeout(400);
-    const porta = await page.evaluate(() => navigator.clipboard.readText()).catch(() => "");
-    check("y el botón lo copia entero", /curl -fsSL .*instalar-unify\.command \| bash/.test(porta), porta.slice(0, 50));
-    check("con el script legible antes de correrlo", (await page.locator('a[href="/instalar-unify.command"]').count()) === 1);
+    // El comando de Terminal quedó atrás: con la ficha publicada, en Mac
+    // también es un clic. (El .command sigue en el sitio por si alguien lo
+    // necesita, pero ya no es lo que se ofrece.)
+    check("en Mac también es un clic en la tienda",
+      (await page.locator('a[href^="https://chromewebstore.google.com/detail/"]').count()) >= 1);
+    check("sin mandar a nadie a la Terminal", !/curl -fsSL/.test(t));
     check("la app ofrece Safari → Agregar al Dock", /Agregar al Dock/.test(t));
-    check("el ZIP sigue como alternativa manual (doble clic)", /bajar el ZIP/.test(t) && /doble clic/.test(t));
+    check("y el ZIP queda para la tienda bloqueada", /tienda está bloqueada/i.test(t));
     check("NO muestra los pasos de Windows", !/Extraer todo…/.test(t) && !/SmartScreen|Ejecutar de todas formas/.test(t));
     await ctx.close();
   }
@@ -395,12 +399,27 @@ const UA = {
 
     const boton = page.locator("button", { hasText: "Instalar Unify en este dispositivo" });
     check("con la app instalable, aparece el botón de un clic", (await boton.count()) === 1);
-    const dl = new Promise((res2) => page.once("download", res2));
+    // Con la ficha publicada, el segundo paso ya no es bajar un ZIP: se abre
+    // la ficha de la tienda, donde la extensión se agrega con un clic.
+    //
+    // Se comprueba QUÉ URL pide abrir nuestro código, no que el sitio de
+    // Google cargue: este banco de pruebas no tiene salida a internet, y
+    // exigir que cargue chromewebstore.google.com sería medir la red ajena
+    // en vez del producto. (La pestaña se abre igual; sin red queda en una
+    // página de error, que es ruido para esta prueba.)
+    await page.evaluate(() => {
+      window.__abierta = null;
+      window.open = (url) => {
+        window.__abierta = String(url);
+        return null;
+      };
+    });
     await boton.click();
-    const bajada = await Promise.race([dl, new Promise((r) => setTimeout(() => r(null), 12_000))]);
-    check("al aceptar la app, la extensión EMPIEZA a bajar sola",
-      Boolean(bajada) && bajada.suggestedFilename() === "unify-extension.zip",
-      bajada?.suggestedFilename() ?? "no bajó nada");
+    await page.waitForTimeout(800);
+    const urlFicha = await page.evaluate(() => window.__abierta ?? "");
+    check("al aceptar la app, se abre la ficha de la tienda para sumar la extensión",
+      urlFicha.startsWith("https://chromewebstore.google.com/detail/"),
+      urlFicha || "no se pidió abrir nada");
     await page.waitForTimeout(600);
     const t = await texto(page);
     check("y la página marca el paso 2 en vez de dejarte buscándolo",

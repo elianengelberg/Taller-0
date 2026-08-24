@@ -25,7 +25,10 @@ import { cardClass } from "../lib/ui";
 // Al publicar en la Chrome Web Store, pegá acá la URL de la ficha
 // (https://chromewebstore.google.com/detail/…). Con esto puesto, el botón
 // principal pasa a ser "Agregar a Chrome" y el ZIP queda como alternativa.
-const CHROME_WEB_STORE_URL = "";
+// PUBLICADA el 22/8/2026. La forma con sólo el ID es la canónica y estable:
+// la tienda redirige sola a la URL con el nombre, y si algún día cambia el
+// título del elemento, este enlace sigue funcionando.
+const CHROME_WEB_STORE_URL = "https://chromewebstore.google.com/detail/elnehilolmbolklgagfegbkibmdjgpbb";
 
 type Plataforma = "windows" | "mac" | "ios" | "android" | "otro";
 
@@ -426,6 +429,27 @@ export default function Instalar() {
                       “Agregar a Chrome”.
                     </p>
                   )}
+                  <p className="mt-3 text-sm leading-relaxed text-ink-300">
+                    Un clic y listo. Desde la tienda también se actualiza sola cuando sacamos mejoras.
+                  </p>
+                  {/* El ZIP no se retira: hay equipos de trabajo con la tienda
+                      bloqueada por política, y ahí sigue siendo el único
+                      camino. Queda chico y abajo, como alternativa. */}
+                  <p className="mt-3 text-xs text-ink-400">
+                    ¿La tienda está bloqueada en tu computadora del trabajo?{" "}
+                    <a href="/unify-extension.zip" download className="underline hover:text-ink-200">
+                      Bajá el ZIP
+                    </a>{" "}
+                    y cargalo a mano desde{" "}
+                    <button
+                      type="button"
+                      onClick={() => copiar(esEdge() ? "edge://extensions" : "chrome://extensions", "exts")}
+                      className="underline hover:text-ink-200"
+                    >
+                      {esEdge() ? "edge://extensions" : "chrome://extensions"}{copiado === "exts" ? " ✓" : ""}
+                    </button>{" "}
+                    (Modo de desarrollador → “Cargar descomprimida”).
+                  </p>
                 </>
               ) : plataforma === "mac" ? (
                 <div className="mt-4">
