@@ -437,6 +437,39 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
       encabezados === 1, `encabezados=${encabezados}`);
   }
 
+  // ═══════ 5f. El recorrido REAL de un enlace de Zoom ═══════
+  //
+  // Te mandan un link de Zoom, lo abrís y caés en la página de lanzamiento
+  // (/j/…). Si elegís "unirse desde el navegador", pasás al cliente web
+  // (/wc/join/…): es una navegación completa y el content script arranca de
+  // cero. Sin memoria de que ya aceptaste, te preguntaba LO MISMO otra vez a
+  // los pocos segundos de haber dicho que sí.
+  console.log("\n── 5f. Enlace de Zoom: lanzamiento → cliente web ──");
+  {
+    await setStorage({ serverBase: `http://localhost:${STUB_PORT}` });
+    const id = `9${(Date.now() + 61) % 1e9}4`;
+    await page.goto(`https://us05web.zoom.us/j/${id}?pwd=abc`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(2500);
+    check("al abrir el enlace, avisa en la página de lanzamiento",
+      (await page.locator(".caja").count()) === 1);
+
+    // Se acepta ahí, como haría cualquiera.
+    await page.locator("button.si", { hasText: "Sí, dale" }).click();
+    await page.waitForTimeout(2500);
+    check("y arranca la grabación con ese clic",
+      /Grabando y transcribiendo/i.test(await page.locator(".rec").textContent().catch(() => "")));
+    await page.locator("button.no").click(); // Detener: la subida no es lo que se mide acá
+    await page.waitForTimeout(2500);
+
+    // "Unirse desde el navegador": misma reunión, otra página.
+    await page.goto(`https://us05web.zoom.us/wc/join/${id}`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(3000);
+    check("al pasar al cliente web NO vuelve a preguntar lo mismo",
+      (await page.locator("button.si", { hasText: "Sí, dale" }).count()) === 0);
+    check("sigue de largo con los subtítulos, sin perder la reunión",
+      /Subtítulos de Unify activos/i.test(await page.locator(".rec").textContent().catch(() => "")));
+  }
+
   // ═══════ 6. Jitsi también (segunda plataforma, mismos matches) ═══════
   console.log("\n── 6. Jitsi ──");
   await page.goto("https://meet.jit.si/SalaDePruebaUnify", { waitUntil: "domcontentloaded" });

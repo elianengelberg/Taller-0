@@ -110,7 +110,9 @@
     if (host === "zoom.us" || host.endsWith(".zoom.us")) {
       const id = url.pathname
         .replace(/(\d)[\s-](?=\d)/g, "$1")
-        .match(/\/(?:j|w|wc)\/(\d{9,11})/)?.[1];
+        // "/wc/join/<id>": la URL de "unirse desde el navegador" de Zoom,
+        // con el segmento "join" ANTES del número. Espeja a la web.
+        .match(/\/(?:j|w|wc)\/(?:join\/)?(\d{9,11})/)?.[1];
       if (!id) return null; // página de Zoom que no es una reunión: silencio
       return { plataforma: "zoom", nombre: "Zoom", roomKey: `zoom:${id}` };
     }
@@ -298,6 +300,21 @@
     return PALETA[h % PALETA.length];
   }
 
+  // Que decir "sí" valga para toda la reunión, no para una sola página.
+  //
+  // Zoom es el caso que lo pide: al abrir el enlace caés en la página de
+  // lanzamiento (/j/…), y si elegís "unirse desde el navegador" pasás al
+  // cliente web (/wc/…). Es una navegación completa: el content script
+  // arranca de cero y, sin esta memoria, te preguntaba LO MISMO otra vez a
+  // los pocos segundos. sessionStorage vive en la pestaña y en el mismo
+  // dominio, así que cruza ese salto y muere al cerrarla.
+  function recordarSi(roomKey) {
+    try { sessionStorage.setItem(`unify-si:${roomKey}`, "1"); } catch { /* sin storage */ }
+  }
+  function yaDijoQueSi(roomKey) {
+    try { return Boolean(sessionStorage.getItem(`unify-si:${roomKey}`)); } catch { return false; }
+  }
+
   // --- Toast inicial -----------------------------------------------------------
   function mostrarToast(det) {
     // Borrón y cuenta nueva: si quedó un overlay sondeando la reunión
@@ -360,6 +377,7 @@
       clearInterval(toastTimer);
       toastTimer = null;
       // Auto-SÍ: subtítulos ya, grabación armada al próximo gesto.
+      recordarSi(det.roomKey);
       mostrarOverlay(det, { grabandoAca: false });
       armarGrabacionAlProximoGesto(det);
     }, 1000);
@@ -372,6 +390,7 @@
 
     // CARRIL B: este clic ES la activación que getDisplayMedia necesita.
     si.addEventListener("click", () => {
+      recordarSi(det.roomKey);
       if (toastTimer) { clearInterval(toastTimer); toastTimer = null; }
       void iniciarCarrilB(det, caja);
     });
@@ -842,7 +861,16 @@
     );
     let silenciada = false;
     try { silenciada = Boolean(sessionStorage.getItem(`unify-no:${det.roomKey}`)); } catch { /* sin storage */ }
-    if (!silenciada && !recorder) mostrarToast(det);
+    if (silenciada || recorder) return;
+    if (yaDijoQueSi(det.roomKey)) {
+      // Ya aceptaste en esta reunión: se sigue de largo con los subtítulos.
+      // La grabación necesita un gesto nuevo (la pestaña se recargó y con
+      // ella murió el permiso de pantalla), así que queda armada.
+      mostrarOverlay(det, { grabandoAca: false });
+      armarGrabacionAlProximoGesto(det);
+      return;
+    }
+    mostrarToast(det);
   }
   tick();
   const vigilante = setInterval(() => {

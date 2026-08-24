@@ -528,7 +528,10 @@ export function detectMeetingPlatform(
     // rewritten links ("/j/891-2345-6789"), so strip them before matching.
     const meetingId = url.pathname
       .replace(/(\d)[\s-](?=\d)/g, "$1")
-      .match(/\/(?:j|w|wc)\/(\d{9,11})/)?.[1];
+      // "/wc/join/<id>" es la URL que Zoom usa al elegir "unirse desde el
+      // navegador": el segmento "join" va ANTES del número. Sin contemplarlo,
+      // Unify se quedaba muda justo al entrar a la reunión por el navegador.
+      .match(/\/(?:j|w|wc)\/(?:join\/)?(\d{9,11})/)?.[1];
     const passcode = url.searchParams.get("pwd") ?? undefined;
     // A vanity link (/my/name) has no number in the URL, but the invitation
     // text pasted around it usually does.

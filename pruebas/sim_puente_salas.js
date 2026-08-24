@@ -136,6 +136,10 @@ const json = (b) => ({ method: "POST", headers: { "Content-Type": "application/j
     const URLS = [
       "https://us05web.zoom.us/j/91234567890?pwd=abc123",
       "https://acme.zoom.us/wc/98765432109/join",
+      // La URL de "unirse desde el navegador" de Zoom: el segmento "join" va
+      // ANTES del número. Se escapaba de la expresión y Unify no decía nada
+      // justo cuando la persona entraba a la reunión.
+      "https://us05web.zoom.us/wc/join/91234567890?pwd=xyz",
       "https://teams.microsoft.com/l/meetup-join/19%3ameeting_NzId%40thread.v2/0?context=%7b%7d",
       "https://teams.live.com/meet/9351287312?p=clave",
       "https://meet.jit.si/SalaDePrueba",
