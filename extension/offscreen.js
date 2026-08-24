@@ -18,9 +18,12 @@ let chunks = [];
 let ctx = null;
 let tracks = [];
 let startedAt = 0;
-let target = { dbId: null, serverBase: "", token: null };
+let target = { dbId: null, serverBase: "", token: null, roomKey: null };
+let vozDePestana = null;
 
 function cleanup() {
+  try { vozDePestana?.stop(); } catch { /* ya parada */ }
+  vozDePestana = null;
   tracks.forEach((t) => {
     try { t.stop(); } catch { /* ya detenido */ }
   });
@@ -40,8 +43,8 @@ function pickMime() {
   return "video/webm";
 }
 
-async function start({ streamId, dbId, serverBase, token }) {
-  target = { dbId, serverBase: String(serverBase || "").replace(/\/+$/, ""), token: token || null };
+async function start({ streamId, dbId, serverBase, token, roomKey }) {
+  target = { dbId, serverBase: String(serverBase || "").replace(/\/+$/, ""), token: token || null, roomKey: roomKey || null };
 
   // Audio + video de la pestaña de Meet.
   const tabStream = await navigator.mediaDevices.getUserMedia({
@@ -115,6 +118,61 @@ async function start({ streamId, dbId, serverBase, token }) {
 
   startedAt = Date.now();
   recorder.start(1000);
+
+  // La grabación de una reunión externa además TRANSCRIBE lo que la pestaña
+  // reproduce (todas las voces, un video compartido): la pista de audio de la
+  // captura entra al reconocimiento de voz (Chrome 139+ acepta una pista como
+  // entrada) y las líneas van al bridge de esa sala. Best-effort: si el
+  // navegador no lo soporta, la grabación sigue igual.
+  if (target.roomKey) empezarVozDePestana(tabStream.getAudioTracks()[0] ?? null);
+}
+
+function empezarVozDePestana(track) {
+  const Ctor = self.SpeechRecognition || self.webkitSpeechRecognition;
+  // start(pista) llegó con available() (Chrome 139): sin eso, un Chrome viejo
+  // ignoraría el argumento y transcribiría el micrófono del documento.
+  if (!track || !Ctor || typeof Ctor.available !== "function") return;
+  let activa = true;
+  let fallas = 0;
+  const r = new Ctor();
+  r.lang = navigator.language || "es-AR";
+  r.continuous = true;
+  r.interimResults = false;
+  r.maxAlternatives = 3;
+  r.onresult = (ev) => {
+    fallas = 0;
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const res = ev.results[i];
+      if (!res.isFinal) continue;
+      const alts = [];
+      for (let j = 0; j < res.length && j < 3; j++) {
+        const t = res[j]?.transcript?.trim();
+        if (t) alts.push(t);
+      }
+      if (alts.length) void publicarLineaDePestana(alts[0], alts.slice(1));
+    }
+  };
+  r.onerror = (ev) => {
+    if (ev.error !== "no-speech" && ev.error !== "aborted") fallas += 1;
+  };
+  r.onend = () => {
+    if (!activa || fallas >= 8 || track.readyState !== "live") return;
+    setTimeout(() => {
+      if (activa) { try { r.start(track); } catch { /* ya arrancando */ } }
+    }, fallas ? 1000 : 0);
+  };
+  try { r.start(track); } catch { return; }
+  vozDePestana = { stop() { activa = false; try { r.stop(); } catch { /* noop */ } } };
+}
+
+async function publicarLineaDePestana(texto, alts) {
+  try {
+    await fetch(`${target.serverBase}/api/meet-bridge/${encodeURIComponent(target.roomKey)}/transcript`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ speaker: "Voces de la reunión", text: texto, lang: navigator.language || "es-AR", alts }),
+    });
+  } catch { /* sin red: la próxima línea reintenta sola */ }
 }
 
 function stop() {

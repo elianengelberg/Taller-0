@@ -36,6 +36,8 @@ node pruebas/sim_pwa.js                 # PWA: manifest, SW, share, offline
 xvfb-run -a node pruebas/sim_instalar.js  # centro de instalación + ZIP + Apple
 xvfb-run -a node pruebas/sim_toast.js     # extensión real: toast/overlay/grabación
 node pruebas/sim_video_ia.js            # IA multimodal + karaoke (4001 LIBRE)
+node pruebas/sim_traduccion.js          # traducción: proveedor blindado, paridad de idiomas, voz propia
+node pruebas/sim_av.js                  # DOS navegadores: mute/cámara/compartir CON audio + su transcripción
 ```
 
 Criterios de la casa: probar el arreglo revirtiéndolo; desconfiar de los PASS

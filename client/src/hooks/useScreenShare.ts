@@ -36,11 +36,25 @@ export function useScreenShare({
   const [sharing, setSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const screenTrackRef = useRef<MediaStreamTrack | null>(null);
+  // El audio de lo compartido (una pestaña con un video, una presentación con
+  // sonido): viaja por la malla como una pista más para que los DEMÁS lo
+  // escuchen, y se expone para que la transcripción también lo agarre.
+  const shareAudioRef = useRef<MediaStreamTrack | null>(null);
+  const [audioTrack, setAudioTrack] = useState<MediaStreamTrack | null>(null);
 
   const stop = useCallback(() => {
     const screenTrack = screenTrackRef.current;
     if (!screenTrack) return;
     screenTrackRef.current = null;
+
+    const shareAudio = shareAudioRef.current;
+    if (shareAudio) {
+      shareAudioRef.current = null;
+      setAudioTrack(null);
+      localStream?.removeTrack(shareAudio);
+      onRemoveTrack(shareAudio);
+      shareAudio.stop();
+    }
 
     localStream?.removeTrack(screenTrack);
     const cameraTrack = unparkCamera();
@@ -71,7 +85,18 @@ export function useScreenShare({
     // quedaría viva sin que nada la pueda detener.
     if (screenTrackRef.current) return;
     try {
-      const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      // CON audio: si compartís una pestaña con un video, el sonido tiene que
+      // llegar a los demás y poder transcribirse. Si la superficie elegida no
+      // trae audio, simplemente no viene la pista; y si un navegador viejo
+      // rechaza el pedido POR el audio, se reintenta sin él. Cancelar el
+      // selector (NotAllowedError) sí corta todo: eso es un "no" de verdad.
+      let displayStream: MediaStream;
+      try {
+        displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      } catch (err) {
+        if ((err as DOMException)?.name === "NotAllowedError") throw err;
+        displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      }
       const screenTrack = displayStream.getVideoTracks()[0];
       if (!screenTrack) throw new Error("No se encontró video para compartir.");
       markScreenTrack(screenTrack);
@@ -80,6 +105,16 @@ export function useScreenShare({
       screenTrackRef.current = screenTrack;
       localStream.addTrack(screenTrack);
       onReplaceTrack(cameraTrack, screenTrack);
+
+      const shareAudio = displayStream.getAudioTracks()[0] ?? null;
+      if (shareAudio) {
+        shareAudioRef.current = shareAudio;
+        localStream.addTrack(shareAudio);
+        // addTrack en cada par ya conectado: simple-peer renegocia solo.
+        onReplaceTrack(null, shareAudio);
+        shareAudio.addEventListener("ended", () => stopRef.current());
+        setAudioTrack(shareAudio);
+      }
 
       // If the user stops sharing from the browser's own "Stop sharing" UI
       // instead of our button, treat it the same as pressing our button.
@@ -94,6 +129,7 @@ export function useScreenShare({
   useEffect(() => {
     return () => {
       screenTrackRef.current?.stop();
+      shareAudioRef.current?.stop();
     };
   }, []);
 
@@ -106,5 +142,5 @@ export function useScreenShare({
     return () => clearTimeout(timeout);
   }, [error]);
 
-  return { sharing, error, start, stop };
+  return { sharing, error, start, stop, audioTrack };
 }

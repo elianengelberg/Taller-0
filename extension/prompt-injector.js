@@ -286,6 +286,7 @@
 
   function quitarUI() {
     if (vozPropia) { vozPropia.parar(); vozPropia = null; }
+    if (vozPantalla) { vozPantalla.parar(); vozPantalla = null; }
     if (overlayTimer) { clearInterval(overlayTimer); overlayTimer = null; }
     if (toastTimer) { clearInterval(toastTimer); toastTimer = null; }
     // Cerrada la UI, ningún clic suelto debe abrir el selector de pantalla.
@@ -325,13 +326,18 @@
   // micrófono con el reconocimiento del navegador (la misma técnica del
   // respaldo por micrófono del panel de Meet). Una pestaña sólo escucha TU
   // voz: los demás aparecen cuando cada quien abre Unify de su lado.
-  function crearVozPropia({ lang, alTextoFinal, alTextoInterino, alFaltarPermiso }) {
+  function crearVozPropia({ lang, track = null, alTextoFinal, alTextoInterino, alFaltarPermiso }) {
     const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
     let rec = null;
     let activa = false;
     let fallasSeguidas = 0;
     function arrancar() {
       if (!Ctor || activa) return false;
+      // Con una pista como entrada (el audio de la pantalla capturada) hace
+      // falta el Web Speech de Chrome 139+, que llegó junto con available().
+      // En un Chrome viejo start(pista) IGNORA el argumento y escucharía el
+      // micrófono DOS veces: mejor no arrancar.
+      if (track && typeof Ctor.available !== "function") return false;
       const r = new Ctor();
       r.lang = lang;
       r.continuous = true;
@@ -375,10 +381,10 @@
         if (!activa) return;
         if (fallasSeguidas >= 8) { activa = false; return; }
         setTimeout(() => {
-          if (activa) { try { r.start(); } catch { /* ya estaba arrancando */ } }
+          if (activa) { try { track ? r.start(track) : r.start(); } catch { /* ya estaba arrancando */ } }
         }, fallasSeguidas ? 800 : 0);
       };
-      try { r.start(); } catch { return false; }
+      try { track ? r.start(track) : r.start(); } catch { return false; }
       rec = r;
       activa = true;
       return true;
@@ -391,15 +397,16 @@
     return { arrancar, parar };
   }
   let vozPropia = null;
+  let vozPantalla = null;
 
   // La línea final viaja al bridge de ESTA sala: así la ven el overlay (al
   // próximo sondeo), el companion web si está abierto, el historial y la IA.
-  async function publicarVozPropia(det, texto, lang, alts = []) {
+  async function publicarVozPropia(det, texto, lang, alts = [], speaker = "Vos") {
     try {
       await fetch(`${cfg.serverBase}/api/meet-bridge/${encodeURIComponent(det.roomKey)}/transcript`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ speaker: "Vos", text: texto, lang, alts }),
+        body: JSON.stringify({ speaker, text: texto, lang, alts }),
       });
     } catch { /* sin red: la próxima línea lo reintenta sola */ }
   }
@@ -622,6 +629,28 @@
       if (recorder && recorder.state !== "inactive") recorder.stop();
     });
     recorder.start(3000);
+
+    // El audio de la captura (las voces de la reunión, un video que pongan)
+    // también se transcribe, no sólo tu micrófono: la pista entra al
+    // reconocimiento (Chrome 139+) y sale al bridge como "Pantalla
+    // compartida", con la misma IA correctora y traducción que todo lo demás.
+    const pistaAudio = stream.getAudioTracks()[0] ?? null;
+    if (pistaAudio) {
+      if (vozPantalla) vozPantalla.parar();
+      vozPantalla = crearVozPropia({
+        lang: navigator.language || "es-AR",
+        track: pistaAudio,
+        alTextoFinal: (texto, alts) =>
+          void publicarVozPropia(det, texto, navigator.language || "es-AR", alts, "Pantalla compartida"),
+        alTextoInterino: () => {},
+        alFaltarPermiso: () => {},
+      });
+      vozPantalla.arrancar();
+      pistaAudio.addEventListener("ended", () => {
+        if (vozPantalla) { vozPantalla.parar(); vozPantalla = null; }
+      });
+    }
+
     pidiendoPantalla = false;
     mostrarOverlay(det, { grabandoAca: true });
   }

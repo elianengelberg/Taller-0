@@ -5,6 +5,7 @@ import {
   addChatMessage,
   addParticipant,
   addRole,
+  addNamedTranscriptLine,
   addTranscriptLine,
   cancelMeetingCleanup,
   createMeeting,
@@ -498,7 +499,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
     ack?.({ ok: true });
   });
 
-  socket.on("transcript-line", async (payload: { alternatives?: string[]; text?: string; lang?: string }) => {
+  socket.on("transcript-line", async (payload: { alternatives?: string[]; text?: string; lang?: string; screen?: boolean }) => {
     try {
       if (!allowTranscript()) return;
       // Stamp the utterance NOW, before the cleanup/translation awaits below --
@@ -523,6 +524,46 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
         .slice(0, MAX_ALTERNATIVES)
         .map((a) => a.slice(0, MAX_ALTERNATIVE_CHARS));
       if (!alternatives.some((a) => a.trim())) return;
+
+      // Una línea de PANTALLA: el audio de lo que el participante comparte
+      // (un video, una presentación con sonido), no su voz. Va con nombre
+      // propio ("Pantalla de X"), sin fusionarse con lo que la persona dice,
+      // y pasa por la misma IA correctora. El idioma del video es incierto,
+      // así que se traduce al idioma de TODOS los presentes (el de la persona
+      // que comparte incluido) y la interfaz oculta las idénticas.
+      if (payload?.screen === true) {
+        const recentContext = meeting.transcript.slice(-4).map((l) => `${l.speakerName}: ${l.text}`);
+        const assumedLang = payload?.lang || speaker.language;
+        const targets = new Set<string>();
+        for (const p of meeting.participants.values()) targets.add(shortLang(p.language));
+        const translationsPromise = translateFragmentToAll(
+          alternatives, recentContext, Array.from(targets), assumedLang
+        );
+        const cleanup = await cleanTranscriptFragment(alternatives, recentContext, assumedLang);
+        if (!cleanup.text) return;
+        const still = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
+        if (!still || still !== meeting || !meeting.participants.has(socket.id)) return;
+        const mismatch = cleanup.detectedLang !== null && cleanup.detectedLang !== shortLang(assumedLang);
+        const sourceLang = mismatch ? cleanup.detectedLang! : assumedLang;
+        const nombre = `Pantalla de ${speaker.name}`;
+        const line = addNamedTranscriptLine(meeting, nombre, cleanup.text, sourceLang);
+        io.to(roomName(meeting.id)).emit("transcript-line", { line });
+        void db.recordMessage({
+          meetingId: meeting.dbId,
+          kind: "transcript",
+          senderName: nombre,
+          roleName: null,
+          text: line.text,
+          sourceLang: line.sourceLang,
+          spokenAt,
+        });
+        void translationsPromise.then((translations) => {
+          if (Object.keys(translations).length === 0) return;
+          line.translations = translations;
+          io.to(roomName(meeting.id)).emit("transcript-line-translations", { lineId: line.id, translations });
+        });
+        return;
+      }
 
       // Is this a fast follow-up to the utterance we just finished for this
       // same speaker? If so, fold it into that line instead of starting a

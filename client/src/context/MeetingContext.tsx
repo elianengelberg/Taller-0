@@ -185,7 +185,7 @@ interface MeetingContextValue {
   sendChatMessage: (text: string) => void;
   assignRole: (participantId: string, roleId: string | null) => void;
   addRole: (name: string) => Promise<Role | null>;
-  sendTranscriptLine: (alternatives: string[], lang: string) => void;
+  sendTranscriptLine: (alternatives: string[], lang: string, opciones?: { screen?: boolean }) => void;
   setMediaState: (muted: boolean, cameraOff: boolean) => void;
   setSharingScreen: (sharing: boolean) => void;
   setHandRaised: (raised: boolean) => void;
@@ -599,10 +599,10 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const sendTranscriptLine = useCallback(
-    (alternatives: string[], lang: string) => {
+    (alternatives: string[], lang: string, opciones?: { screen?: boolean }) => {
       const cleaned = alternatives.filter((a) => a.trim());
       if (cleaned.length === 0) return;
-      emitOrQueue("transcript-line", { alternatives: cleaned, lang });
+      emitOrQueue("transcript-line", { alternatives: cleaned, lang, screen: opciones?.screen === true });
     },
     [emitOrQueue]
   );

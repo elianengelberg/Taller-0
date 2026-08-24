@@ -28,6 +28,7 @@ import { useLocalMedia } from "../hooks/useLocalMedia";
 import { AUTO_LANG, ORIGINAL_LANG, useLineTranslations } from "../hooks/useLineTranslations";
 import { RecTile, useCompositeRecorder } from "../hooks/useCompositeRecorder";
 import { useScreenShare } from "../hooks/useScreenShare";
+import { useTrackTranscription } from "../hooks/useTrackTranscription";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { useWebRTC } from "../hooks/useWebRTC";
 import { getSocket } from "../lib/socket";
@@ -326,6 +327,16 @@ export default function Meeting() {
       sendTranscriptLine(alternatives, self?.language ?? "es-AR");
     },
   });
+  // El audio de la pantalla compartida (un video, una presentación con
+  // sonido) también se transcribe: Chrome 139+ deja darle al reconocimiento
+  // una pista en vez del micrófono. Llega al transcript como "Pantalla de
+  // <nombre>", pasa por la misma IA correctora y se traduce igual que todo.
+  useTrackTranscription({
+    track: screenShare.audioTrack,
+    lang: self?.language ?? "es-AR",
+    onResult: (alternatives) => sendTranscriptLine(alternatives, self?.language ?? "es-AR", { screen: true }),
+  });
+
   // Only worth surfacing the "why is nothing happening" hints while the
   // person is actually looking at captions or the transcript panel -- no
   // need to nag every time someone mutes for an unrelated reason.

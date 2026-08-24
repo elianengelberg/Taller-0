@@ -180,6 +180,7 @@ async function startRecording(tabId, payload) {
     dbId: payload.dbId,
     serverBase: payload.serverBase,
     token: payload.token ?? null,
+    roomKey: payload.roomKey ?? null,
   });
   if (!res?.ok) throw new Error(res?.error || "No se pudo iniciar la grabación.");
   recordingTabId = tabId;
@@ -206,7 +207,9 @@ async function toggleForTab(tabId) {
     if (ext?.roomKey) {
       const s = await sesionDeSala(ext.roomKey);
       const { serverBase, token } = await config();
-      payload = { dbId: s.dbId, serverBase, token };
+      // roomKey viaja hasta el offscreen: con él, la grabación además
+      // TRANSCRIBE el audio de la pestaña (todas las voces) hacia el bridge.
+      payload = { dbId: s.dbId, serverBase, token, roomKey: ext.roomKey };
     }
   }
   if (!payload?.dbId) return { ok: false, error: "Abrí una reunión y probá de nuevo." };
