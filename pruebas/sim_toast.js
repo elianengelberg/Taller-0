@@ -520,7 +520,8 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     // La web (acá, el stub) publica version-extension.json con una versión
     // futura. Entrar a una reunión dispara el chequeo (throttle reseteado) y
     // el popup tiene que ofrecer actualizar -- es la única campana de quien
-    // instaló por ZIP, porque la Web Store se actualiza sola pero un ZIP no.
+    // instaló por ZIP, porque desde la tienda Chrome actualiza solo (y por eso
+    // el aviso lleva ahí: para que sea la última vez que alguien instala algo).
     const p = await ctx.newPage();
     await p.goto(`chrome-extension://${extId}/popup.html`);
     await p.evaluate(
@@ -545,8 +546,11 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     const update = popup.locator("#update");
     check("y el popup ofrece actualizar", (await update.count()) === 1);
     const href = (await update.getAttribute("href").catch(() => "")) || "";
-    check("apuntando al centro de instalación con descarga automática",
-      /\/instalar\?bajar=1$/.test(href), href);
+    // Y no lleva a bajar OTRO ZIP: lleva a la ficha de la tienda. Bajar un ZIP
+    // sería volver a instalar versiones a mano el mes que viene; instalarla
+    // una vez desde la tienda hace que Chrome la actualice para siempre.
+    check("apuntando a la ficha de la tienda (de ahí se actualiza sola)",
+      /chromewebstore\.google\.com\/detail\/[a-p]{32}$/.test(href), href);
     await popup.close();
   }
 

@@ -5,6 +5,10 @@
 
 const DEFAULT_SERVER = "https://taller-0.onrender.com";
 const DEFAULT_APP = "https://www.unify-meet.com";
+// La ficha publicada: instalada desde ahí, Chrome la actualiza sola para
+// siempre. Es el destino del único aviso de versión que sigue existiendo.
+const TIENDA_ID = "elnehilolmbolklgagfegbkibmdjgpbb";
+const TIENDA = `https://chromewebstore.google.com/detail/${TIENDA_ID}`;
 
 const dot = document.getElementById("dot");
 const status = document.getElementById("status");
@@ -30,17 +34,20 @@ chrome.storage.local.get(
       status.textContent = "Sin sesión: transcripción y grabación andan igual; la IA necesita cuenta.";
     }
     // Aviso de versión nueva (lo deja el background al comparar contra
-    // unify-meet.com). Va para quien instaló por ZIP/instalador: la Web Store
-    // se actualiza sola, pero un ZIP no tiene otra campana que ésta.
-    if (v.updateAvailable && v.updateAvailable !== chrome.runtime.getManifest().version) {
+    // unify-meet.com). Va SÓLO para quien instaló por ZIP: desde la tienda,
+    // Chrome actualiza solo y no hay nada que pedirle a nadie. Y el aviso no
+    // lleva a bajar otro ZIP -- eso sería instalar versiones a mano de nuevo,
+    // que es el problema: lleva a la tienda, una vez, y nunca más.
+    const deLaTienda = chrome.runtime.id === TIENDA_ID;
+    if (!deLaTienda && v.updateAvailable && v.updateAvailable !== chrome.runtime.getManifest().version) {
       const nota = document.createElement("a");
       nota.className = "btn";
       nota.id = "update";
       nota.target = "_blank";
       nota.rel = "noreferrer";
-      nota.href = `${appBase}/instalar?bajar=1`;
+      nota.href = TIENDA;
       nota.style.background = "#6366f1";
-      nota.textContent = `Hay una versión nueva (${v.updateAvailable}): actualizar`;
+      nota.textContent = `Versión nueva (${v.updateAvailable}): instalala de la tienda y se actualiza sola`;
       document.querySelector("main")?.prepend(nota);
     }
   }

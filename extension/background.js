@@ -26,6 +26,12 @@
 const OFFSCREEN = "offscreen.html";
 const DEFAULT_SERVER = "https://taller-0.onrender.com";
 const DEFAULT_APP = "https://www.unify-meet.com";
+// La ficha publicada en la Chrome Web Store. Instalada desde ahí, Chrome
+// actualiza la extensión solo; instalada por ZIP no hay tienda detrás y las
+// versiones nuevas habría que ponerlas a mano -- que es justo lo que no
+// queremos. De ese lado el aviso lleva a la tienda, una vez, y listo.
+const TIENDA_ID = "elnehilolmbolklgagfegbkibmdjgpbb";
+const DE_LA_TIENDA = chrome.runtime.id === TIENDA_ID;
 let recordingTabId = null;
 
 const lastMeet = new Map(); // tabId -> { dbId, serverBase, token }  (Meet, como siempre)
@@ -91,7 +97,9 @@ const CADA_CUANTO_MS = 6 * 60 * 60 * 1000; // 6 horas: sobra para un aviso
 async function checkVersion() {
   try {
     const v = await chrome.storage.local.get({ appBase: DEFAULT_APP, lastVersionCheck: 0, updateAvailable: null });
-    hayVersionNueva = Boolean(v.updateAvailable && esMasNueva(v.updateAvailable, chrome.runtime.getManifest().version));
+    // El badge ↑ es un pedido de acción manual: sólo tiene sentido donde la
+    // actualización NO puede ser automática (instalación por ZIP).
+    hayVersionNueva = Boolean(v.updateAvailable && !DE_LA_TIENDA && esMasNueva(v.updateAvailable, chrome.runtime.getManifest().version));
     if (recordingTabId == null) badge(false); // re-pintar tras el arranque del SW
     if (Date.now() - Number(v.lastVersionCheck || 0) < CADA_CUANTO_MS) return;
     await chrome.storage.local.set({ lastVersionCheck: Date.now() });
@@ -100,12 +108,51 @@ async function checkVersion() {
     if (!res.ok) return;
     const data = await res.json();
     const remota = typeof data?.version === "string" ? data.version : "";
-    hayVersionNueva = esMasNueva(remota, chrome.runtime.getManifest().version);
-    await chrome.storage.local.set({ updateAvailable: hayVersionNueva ? remota : null });
+    const atrasada = esMasNueva(remota, chrome.runtime.getManifest().version);
+    hayVersionNueva = atrasada && !DE_LA_TIENDA;
+    await chrome.storage.local.set({ updateAvailable: atrasada ? remota : null });
     if (recordingTabId == null) badge(false); // pinta ↑ o lo borra
+    // Desde la tienda no hay nada que pedirle a la persona: se le pide a
+    // Chrome, que si no lo empujan mira si hay versión nueva cada varias horas.
+    if (atrasada && DE_LA_TIENDA) void pedirActualizacionYa();
   } catch { /* sin red: el próximo arranque reintenta */ }
 }
 void checkVersion();
+
+// --- La extensión se pone al día sola -----------------------------------------
+// Chrome baja la versión nueva de la tienda por su cuenta, pero la APLICA
+// recién cuando la extensión queda quieta o se reinicia el navegador, y hay
+// gente que no lo reinicia en semanas. Estas tres piezas cierran el círculo:
+// pedirla ahora, y aplicarla apenas haya un momento tranquilo.
+//
+// "Tranquilo" es literal: recargar la extensión deja HUÉRFANOS a los content
+// scripts de las pestañas abiertas (el overlay se congelaría hasta recargar
+// la página), así que con una grabación o una reunión abierta no se toca nada
+// -- Chrome la aplicará igual cuando este service worker se duerma.
+let updatePendiente = false;
+
+async function pedirActualizacionYa() {
+  try {
+    await chrome.runtime.requestUpdateCheck();
+  } catch {
+    /* instalación por ZIP: no hay tienda detrás, y el badge ↑ ya avisa */
+  }
+}
+
+function hayReunionEnCurso() {
+  return recordingTabId != null || lastMeet.size > 0 || lastExternal.size > 0;
+}
+
+function aplicarUpdateSiSePuede() {
+  if (!updatePendiente || hayReunionEnCurso()) return;
+  updatePendiente = false;
+  chrome.runtime.reload(); // vuelve sola, ya con la versión nueva
+}
+
+chrome.runtime.onUpdateAvailable.addListener(() => {
+  updatePendiente = true;
+  aplicarUpdateSiSePuede();
+});
 
 // La reunión companion que respalda esa clave de sala. El bridge la crea si
 // no existe, con la MISMA clave que derivaría la web: de ahí sale que las
@@ -365,6 +412,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     recordingTabId = null;
     void chrome.offscreen.closeDocument().catch(() => {});
+    aplicarUpdateSiSePuede(); // se terminó de grabar: momento tranquilo
   }
 
   // El token de Unify que sincroniza el content script de la web.
@@ -379,4 +427,5 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   lastMeet.delete(tabId);
   lastExternal.delete(tabId);
   if (tabId === recordingTabId) void stopRecording();
+  aplicarUpdateSiSePuede(); // se cerró la reunión: momento tranquilo
 });

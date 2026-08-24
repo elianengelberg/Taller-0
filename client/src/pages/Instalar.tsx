@@ -448,7 +448,9 @@ export default function Instalar() {
                     >
                       {esEdge() ? "edge://extensions" : "chrome://extensions"}{copiado === "exts" ? " ✓" : ""}
                     </button>{" "}
-                    (Modo de desarrollador → “Cargar descomprimida”).
+                    (Modo de desarrollador → “Cargar descomprimida”). Ojo: el ZIP es la única
+                    forma que no se actualiza sola; cuando puedas, instalala de la tienda y te
+                    olvidás para siempre.
                   </p>
                 </>
               ) : plataforma === "mac" ? (

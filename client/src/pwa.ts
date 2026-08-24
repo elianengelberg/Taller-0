@@ -2,13 +2,13 @@
 //
 // Dos reglas que protegen a quien está EN una reunión:
 //
-//  1. La actualización pide permiso, y sólo fuera de una reunión. Un
-//     skipWaiting automático intercambia los chunks bajo los pies de la
-//     malla WebRTC en vivo; el peor momento posible para "mejorar" la app.
-//     Pero "fuera de una reunión" no es "nunca": si el aviso llegó en plena
-//     llamada, queda PENDIENTE y se ofrece apenas la persona sale. Y la app
-//     abierta busca versiones nuevas cada hora, así los deploys de acá
-//     llegan aunque nadie recargue la pestaña en días.
+//  1. La app se actualiza SOLA, pero nunca encima de la persona. Un
+//     skipWaiting a destiempo intercambia los chunks bajo los pies de la
+//     malla WebRTC en vivo, o borra un formulario a medio llenar: por eso la
+//     versión nueva espera a un MOMENTO SEGURO (fuera de una reunión y sin
+//     texto recién escrito en pantalla) y recién ahí se aplica sin preguntar.
+//     La app abierta busca versiones nuevas cada hora y al volver a primer
+//     plano, así los deploys de acá llegan aunque nadie recargue en días.
 //  2. launch_handler es focus-existing: abrir un enlace de Unify desde otra
 //     app enfoca la ventana que ya está, y ACÁ se decide si navegar. Con una
 //     reunión activa no se navega nunca solo -- se avisa y la persona decide.
@@ -79,6 +79,61 @@ function enReunion(): boolean {
   return p === "/reunion" || p === "/externa/reunion";
 }
 
+// --- Actualización automática ------------------------------------------------
+// Nadie tendría que instalar versiones a mano: ni acá, ni en la app instalada
+// de Windows, ni en el iPhone o el iPad. El service worker ya baja la versión
+// nueva solo; lo único que hacía falta era APLICARLA sin pedir permiso.
+//
+// "Sin pedir permiso" no es "en cualquier momento": aplicarla recarga la
+// página. Se espera a un momento en el que una recarga no cuesta nada.
+
+/** Marca de tiempo del último tecleo REAL de la persona. */
+let ultimoTecleo = 0;
+
+/** ¿Hay texto escrito en pantalla que una recarga borraría? */
+function hayTextoEnPantalla(): boolean {
+  const campos = document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea");
+  for (const campo of campos) {
+    const tipo = (campo as HTMLInputElement).type;
+    if (tipo === "checkbox" || tipo === "radio" || tipo === "hidden" || tipo === "submit") continue;
+    if (campo.value.trim() !== "") return true;
+  }
+  return false;
+}
+
+/**
+ * Recargar ahora, ¿le cuesta algo a la persona?
+ *
+ * En una reunión, todo. Con un formulario a medio llenar (recién tecleado:
+ * lo autocompletado por el navegador vuelve solo), también. Fuera de eso, no.
+ */
+function momentoSeguro(): boolean {
+  if (enReunion()) return false;
+  const tecleandoRecien = Date.now() - ultimoTecleo < 5 * 60_000;
+  return !(tecleandoRecien && hayTextoEnPantalla());
+}
+
+// Freno anti-bucle: si una versión rota se reinstalara sin parar, la app
+// quedaría recargándose para siempre. Tres intentos por sesión y después se
+// ofrece el botón, que es visible y lo decide la persona.
+const MAX_AUTO = 3;
+const CLAVE_AUTO = "unify-auto-update";
+
+function autoAplicadas(): number {
+  try {
+    return Number(sessionStorage.getItem(CLAVE_AUTO) ?? "0") || 0;
+  } catch {
+    return 0;
+  }
+}
+function anotarAuto(): void {
+  try {
+    sessionStorage.setItem(CLAVE_AUTO, String(autoAplicadas() + 1));
+  } catch {
+    /* modo incógnito con storage bloqueado: el freno se pierde, no la app */
+  }
+}
+
 /**
  * El aviso de "el servidor estaba dormido".
  *
@@ -111,10 +166,39 @@ export function initPwa(): void {
     window.dispatchEvent(new Event("unify:instalable"));
   });
 
-  // Aviso que llegó en plena reunión: no molestar ahí, pero tampoco tragarlo.
-  let actualizacionPendiente = false;
+  // Sólo cuenta lo que TECLEA la persona: el autocompletado del navegador
+  // llena campos solo y volvería a llenarlos después de recargar.
+  document.addEventListener(
+    "input",
+    (e) => {
+      if (e.isTrusted) ultimoTecleo = Date.now();
+    },
+    true
+  );
 
-  const avisar = () => {
+  // Hay una versión nueva bajada, esperando su momento.
+  let pendiente = false;
+  // Ya se mandó a activar la versión nueva en esta carga de la página.
+  let aplicada = false;
+
+  /**
+   * La recarga, puesta por nosotros.
+   *
+   * Workbox también recarga, pero SÓLO si considera que la versión nueva es
+   * "una actualización de esta pestaña". La que dejó esperando otra pestaña
+   * (o la sesión anterior) le figura como externa y no recarga nunca: la app
+   * quedaría con el service worker nuevo y los chunks viejos en pantalla.
+   * Este listener cierra ese agujero, y recargar dos veces no hace daño.
+   */
+  const recargarAlTomarControl = () => {
+    navigator.serviceWorker?.addEventListener(
+      "controllerchange",
+      () => window.location.reload(),
+      { once: true }
+    );
+  };
+
+  const avisarComoUltimoRecurso = () => {
     showToast(
       {
         kind: "info",
@@ -126,31 +210,68 @@ export function initPwa(): void {
     );
   };
 
+  /** Aplica la versión nueva si se puede. Devuelve true si la aplicó. */
+  const aplicarSiSePuede = (): boolean => {
+    if (!pendiente || aplicada || !momentoSeguro()) return false;
+    if (autoAplicadas() >= MAX_AUTO) {
+      pendiente = false;
+      avisarComoUltimoRecurso();
+      return false;
+    }
+    pendiente = false;
+    aplicada = true;
+    anotarAuto();
+    recargarAlTomarControl();
+    void updateSW(true);
+    return true;
+  };
+
   const updateSW = registerSW({
     onRegisteredSW(_url, registration) {
       if (!registration) return;
+
+      // Paracaídas: una versión que quedó esperando de la sesión anterior.
+      // Workbox normalmente la anuncia como `waiting` y eso llega abajo como
+      // onNeedRefresh; si no llegó, se aplica igual desde acá.
+      setTimeout(() => {
+        if (aplicada || !registration.waiting) return;
+        pendiente = true;
+        aplicarSiSePuede();
+      }, 3000);
+
       // La app puede quedar abierta días (sobre todo instalada): revisar cada
       // hora si hay una versión nueva, en vez de esperar la próxima recarga.
-      setInterval(() => void registration.update().catch(() => {}), 60 * 60 * 1000);
+      const buscar = () => void registration.update().catch(() => {});
+      setInterval(buscar, 60 * 60 * 1000);
+
+      // Y al volver a primer plano. En iPhone y iPad la app instalada queda
+      // suspendida, a veces por días: el setInterval de arriba no corre ahí,
+      // pero volver a abrirla sí dispara esto.
+      let ultimaBusqueda = Date.now();
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState !== "visible") {
+          // Irse a otra pestaña es el mejor momento posible para recargar.
+          aplicarSiSePuede();
+          return;
+        }
+        if (Date.now() - ultimaBusqueda < 15 * 60_000) return;
+        ultimaBusqueda = Date.now();
+        buscar();
+      });
     },
     onNeedRefresh() {
-      // En plena reunión ni se ofrece: queda pendiente para cuando salga.
-      if (enReunion()) {
-        actualizacionPendiente = true;
-        return;
-      }
-      avisar();
+      // Sin preguntar: si el momento es seguro se aplica ya, y si no queda
+      // anotada para el primer momento seguro que aparezca.
+      pendiente = true;
+      aplicarSiSePuede();
     },
     // Sin aviso de "listo para offline": es plomería, no una noticia.
   });
 
-  // El aviso pendiente espera a que la reunión termine. Un sondeo barato del
-  // pathname alcanza: no hay que acoplar este módulo al router para esto.
+  // El reintento: la reunión terminó, o la persona dejó de escribir. Un sondeo
+  // barato alcanza; no hay que acoplar este módulo al router para esto.
   setInterval(() => {
-    if (actualizacionPendiente && !enReunion()) {
-      actualizacionPendiente = false;
-      avisar();
-    }
+    aplicarSiSePuede();
   }, 15_000);
 
   // Enlaces que llegan con la app ya abierta (focus-existing los entrega acá).

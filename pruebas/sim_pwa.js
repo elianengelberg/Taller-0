@@ -78,6 +78,114 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
     await ctx.setOffline(false);
   }
 
+
+  console.log("\n── 5. La app se actualiza sola (nadie instala versiones a mano) ──");
+  // El caso real: se sube un deploy y la app YA INSTALADA (Windows, Mac,
+  // iPhone, Android) tiene que quedar en la versión nueva sin que la persona
+  // toque nada. Acá se prueba de verdad: se cambia el sw.js servido y se mira
+  // QUÉ VERSIÓN está atendiendo a la página -- sin un solo clic de por medio.
+  {
+    const fs = require("fs");
+    const SW = require("path").resolve(__dirname, "../client/dist/sw.js");
+    const original = fs.readFileSync(SW, "utf8");
+    // Cada versión de prueba se delata: contesta /__prueba-version con su
+    // nombre. Si la página lo lee, es que ESA versión la está controlando.
+    const publicar = (marca) => fs.writeFileSync(SW, `${original}
+self.addEventListener("fetch", (e) => {
+  if (new URL(e.request.url).pathname === "/__prueba-version") e.respondWith(new Response(${JSON.stringify(marca)}));
+});
+`);
+    const version = (p) => p.evaluate(async () => {
+      const t = await fetch("/__prueba-version").then((r) => r.text()).catch(() => "?");
+      return t.startsWith("<") ? "vieja" : t.trim();
+    }).catch(() => "?");
+    const cargas = (p) => p.evaluate(() => Number(sessionStorage.getItem("cargas") || 0)).catch(() => 0);
+    const hayEspera = (p) => p.evaluate(async () => {
+      const r = await navigator.serviceWorker.getRegistration();
+      return Boolean(r?.waiting);
+    }).catch(() => false);
+    const buscarVersion = (p) => p.evaluate(async () => {
+      const r = await navigator.serviceWorker.getRegistration();
+      await r?.update().catch(() => {});
+    }).catch(() => {});
+    const esperar = async (p, fn, ms = 30_000) => {
+      const hasta = Date.now() + ms;
+      while (Date.now() < hasta) {
+        try { if (await fn(p)) return true; } catch { /* recargando */ }
+        await p.waitForTimeout(500);
+      }
+      return false;
+    };
+
+    // Contador de cargas de la pestaña: si sube solo, la app se recargó sola.
+    await ctx.addInitScript(() => {
+      try {
+        sessionStorage.setItem("cargas", String(Number(sessionStorage.getItem("cargas") || 0) + 1));
+      } catch {}
+    });
+
+    try {
+      // Una sola pestaña abierta. Con dos, la que NO está escribiendo aplica
+      // la versión y recarga a todas (correcto en la vida real -- el service
+      // worker es uno solo para el origen -- pero acá taparía lo que se mide).
+      await page.close();
+      const p = await ctx.newPage();
+      p.on("pageerror", (e) => errs.push(e.message.slice(0, 140)));
+      await p.goto(`${B}/ingresar`, { waitUntil: "networkidle" });
+      await p.evaluate(() => navigator.serviceWorker.ready);
+      check("arranca con la versión que había", (await version(p)) === "vieja");
+
+      // 5a. Escribiendo un formulario NO se actualiza: la recarga borraría lo
+      //     que la persona está tipeando. Teclas de verdad (isTrusted).
+      const campo = p.locator("input").first();
+      await campo.click();
+      await p.keyboard.type("ana@ejemplo.com", { delay: 20 });
+      publicar("v2");
+      await buscarVersion(p);
+      check("la versión nueva se baja y queda esperando", await esperar(p, hayEspera, 20_000));
+      await p.waitForTimeout(20_000); // más que el sondeo de 15s: tuvo su chance
+      check("NO se actualiza encima de un formulario a medio escribir",
+        (await cargas(p)) === 1 && (await version(p)) === "vieja" && (await hayEspera(p)),
+        `cargas=${await cargas(p)} versión=${await version(p)}`);
+      check("y lo escrito sigue ahí", (await campo.inputValue()) === "ana@ejemplo.com");
+
+      // 5b. Se borra el texto: ya no hay nada que perder -> se aplica SOLA.
+      await campo.click();
+      await p.keyboard.press("Control+a");
+      await p.keyboard.press("Backspace");
+      check("apenas el momento es seguro se actualiza sola, sin un solo clic",
+        await esperar(p, async (x) => (await version(x)) === "v2", 40_000),
+        `cargas=${await cargas(p)}`);
+      check("y la recarga la hizo la app, no la persona", (await cargas(p)) >= 2);
+      check("no queda ninguna versión esperando", !(await hayEspera(p)));
+      check("la app sigue en pie después de actualizarse sola",
+        await esperar(p, (x) => x.evaluate(() => /Unify|Iniciar sesi|Correo/i.test(document.body.innerText)), 20_000),
+        (await p.evaluate(() => document.body.innerText).catch(() => "")).slice(0, 40).replace(/\n/g, " "));
+
+      // 5c. La versión que llegó con la app cerrada (el caso del iPhone: se
+      //     cierra la app y días después se abre). Tiene que abrir YA en la
+      //     versión nueva, sin recargas raras ni avisos.
+      await campo.click();
+      await p.keyboard.type("bloqueo", { delay: 20 });
+      publicar("v3");
+      await buscarVersion(p);
+      check("una tercera versión queda esperando con la app en uso",
+        await esperar(p, hayEspera, 20_000));
+      await p.close(); // cerrar la app
+
+      const p2 = await ctx.newPage();
+      p2.on("pageerror", (e) => errs.push(e.message.slice(0, 140)));
+      await p2.goto(`${B}/`, { waitUntil: "domcontentloaded" });
+      check("al volver a abrirla arranca directamente en la versión nueva",
+        await esperar(p2, async (x) => (await version(x)) === "v3", 30_000),
+        `versión=${await version(p2)}`);
+      check("sin quedar nada pendiente ni pedir nada", !(await hayEspera(p2)));
+      await p2.close();
+    } finally {
+      fs.writeFileSync(SW, original);
+    }
+  }
+
   check("sin errores de JavaScript", errs.length === 0, errs.slice(0, 2).join(" | "));
   await browser.close();
   const failed = results.filter((r) => !r).length;
