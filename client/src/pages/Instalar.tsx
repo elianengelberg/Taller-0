@@ -43,6 +43,20 @@ function detectarPlataforma(): Plataforma {
   return "otro";
 }
 
+// En iOS la app SOLO se instala desde Safari: Chrome (CriOS), Firefox
+// (FxiOS), Edge (EdgiOS) y demás no pueden agregar una app a la pantalla de
+// inicio ni manejar el perfil de Apple -- regla de Apple, no nuestra. Si la
+// persona llegó acá desde otro navegador, tocar botones no hace NADA
+// visible: hay que decírselo antes de que lo sufra.
+function esSafariDeIos(): boolean {
+  return !/CriOS|FxiOS|EdgiOS|OPiOS|Brave/i.test(navigator.userAgent);
+}
+
+function esIpadPuntual(): boolean {
+  const ua = navigator.userAgent;
+  return /iPad/.test(ua) || (/Mac/.test(ua) && navigator.maxTouchPoints > 1);
+}
+
 // Edge se anuncia como "Edg/": su página de extensiones es edge://extensions
 // y ahí el Modo de desarrollador vive a la IZQUIERDA, no arriba a la derecha.
 // Detectarlo evita mandar a alguien de Edge a pegar una URL de Chrome.
@@ -256,33 +270,59 @@ export default function Instalar() {
             <div className="mt-4 rounded-xl border border-ink-700 bg-ink-800/60 p-4 text-sm leading-relaxed text-ink-200">
               {plataforma === "ios" ? (
                 <>
-                  <p className="font-medium text-strong">En iPhone o iPad, dos caminos:</p>
-                  <p className="mt-2 font-medium text-ink-100">A · El rápido (dos toques, en Safari):</p>
+                  {!esSafariDeIos() && (
+                    <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+                      <p className="text-sm font-semibold text-amber-200">Estás en otro navegador, no en Safari</p>
+                      <p className="mt-1 text-xs leading-relaxed text-amber-100/90">
+                        En iPhone y iPad, la app <span className="font-semibold">sólo se puede instalar desde
+                        Safari</span> (regla de Apple: en otros navegadores el botón no hace nada). Copiá el
+                        enlace y abrilo en Safari:
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => copiar(`${window.location.origin}/instalar`, "safari")}
+                        className="mt-2 w-full rounded-lg bg-amber-500/20 px-3 py-2.5 text-sm font-semibold text-amber-100 hover:bg-amber-500/30"
+                      >
+                        {copiado === "safari" ? "Copiado ✓ — ahora pegalo en Safari" : "Copiar el enlace para Safari"}
+                      </button>
+                    </div>
+                  )}
+                  <p className="font-medium text-strong">
+                    En {esIpadPuntual() ? "iPad" : "iPhone"}, sin tiendas ni descargas (dos toques, en Safari):
+                  </p>
                   <ol className="mt-1 list-decimal space-y-1 pl-5">
                     <li>
                       Tocá <span className="font-semibold">Compartir</span> (el cuadrado con la flecha hacia
                       arriba).
                     </li>
                     <li>
-                      Elegí <span className="font-semibold">“Agregar a inicio”</span>.
+                      Elegí <span className="font-semibold">“Agregar a inicio”</span> (o “Agregar a pantalla de
+                      inicio”). Listo: Unify queda con su ícono, como una app más.
                     </li>
                   </ol>
-                  <p className="mt-3 font-medium text-ink-100">B · Con un archivo (perfil de Apple):</p>
-                  <a href="/unify-ipad.mobileconfig" className="mt-1.5 inline-block">
-                    <Button variant="secondary">Descargar el perfil para iPad</Button>
-                  </a>
-                  <ol className="mt-1.5 list-decimal space-y-1 pl-5">
-                    <li>Tocá el botón (en Safari) y aceptá <span className="font-semibold">“Permitir”</span>.</li>
-                    <li>
-                      Abrí <span className="font-semibold">Ajustes</span> → arriba aparece{" "}
-                      <span className="font-semibold">“Perfil descargado”</span> → <span className="font-semibold">Instalar</span>.
-                    </li>
-                    <li>Unify queda en tu pantalla de inicio, con su ícono, a pantalla completa.</li>
-                  </ol>
-                  <p className="mt-2 text-xs text-ink-400">
-                    Es un perfil de configuración estándar de Apple, sólo con el acceso directo de Unify
-                    adentro; se borra cuando quieras desde Ajustes.
-                  </p>
+                  {esIpadPuntual() && (
+                    <>
+                      {/* El perfil es un camino para iPadS ADMINISTRADOS (una
+                          empresa que precarga el acceso): en un iPhone común
+                          sólo confundía -- "toco descargar y no pasa nada". */}
+                      <p className="mt-3 font-medium text-ink-100">Alternativa para iPads de empresa (perfil de Apple):</p>
+                      <a href="/unify-ipad.mobileconfig" className="mt-1.5 inline-block">
+                        <Button variant="secondary">Descargar el perfil para iPad</Button>
+                      </a>
+                      <ol className="mt-1.5 list-decimal space-y-1 pl-5">
+                        <li>Tocá el botón (en Safari) y aceptá <span className="font-semibold">“Permitir”</span>.</li>
+                        <li>
+                          Abrí <span className="font-semibold">Ajustes</span> → arriba aparece{" "}
+                          <span className="font-semibold">“Perfil descargado”</span> → <span className="font-semibold">Instalar</span>.
+                        </li>
+                        <li>Unify queda en tu pantalla de inicio, con su ícono, a pantalla completa.</li>
+                      </ol>
+                      <p className="mt-2 text-xs text-ink-400">
+                        Es un perfil de configuración estándar de Apple, sólo con el acceso directo de Unify
+                        adentro; se borra cuando quieras desde Ajustes.
+                      </p>
+                    </>
+                  )}
                 </>
               ) : plataforma === "mac" ? (
                 <>

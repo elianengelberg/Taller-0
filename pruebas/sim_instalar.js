@@ -275,10 +275,12 @@ const UA = {
     const { ctx, page } = await abrir(UA.iphone, `${B}/instalar`);
     const t = await texto(page);
     check("detecta iPhone/iPad", /estás en iPhone\/iPad/.test(t));
-    check("camino A: Compartir → Agregar a inicio", /Agregar a inicio/.test(t));
-    check("camino B: instalar CON UN ARCHIVO (perfil de Apple)", /Con un archivo \(perfil de Apple\)/.test(t));
-    check("con el botón del perfil y sus pasos de Ajustes",
-      (await page.locator('a[href="/unify-ipad.mobileconfig"]').count()) === 1 && /Perfil descargado/.test(t));
+    check("el camino: Compartir → Agregar a inicio (Safari)", /Agregar a inicio/.test(t));
+    // El perfil de Apple es un camino para iPadS (empresas que precargan el
+    // acceso). En un iPhone común sólo confundía: "toco descargar y no pasa
+    // nada" -- reporte real. En iPhone NO aparece.
+    check("en iPhone NO aparece el perfil de iPad",
+      (await page.locator('a[href="/unify-ipad.mobileconfig"]').count()) === 0 && !/perfil para iPad/.test(t));
     check("dice sin vueltas que un ZIP no instala nada en un iPad", /un ZIP no instala nada en un iPad/.test(t));
     check("dice que en el teléfono no hay extensiones (y de quién es la regla)",
       /las extensiones de navegador no\s+existen/.test(t.replace(/\s+/g, " ")) || /no existen/.test(t));
@@ -297,6 +299,27 @@ const UA = {
     await page.waitForTimeout(1500);
     check("?bajar=1 en el teléfono no descarga nada", !bajo);
     await ctx.close();
+
+    // El iPad SÍ ofrece el perfil (ahí tiene sentido: flotas administradas).
+    const ipad = await abrir(
+      "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+      `${B}/instalar`
+    );
+    const ti = await texto(ipad.page);
+    check("en iPad el perfil de empresa sí aparece, con sus pasos de Ajustes",
+      (await ipad.page.locator('a[href="/unify-ipad.mobileconfig"]').count()) === 1 && /Perfil descargado/.test(ti));
+    await ipad.ctx.close();
+
+    // Chrome de iPhone (CriOS): ahí NADA de esto funciona -- regla de Apple.
+    // La página lo tiene que DECIR y dar el enlace para abrir en Safari.
+    const crios = await abrir(
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.0.0 Mobile/15E148 Safari/604.1",
+      `${B}/instalar`
+    );
+    const tc = await texto(crios.page);
+    check("Chrome de iPhone: avisa que la instalación es SOLO desde Safari",
+      /no en Safari/.test(tc) && /Copiar el enlace para Safari/.test(tc));
+    await crios.ctx.close();
   }
 
   // ═══════ 6. El botón de instalar la app (cuando el navegador lo ofrece) ═══════
