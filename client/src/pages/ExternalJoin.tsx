@@ -14,6 +14,7 @@ import { LANGUAGES } from "../lib/languages";
 import {
   DetectedMeeting,
   detectMeetingPlatform,
+  externalFallbackKey,
   extractPasscode,
   impersonatedDomain,
   PLATFORM_REGISTRY,
@@ -101,18 +102,15 @@ function companionEmbedFor(
   // Unify no depende de la otra plataforma, así que igual se puede acompañar.
   // La sala sale del origen + path (nunca del query, que trae tokens propios).
   if (url) {
-    try {
-      const parsed = new URL(url);
-      const path = parsed.pathname.replace(/\/+$/, "").toLowerCase();
-      if (!path || path === "/") return null;
-      return {
-        key: `externa:${parsed.host}${path}`,
-        label: parsed.host.replace(/^www\./, ""),
-        embed: { kind: "external", label: parsed.host.replace(/^www\./, ""), joinLink: url },
-      };
-    } catch {
-      return null;
-    }
+    const key = externalFallbackKey(url);
+    if (!key) return null;
+    let host = "";
+    try { host = new URL(url).host.replace(/^www\./, ""); } catch { /* imposible: key existe */ }
+    return {
+      key,
+      label: host,
+      embed: { kind: "external", label: host, joinLink: url },
+    };
   }
   return null;
 }

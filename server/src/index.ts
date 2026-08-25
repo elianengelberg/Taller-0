@@ -1613,6 +1613,9 @@ const BRIDGE_PLATFORMS = new Set([
   "google-meet", "zoom", "teams", "jitsi", "webex", "whereby", "element",
   "chime", "goto", "bluejeans", "ringcentral", "dialpad", "livestorm", "zoho",
   "skype", "discord", "slack", "whatsapp", "gather", "generica",
+  // Cualquier web: la clave que la web y la extensión derivan de un enlace
+  // que no reconocen por nombre (origen + path). Ver externalFallbackKey.
+  "externa",
 ]);
 
 // Cómo se titula la reunión en el historial ("Reunión de Zoom", etc.).
@@ -1623,6 +1626,7 @@ const BRIDGE_LABELS: Record<string, string> = {
   ringcentral: "RingCentral", dialpad: "Dialpad", livestorm: "Livestorm",
   zoho: "Zoho Meeting", skype: "Skype", discord: "Discord", slack: "Slack",
   whatsapp: "WhatsApp", gather: "Gather", generica: "Reunión externa",
+  externa: "Reunión externa",
 };
 
 /**

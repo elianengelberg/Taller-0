@@ -33,6 +33,8 @@ const json = (b) => ({ method: "POST", headers: { "Content-Type": "application/j
     ["Jitsi con sala", `jitsi:meet.jit.si/sala-${rnd(6)}`, 200],
     ["Webex", `webex:acme.webex.com/meet/juan${rnd(4)}`, 200],
     ["código de Meet pelado (extensión v3 instalada)", "abc-defg-hij", 200],
+    ["cualquier web (un video, una clase)", "externa:youtube.com/watch", 200],
+    ["cualquier web con espacios (inyección)", "externa:you tube.com/x", 400],
     ["plataforma inventada", `hackme:${rnd(8)}`, 400],
     ["sin plataforma", rnd(12), 400],
     ["con espacios (inyección)", "zoom:123 456", 400],
@@ -193,6 +195,47 @@ const json = (b) => ({ method: "POST", headers: { "Content-Type": "application/j
         webKeys[i] !== null && webKeys[i] === extKeys[i],
         `web=${webKeys[i]} ext=${extKeys[i]}`);
     }
+  }
+
+  // ═══════ 7. "Cualquier web": la extensión y la web derivan LA MISMA clave ═══════
+  console.log("\n── 7. La clave de cualquier pestaña, espejada ──");
+  {
+    // La regla vive dos veces (externalFallbackKey en la web, claveWebDePestana
+    // en el background de la extensión): si se desparejan, grabar una pestaña
+    // y abrir "Unify al lado" caerían en salas DISTINTAS. Ambas se leen de sus
+    // fuentes reales y se comparan URL por URL.
+    const { execFileSync } = require("child_process");
+    const URLS_WEB = [
+      "https://www.youtube.com/watch?v=abc123&t=99",
+      "https://ejemplo.com/clase/algebra/",
+      "https://Ejemplo.com/CLASE",
+      "http://sitio.com:8080/aula",
+    ];
+    const out = execFileSync("npx", ["tsx", "-e", `
+      import { externalFallbackKey } from "/home/user/Taller-0/client/src/lib/meetingPlatforms";
+      console.log(JSON.stringify(${JSON.stringify(URLS_WEB)}.map((u) => externalFallbackKey(u))));
+    `], { cwd: "/home/user/Taller-0/client", encoding: "utf8" });
+    const webKeys = JSON.parse(out.trim().split("\n").pop());
+
+    const fs = require("fs");
+    const bg = fs.readFileSync("/home/user/Taller-0/extension/background.js", "utf8");
+    const fn = bg.match(/function claveWebDePestana\([\s\S]*?\n\}/)?.[0];
+    check("claveWebDePestana existe en el background", Boolean(fn));
+    const clave = new Function(`${fn}; return claveWebDePestana;`)();
+    for (let i = 0; i < URLS_WEB.length; i++) {
+      check(`misma clave para ${URLS_WEB[i].slice(0, 40)}…`,
+        webKeys[i] !== null && webKeys[i] === clave(URLS_WEB[i]),
+        `web=${webKeys[i]} ext=${clave(URLS_WEB[i])}`);
+    }
+    // Las diferencias DELIBERADAS: la extensión acepta una portada sin path
+    // (clave = host pelado); nada acepta esquemas raros.
+    check("la portada de un sitio vale para la extensión (host pelado)",
+      clave("https://noticias.com/") === "externa:noticias.com");
+    check("chrome:// y similares no derivan clave", clave("chrome://extensions") === null);
+    // Y lo que el bridge guarda para esa clave lleva su etiqueta.
+    const s7 = await api(`/api/meet-bridge/${encodeURIComponent("externa:youtube.com/watch")}/session`);
+    const { rows } = await pg.query(`SELECT host_name FROM meetings WHERE id = $1`, [s7.body.dbId]);
+    check("en el historial figura como reunión externa", rows[0]?.host_name === "Reunión externa", rows[0]?.host_name);
   }
 
   await pg.end();

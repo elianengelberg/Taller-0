@@ -154,6 +154,33 @@ chrome.runtime.onUpdateAvailable.addListener(() => {
   aplicarUpdateSiSePuede();
 });
 
+// Cualquier pestaña puede ser "la reunión": un video, una clase, una
+// plataforma que no conocemos por nombre. La clave ESPEJA la regla de la web
+// (externalFallbackKey en meetingPlatforms.ts): origen + path, SIN query
+// (trae tokens) -- así "Unify al lado" y esta grabación caen en la MISMA
+// sala. Única diferencia: acá una portada sin path también vale (clave =
+// host pelado); en la web un enlace pelado no se acepta como reunión.
+function claveWebDePestana(url) {
+  try {
+    const u = new URL(String(url || ""));
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    const path = u.pathname.replace(/\/+$/, "").toLowerCase();
+    return `externa:${u.host}${path}`;
+  } catch {
+    return null;
+  }
+}
+
+// Grabar la propia app de Unify por este camino sería duplicar: la reunión
+// nativa ya se graba desde adentro, con mejor calidad y sin permisos extra.
+function esPropiaDeUnify(url, appBase) {
+  try {
+    return new URL(String(url || "")).host === new URL(String(appBase || DEFAULT_APP)).host;
+  } catch {
+    return false;
+  }
+}
+
 // La reunión companion que respalda esa clave de sala. El bridge la crea si
 // no existe, con la MISMA clave que derivaría la web: de ahí sale que las
 // superficies se encuentren en una sola sala en vez de fabricar islas.
@@ -212,7 +239,26 @@ async function toggleForTab(tabId) {
       payload = { dbId: s.dbId, serverBase, token, roomKey: ext.roomKey };
     }
   }
-  if (!payload?.dbId) return { ok: false, error: "Abrí una reunión y probá de nuevo." };
+  if (!payload?.dbId) {
+    // Cualquier pestaña normal de internet: un video, una clase, una reunión
+    // en una plataforma que no está en nuestra lista. La invocación (atajo o
+    // ícono) ya concedió activeTab, así que la URL es visible y la captura
+    // está permitida -- se graba Y se transcribe igual que una reunión.
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    const clave = claveWebDePestana(tab?.url ?? "");
+    const { appBase } = await chrome.storage.local.get({ appBase: DEFAULT_APP });
+    if (clave && esPropiaDeUnify(tab?.url ?? "", appBase)) {
+      return { ok: false, error: "Esta pestaña ya es Unify: la reunión se graba desde la propia app." };
+    }
+    if (clave) {
+      const s = await sesionDeSala(clave);
+      const { serverBase, token } = await config();
+      payload = { dbId: s.dbId, serverBase, token, roomKey: clave };
+      // Registrada como sala externa: el popup y los próximos toggles la ven.
+      lastExternal.set(tabId, { roomKey: clave, plataforma: "externa", url: tab?.url ?? "" });
+    }
+  }
+  if (!payload?.dbId) return { ok: false, error: "Abrí una pestaña normal de internet y probá de nuevo." };
   await startRecording(tabId, payload);
   notify(tabId, { kind: "unify-record-state", recording: true });
   return { ok: true, recording: true };
@@ -354,13 +400,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // El popup pregunta qué mostrar (y sobre qué pestaña actuar).
   if (msg?.kind === "unify-popup-state") {
-    chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+    Promise.all([
+      chrome.tabs.query({ active: true, currentWindow: true }),
+      chrome.storage.local.get({ appBase: DEFAULT_APP }),
+    ]).then(([[tab], v]) => {
       const id = tab?.id ?? null;
+      const url = tab?.url ?? "";
+      const isMeet = Boolean(url.startsWith("https://meet.google.com/"));
+      const isExternal = Boolean(id != null && lastExternal.get(id));
+      // Cualquier pestaña normal de internet se puede grabar y transcribir:
+      // abrir este popup ya contó como invocación (activeTab concedido).
+      const isWeb = Boolean(
+        id != null && !isMeet && !isExternal &&
+        claveWebDePestana(url) && !esPropiaDeUnify(url, v.appBase)
+      );
       sendResponse({
         tabId: id,
-        isMeet: Boolean(tab?.url?.startsWith("https://meet.google.com/")),
-        isExternal: Boolean(id != null && lastExternal.get(id)),
-        ready: Boolean(id != null && (lastMeet.get(id)?.dbId || lastExternal.get(id)?.roomKey)),
+        url,
+        isMeet,
+        isExternal,
+        isWeb,
+        ready: Boolean(id != null && (lastMeet.get(id)?.dbId || lastExternal.get(id)?.roomKey || isWeb)),
         recording: id != null && recordingTabId === id,
       });
     });

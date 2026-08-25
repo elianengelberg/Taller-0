@@ -59,14 +59,33 @@ function paintRecording(on) {
 }
 
 chrome.runtime.sendMessage({ kind: "unify-popup-state" }, (s) => {
-  // El botón aparece en Meet (panel profundo) y también en las reuniones
-  // externas que detectó prompt-injector.js: abrir este popup cuenta como
-  // invocación, así que desde acá la captura de pestaña queda habilitada.
-  if (!s?.isMeet && !s?.isExternal) return;
+  // El botón aparece en Meet (panel profundo), en las reuniones externas que
+  // detectó prompt-injector.js, y también en CUALQUIER pestaña normal de
+  // internet (un video, una clase, una plataforma que no conocemos): abrir
+  // este popup cuenta como invocación, así que la captura queda habilitada.
+  if (!s?.isMeet && !s?.isExternal && !s?.isWeb) return;
   tabId = s.tabId;
   rec.hidden = false;
   recTip.hidden = false;
   paintRecording(Boolean(s.recording));
+  if (s.isWeb && !s.recording) {
+    rec.textContent = "⏺ Grabar y transcribir esta pestaña";
+    recTip.textContent =
+      "Graba y transcribe lo que suena en esta pestaña (un video, una clase, cualquier reunión). Queda en tu historial de Unify.";
+  }
+  // Los subtítulos en vivo, con traducción e IA, se miran en Unify al lado:
+  // en una pestaña cualquiera no podemos dibujar nada (sin permisos de host).
+  if ((s.isWeb || s.isExternal) && s.url) {
+    chrome.storage.local.get({ appBase: DEFAULT_APP }, (v) => {
+      const lado = document.createElement("a");
+      lado.className = "btn";
+      lado.target = "_blank";
+      lado.rel = "noreferrer";
+      lado.href = `${(v.appBase || DEFAULT_APP).replace(/\/+$/, "")}/externa?url=${encodeURIComponent(s.url)}`;
+      lado.textContent = "Subtítulos en vivo (Unify al lado)";
+      rec.insertAdjacentElement("afterend", lado);
+    });
+  }
   if (!s.ready && !s.recording) {
     rec.disabled = true;
     rec.style.opacity = "0.55";

@@ -663,3 +663,20 @@ export function detectMeetingPlatform(
 
   return build("unknown");
 }
+
+// La sala de un enlace que NO reconocemos por nombre: origen + path (nunca el
+// query, que trae tokens y rompería la clave). Es UNA regla compartida: la usa
+// la web al acompañar cualquier enlace y la ESPEJA la extensión al grabar
+// cualquier pestaña (claveWebDePestana en background.js) -- misma clave,
+// misma sala, un solo hilo de transcripción.
+export function externalFallbackKey(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    const path = u.pathname.replace(/\/+$/, "").toLowerCase();
+    if (!path || path === "/") return null;
+    return `externa:${u.host}${path}`;
+  } catch {
+    return null;
+  }
+}
