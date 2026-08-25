@@ -62,8 +62,12 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
     // CLARA (decisión de producto). Quien prefiera oscuro u "auto" lo elige
     // en Ajustes y queda guardado -- eso también se prueba.
     const p = await ctx.newPage();
+    // Con el SISTEMA en oscuro: es el caso que distingue "predeterminado
+    // claro" de "auto" (en un sistema claro, ambos se ven iguales y la
+    // comprobación no probaría nada).
+    await p.emulateMedia({ colorScheme: "dark" });
     await p.goto(`${B}/`, { waitUntil: "networkidle" });
-    check("sin elección guardada, la app abre en tema claro",
+    check("sin elección guardada, la app abre en tema claro (aun con el sistema oscuro)",
       (await p.evaluate(() => document.documentElement.dataset.theme)) === "light",
       await p.evaluate(() => document.documentElement.dataset.theme));
     check("y el fondo pintado es claro de verdad",

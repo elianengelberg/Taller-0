@@ -27,7 +27,9 @@ const pool = DATABASE_URL
       // las rechaza (Render y Neon cortan bastante abajo). 10 es el default
       // de la librería y alcanza de sobra para este servidor; explicitarlo
       // deja claro que es una decisión, no un olvido.
-      max: 10,
+      // Dimensionado para una oficina (~100 máquinas): los picos de historial
+      // y verificación en simultáneo hacían cola con 10.
+      max: 25,
       // Sin esto, con la base caída una consulta espera PARA SIEMPRE: el
       // pedido HTTP queda colgado, el navegador muestra una ruedita eterna y
       // nadie se entera de qué pasó. Mejor fallar en 10 segundos y decirlo.

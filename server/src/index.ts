@@ -211,11 +211,25 @@ app.use((req, res, next) => {
   (RUTA_ASK.test(req.path) ? jsonGrande : jsonChico)(req, res, next);
 });
 
+// Los topes de los limitadores "calientes" se ajustan por entorno. El motivo
+// es una oficina entera detrás de UNA sola IP (NAT corporativo): cien
+// computadoras comparten el mismo balde por IP, así que los valores por
+// defecto están dimensionados para eso. Las suites de prueba definen topes
+// chicos (ver pruebas/LEEME.md) para probar el 429 sin hacer mil pedidos.
+// En producción no definas estas variables salvo que sepas por qué.
+const tope = (env: string, porDefecto: number): number => {
+  const v = Number(process.env[env]);
+  return Number.isFinite(v) && v > 0 ? v : porDefecto;
+};
+
 // In-memory per-IP limiter to blunt credential brute-forcing on the auth
 // endpoints. Single-instance deploy, so a shared map is enough; the window is
 // short and the cap is far above what a real person logging in ever hits.
 const authAttempts = new Map<string, { count: number; windowStart: number }>();
-const AUTH_MAX_PER_WINDOW = 30;
+// 30 alcanzaba para una persona; una oficina detrás de una IP necesita más.
+// La fuerza bruta contra UNA cuenta la frena el contador POR CUENTA (5
+// intentos), no éste: acá sólo se corta el diluvio ciego desde una IP.
+const AUTH_MAX_PER_WINDOW = tope("LIMITE_AUTH_POR_IP", 240);
 const AUTH_WINDOW_MS = 60_000;
 function authRateLimit(req: Request, res: Response, next: NextFunction): void {
   const ip = req.ip || req.socket.remoteAddress || "unknown";
@@ -251,15 +265,15 @@ const aiLimit = rateLimit({
   keyBy: userOrIp,
   message: "Hiciste muchas consultas a la IA seguidas. Esperá un momento y probá de nuevo.",
 });
-const translateLimit = rateLimit({ max: 240, windowMs: 60_000, keyBy: userOrIp });
-const explainLimit = rateLimit({ max: 20, windowMs: 60_000 });
+const translateLimit = rateLimit({ max: tope("LIMITE_TRADUCCIONES", 1200), windowMs: 60_000, keyBy: userOrIp });
+const explainLimit = rateLimit({ max: 60, windowMs: 60_000 });
 // Emiten credenciales de Zoom/Azure contra NUESTRA cuenta: sin límite, este
 // servidor era un proveedor gratuito de accesos para cualquiera.
-const credentialLimit = rateLimit({ max: 30, windowMs: 60_000 });
+const credentialLimit = rateLimit({ max: tope("LIMITE_CREDENCIALES", 120), windowMs: 60_000 });
 // Las subidas son deliberadamente sin sesión (los invitados también graban),
 // así que el límite es lo único que impide usarlas como alojamiento gratis.
 const uploadLimit = rateLimit({
-  max: 20,
+  max: tope("LIMITE_SUBIDAS", 100),
   windowMs: 60 * 60_000,
   message: "Se subieron demasiadas grabaciones desde acá. Probá de nuevo en un rato.",
 });
@@ -268,14 +282,16 @@ const avatarLimit = rateLimit({ max: 20, windowMs: 60 * 60_000, keyBy: userOrIp 
 // cuenta (5 por hora, contra la base): éste es el que evita que una sola IP
 // use el servidor como cañón de correos contra muchas direcciones distintas.
 const mailLimit = rateLimit({
-  max: 20,
+  max: tope("LIMITE_CORREOS", 60),
   windowMs: 15 * 60_000,
   message: "Pediste demasiados correos seguidos. Esperá unos minutos.",
 });
 // El bridge lo escribe la extensión desde meet.google.com, así que acepta
 // cualquier origen: el límite es lo que evita que se convierta en un canal
 // abierto para inundar salas ajenas.
-const bridgeLimit = rateLimit({ max: 240, windowMs: 60_000 });
+// Una oficina entera manda líneas por la misma IP: el tope por IP es alto y
+// el freno fino contra inundar UNA sala es allowMeetBridge (40 cada 10 s).
+const bridgeLimit = rateLimit({ max: tope("LIMITE_BRIDGE", 2400), windowMs: 60_000 });
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });

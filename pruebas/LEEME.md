@@ -20,7 +20,12 @@ node pruebas/serve_csp.js &
 cd server && DATABASE_URL="postgres://postgres@localhost:5433/unify" \
   AUTH_SECRET="clave-de-pruebas-local-larga-1234567890" PORT=4001 \
   CLIENT_ORIGIN="http://localhost:4174" MAIL_LOG=1 \
+  LIMITE_AUTH_POR_IP=30 LIMITE_TRADUCCIONES=240 LIMITE_CREDENCIALES=30 \
+  LIMITE_SUBIDAS=20 LIMITE_CORREOS=20 LIMITE_BRIDGE=240 \
   npx tsx src/index.ts > /tmp/unify-server.log 2>&1 &
+# (los LIMITE_* chicos son PARA PRUEBAS: dejan probar el 429 sin mil pedidos.
+#  En producción NO se definen: los defaults están dimensionados para una
+#  oficina entera detrás de una sola IP -- ver "tope()" en server/src/index.ts)
 # (el log en /tmp/unify-server.log es la "bandeja de entrada" que leen
 #  sim_email y sim_verificacion)
 ```
