@@ -1,8 +1,9 @@
 import { ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import AccountMenu from "../components/AccountMenu";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Button from "../components/Button";
+import { detectMeetingPlatform, PLATFORM_REGISTRY } from "../lib/meetingPlatforms";
 import GradientBackdrop from "../components/GradientBackdrop";
 import Logo from "../components/Logo";
 import { CaptionsIcon, GlobeIcon, PeopleIcon, SparklesIcon } from "../components/icons";
@@ -22,6 +23,38 @@ export default function Home() {
   // a la pantalla de detección con todo armado. Si no se puede leer o no hay
   // nada, nunca es un callejón: queda el campo de pegar a mano.
   const [pegando, setPegando] = useState<"" | "sin-enlace">("");
+  // El cartel AUTOMÁTICO del teléfono: si el permiso de lectura del
+  // portapapeles ya fue dado (la primera vez que usaste "Pegar el enlace"),
+  // al ABRIR la app se mira solo si hay un enlace de reunión copiado y el
+  // cartel aparece sin tocar nada -- lo más cerca de la extensión de la PC
+  // que un teléfono permite (ninguna app puede ver otras apps: regla de
+  // Apple y de Google; acá sólo se mira el portapapeles, con permiso, al
+  // abrir Unify). En iPhone la lectura sin gesto no existe: esto calla y
+  // queda el botón de un toque. Un "Ahora no" se recuerda por enlace.
+  const [copiadoDetectado, setCopiadoDetectado] = useState<{ url: string; nombre: string } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    async function mirar(): Promise<void> {
+      try {
+        const permiso = await navigator.permissions?.query?.({ name: "clipboard-read" as PermissionName });
+        if (permiso?.state !== "granted") return; // sin permiso previo: ni intentarlo
+        const texto = (await navigator.clipboard.readText()).trim();
+        if (!vivo || !texto || texto.length > 800) return;
+        const det = detectMeetingPlatform(texto, { selfHosts: [window.location.hostname] });
+        if (det.platform === "unknown" || det.platform === "encuentro" || !det.url) return;
+        // El "Ahora no" se recuerda por el enlace NORMALIZADO (el mismo que
+        // se guarda al descartar): el texto crudo puede variar en espacios.
+        if (sessionStorage.getItem(`unify-vi:${det.url}`)) return;
+        setCopiadoDetectado({ url: det.url, nombre: PLATFORM_REGISTRY[det.platform].label });
+      } catch {
+        /* iPhone (exige gesto), permiso revocado, o vacío: silencio */
+      }
+    }
+    void mirar();
+    const alVolver = () => { if (document.visibilityState === "visible") void mirar(); };
+    document.addEventListener("visibilitychange", alVolver);
+    return () => { vivo = false; document.removeEventListener("visibilitychange", alVolver); };
+  }, []);
   async function pegarEnlace(): Promise<void> {
     let texto = "";
     try {
@@ -78,6 +111,31 @@ export default function Home() {
         </div>
       </header>
 
+      {copiadoDetectado && (
+        <div className="relative mx-5 mb-1 rounded-xl border border-brand-500/50 bg-brand-500/15 px-4 py-3 shadow-soft sm:mx-10">
+          <p className="text-sm font-semibold text-strong">
+            Uy, veo que copiaste un enlace de {copiadoDetectado.nombre}. ¿Entramos con Unify?
+          </p>
+          <div className="mt-2.5 flex gap-2">
+            <Button
+              className="flex-1"
+              onClick={() => navigate(`/externa?url=${encodeURIComponent(copiadoDetectado.url)}`)}
+            >
+              Entrar con subtítulos y grabación
+            </Button>
+            <button
+              type="button"
+              onClick={() => {
+                try { sessionStorage.setItem(`unify-vi:${copiadoDetectado.url}`, "1"); } catch { /* sin storage */ }
+                setCopiadoDetectado(null);
+              }}
+              className="rounded-xl px-4 py-2.5 text-sm font-medium text-ink-300 hover:bg-ink-800"
+            >
+              Ahora no
+            </button>
+          </div>
+        </div>
+      )}
       {notice && (
         <div className="relative mx-5 mb-1 rounded-xl border border-ink-600 bg-ink-800 px-4 py-3 text-center text-sm text-strong shadow-soft sm:mx-10">
           {notice}

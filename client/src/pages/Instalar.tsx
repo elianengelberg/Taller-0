@@ -288,7 +288,7 @@ export default function Instalar() {
                       <button
                         type="button"
                         onClick={() => copiar(`${window.location.origin}/instalar`, "safari")}
-                        className="mt-2 w-full rounded-lg bg-ink-800 px-3 py-2.5 text-sm font-semibold text-ink-200 hover:bg-ink-700"
+                        className="mt-1 inline-block min-h-[40px] text-xs font-medium text-ink-300 underline underline-offset-2 hover:text-ink-100"
                       >
                         {copiado === "safari" ? "Copiado ✓ — ahora pegalo en Safari" : "Copiar el enlace para Safari"}
                       </button>

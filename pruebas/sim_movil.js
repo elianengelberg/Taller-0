@@ -161,6 +161,29 @@ async function botonesChicos(p, minimo = 40) {
     check("y la reunión de Zoom queda detectada en el teléfono",
       /Zoom/i.test((await p.locator("body").textContent()) || ""));
 
+    // ── 2c. El cartel AUTOMÁTICO: abrís la app con un enlace copiado ──
+    // Con el permiso ya dado (quedó de 2b), abrir Unify mira el portapapeles
+    // SOLO y ofrece la reunión sin tocar nada -- lo más cerca del aviso de la
+    // extensión de PC que un teléfono permite.
+    await p.goto(`${B}/`, { waitUntil: "networkidle" });
+    await p.waitForTimeout(1800);
+    check("con permiso ya dado, el cartel aparece SOLO al abrir la app",
+      /veo que copiaste un enlace de Zoom/i.test((await p.locator("body").textContent()) || ""));
+    await p.getByRole("button", { name: /Ahora no/i }).first().tap();
+    await p.waitForTimeout(400);
+    await p.goto(`${B}/`, { waitUntil: "networkidle" });
+    await p.waitForTimeout(1200);
+    check("«Ahora no» se recuerda: no insiste con el mismo enlace",
+      !/veo que copiaste/i.test((await p.locator("body").textContent()) || ""));
+    await p.evaluate(() => navigator.clipboard.writeText("https://meet.jit.si/SalaDePrueba"));
+    await p.goto(`${B}/`, { waitUntil: "networkidle" });
+    await p.waitForTimeout(1800);
+    check("un enlace NUEVO copiado vuelve a avisar (ahora Jitsi)",
+      /enlace de Jitsi/i.test((await p.locator("body").textContent()) || ""));
+    await p.getByRole("button", { name: /Entrar con subtítulos/i }).first().tap();
+    await p.waitForTimeout(1500);
+    check("«Entrar» lleva directo a la detección", p.url().includes("/externa"), p.url());
+
     // ── 3. Un enlace externo compartido AL teléfono ──
     await p.goto(`${B}/externa?url=${encodeURIComponent("https://us05web.zoom.us/j/91234567890")}`, { waitUntil: "networkidle" });
     await p.waitForTimeout(1500);
