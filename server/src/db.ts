@@ -19,9 +19,25 @@ const sslConfig = isLocal
     ? { rejectUnauthorized: true }
     : { rejectUnauthorized: false };
 
+// La URL de Render/Neon suele venir con "?sslmode=require". Acá el SSL lo
+// decide la opción explícita `ssl` de abajo (en pg, la opción gana sobre lo
+// que diga la URL), pero el parser de la URL igual VE el parámetro y desde
+// pg 8.16 imprime un "SECURITY WARNING" sobre su cambio de semántica futura
+// en cada arranque -- alarma falsa sobre un parámetro que no gobierna nada.
+// Se lo quita con cirugía de texto sobre el query solamente: las credenciales
+// (que pueden traer caracteres raros) no se tocan.
+export function sinSslmode(url: string): string {
+  const separador = url.indexOf("?");
+  if (separador === -1) return url;
+  const base = url.slice(0, separador);
+  const query = url.slice(separador + 1);
+  const restantes = query.split("&").filter((p) => !/^(sslmode|ssl)=/i.test(p));
+  return restantes.length ? `${base}?${restantes.join("&")}` : base;
+}
+
 const pool = DATABASE_URL
   ? new Pool({
-      connectionString: DATABASE_URL,
+      connectionString: sinSslmode(DATABASE_URL),
       ssl: sslConfig,
       // Sin techo, una ráfaga de pedidos abre conexiones hasta que Postgres
       // las rechaza (Render y Neon cortan bastante abajo). 10 es el default

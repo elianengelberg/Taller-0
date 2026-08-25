@@ -60,6 +60,32 @@ async function arranqueServidor() {
 }
 
 (async () => {
+  // ═══════ 0b. La URL con sslmode ya no dispara la falsa alarma ═══════
+  console.log("── 0b. sslmode fuera de la URL (la opción ssl explícita es la que manda) ──");
+  {
+    // pg 8.16 imprime un "SECURITY WARNING" en cada arranque si la URL trae
+    // sslmode -- un parámetro que acá no gobierna nada (la opción ssl
+    // explícita gana). Se prueba la cirugía REAL de db.ts, exportada.
+    const { execFileSync } = require("child_process");
+    const out = execFileSync("npx", ["tsx", "-e", `
+      import { sinSslmode } from "/home/user/Taller-0/server/src/db";
+      const casos = [
+        "postgres://u:p@host/db?sslmode=require",
+        "postgres://u:p@host/db?sslmode=require&application_name=unify",
+        "postgres://u:cl%40ve%23rara@host:5432/db?a=1&ssl=true&b=2",
+        "postgres://u:p@host/db",
+      ];
+      console.log("R:" + JSON.stringify(casos.map(sinSslmode)));
+    `], { cwd: "/home/user/Taller-0/server", encoding: "utf8" });
+    const r = JSON.parse(out.split("R:")[1].trim().split("\n")[0]);
+    check("sslmode solo: query entero fuera", r[0] === "postgres://u:p@host/db");
+    check("sslmode acompañado: los demás parámetros quedan",
+      r[1] === "postgres://u:p@host/db?application_name=unify", r[1]);
+    check("ssl=true también sale y la clave rara NO se toca",
+      r[2] === "postgres://u:cl%40ve%23rara@host:5432/db?a=1&b=2", r[2]);
+    check("sin query, la URL queda idéntica", r[3] === "postgres://u:p@host/db");
+  }
+
   const arranqueAntes = await arranqueServidor();
   check("el servidor está corriendo antes de empezar", Boolean(arranqueAntes), arranqueAntes);
 
