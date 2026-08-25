@@ -43,6 +43,9 @@ xvfb-run -a node pruebas/sim_toast.js     # extensión real: toast/overlay/graba
 node pruebas/sim_video_ia.js            # IA multimodal + karaoke (4001 LIBRE)
 node pruebas/sim_traduccion.js          # traducción: proveedor blindado, paridad de idiomas, voz propia
 node pruebas/sim_av.js                  # DOS navegadores: mute/cámara/compartir CON audio + su transcripción
+node pruebas/sim_renacer.js             # el servidor MUERE en plena reunión y la sala renace (4001 LIBRE)
+node pruebas/sim_carga.js               # la oficina entera: 120 clientes, 20 salas, una sola IP (4001 LIBRE)
+node pruebas/sim_movil.js               # iPhone y Pixel emulados: táctil, sin desbordes, botones de dedo
 ```
 
 Criterios de la casa: probar el arreglo revirtiéndolo; desconfiar de los PASS

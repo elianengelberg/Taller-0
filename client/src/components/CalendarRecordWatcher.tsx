@@ -132,7 +132,7 @@ export default function CalendarRecordWatcher() {
               <button
                 type="button"
                 onClick={() => goRecord(prompt)}
-                className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-2 text-sm font-semibold text-on-accent hover:bg-brand-600"
+                className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-2.5 text-sm font-semibold text-on-accent hover:bg-brand-600"
               >
                 <RecordIcon className="h-4 w-4" />
                 Grabar ahora
@@ -140,7 +140,7 @@ export default function CalendarRecordWatcher() {
               <button
                 type="button"
                 onClick={() => dismiss(prompt)}
-                className="rounded-lg bg-ink-800 px-3 py-2 text-sm font-medium text-ink-200 hover:bg-ink-700"
+                className="rounded-lg bg-ink-800 px-3 py-2.5 text-sm font-medium text-ink-200 hover:bg-ink-700"
               >
                 Ahora no
               </button>

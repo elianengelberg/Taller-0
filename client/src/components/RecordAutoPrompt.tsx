@@ -50,7 +50,9 @@ export default function RecordAutoPrompt({
           type="button"
           onClick={onDecline}
           aria-label="No grabar"
-          className="rounded-full p-1 text-ink-400 hover:bg-ink-700 hover:text-strong"
+          // 40x40 de zona tocable (Apple pide 44, Android 48; el ícono sigue
+          // chico a la vista, el margen negativo evita mover el diseño).
+          className="-m-2 flex h-10 w-10 items-center justify-center rounded-full text-ink-400 hover:bg-ink-700 hover:text-strong"
         >
           <CloseIcon className="h-4 w-4" />
         </button>
@@ -64,7 +66,7 @@ export default function RecordAutoPrompt({
         <button
           type="button"
           onClick={() => onStart(false)}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-on-accent hover:bg-brand-600"
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-brand-500 px-3 py-3 text-xs font-semibold text-on-accent hover:bg-brand-600"
         >
           <RecordIcon className="h-3.5 w-3.5" />
           Grabar ahora
@@ -72,7 +74,7 @@ export default function RecordAutoPrompt({
         <button
           type="button"
           onClick={onDecline}
-          className="rounded-lg bg-ink-800 px-3 py-1.5 text-xs font-medium text-ink-200 hover:bg-ink-700"
+          className="rounded-lg bg-ink-800 px-3 py-3 text-xs font-medium text-ink-200 hover:bg-ink-700"
         >
           No
         </button>

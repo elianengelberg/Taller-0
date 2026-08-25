@@ -610,7 +610,7 @@ export default function Meeting() {
     // Safari/Chrome count their address bar into 100vh, so with a fixed
     // h-screen + no outer scroll, the ControlBar at the bottom could end up
     // rendered below the visible fold with no way to scroll down to it.
-    <div className="flex h-dvh flex-col bg-ink-950">
+    <div className="flex h-dvh flex-col bg-ink-950 pb-[env(safe-area-inset-bottom)]">
       <header className="flex items-center justify-between border-b border-ink-800 bg-ink-900/95 px-4 py-3 shadow-soft backdrop-blur-md sm:px-6">
         <Logo />
         <div className="flex items-center gap-2">

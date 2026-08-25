@@ -53,7 +53,7 @@ export default function ShareMenu({ meetingCode }: ShareMenuProps) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 rounded-xl border border-ink-600 px-3 py-2 text-sm font-medium text-ink-200 hover:border-brand-400"
+        className="flex items-center gap-2 rounded-xl border border-ink-600 px-3 py-2.5 text-sm font-medium text-ink-200 hover:border-brand-400"
         title="Invitar a la reunión"
         aria-expanded={open}
       >
