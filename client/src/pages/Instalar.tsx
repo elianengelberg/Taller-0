@@ -43,11 +43,11 @@ function detectarPlataforma(): Plataforma {
   return "otro";
 }
 
-// En iOS la app SOLO se instala desde Safari: Chrome (CriOS), Firefox
-// (FxiOS), Edge (EdgiOS) y demás no pueden agregar una app a la pantalla de
-// inicio ni manejar el perfil de Apple -- regla de Apple, no nuestra. Si la
-// persona llegó acá desde otro navegador, tocar botones no hace NADA
-// visible: hay que decírselo antes de que lo sufra.
+// ¿Safari de verdad, o Chrome/Edge/Firefox de iPhone? Desde iOS 16.4 los
+// otros navegadores TAMBIÉN pueden agregar la app a la pantalla de inicio
+// (antes era exclusivo de Safari), pero el gesto es distinto (va por su menú
+// Compartir) y en un iOS viejo directamente no existe: a cada uno se le
+// muestran SUS pasos, con Safari como plan B.
 function esSafariDeIos(): boolean {
   return !/CriOS|FxiOS|EdgiOS|OPiOS|Brave/i.test(navigator.userAgent);
 }
@@ -271,17 +271,24 @@ export default function Instalar() {
               {plataforma === "ios" ? (
                 <>
                   {!esSafariDeIos() && (
-                    <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
-                      <p className="text-sm font-semibold text-amber-200">Estás en otro navegador, no en Safari</p>
-                      <p className="mt-1 text-xs leading-relaxed text-amber-100/90">
-                        En iPhone y iPad, la app <span className="font-semibold">sólo se puede instalar desde
-                        Safari</span> (regla de Apple: en otros navegadores el botón no hace nada). Copiá el
-                        enlace y abrilo en Safari:
+                    <div className="mb-3 rounded-lg border border-brand-500/40 bg-brand-500/10 p-3">
+                      <p className="text-sm font-semibold text-brand-200">
+                        Estás en Chrome o Edge de iPhone: también se puede
+                      </p>
+                      <p className="mt-1 text-xs leading-relaxed text-ink-200">
+                        Desde iOS 16.4, estos navegadores también instalan la app: tocá{" "}
+                        <span className="font-semibold">Compartir</span> (el cuadrado con la flecha, en la
+                        barra o dentro del menú ⋯&#8202;/&#8202;≡) y elegí{" "}
+                        <span className="font-semibold">“Agregar a pantalla de inicio”</span>.
+                      </p>
+                      <p className="mt-1.5 text-xs leading-relaxed text-ink-400">
+                        ¿No te aparece esa opción? Tu iPhone tiene un iOS más viejo: copiá el enlace y
+                        hacelo desde Safari, que puede siempre.
                       </p>
                       <button
                         type="button"
                         onClick={() => copiar(`${window.location.origin}/instalar`, "safari")}
-                        className="mt-2 w-full rounded-lg bg-amber-500/20 px-3 py-2.5 text-sm font-semibold text-amber-100 hover:bg-amber-500/30"
+                        className="mt-2 w-full rounded-lg bg-ink-800 px-3 py-2.5 text-sm font-semibold text-ink-200 hover:bg-ink-700"
                       >
                         {copiado === "safari" ? "Copiado ✓ — ahora pegalo en Safari" : "Copiar el enlace para Safari"}
                       </button>
@@ -337,6 +344,25 @@ export default function Instalar() {
                       <span className="font-semibold">“Agregar al Dock”</span>.
                     </li>
                   </ul>
+                </>
+              ) : plataforma === "android" ? (
+                <>
+                  <p className="font-medium text-strong">En Android, desde Chrome o desde Edge:</p>
+                  <ul className="mt-1.5 list-disc space-y-1 pl-5">
+                    <li>
+                      <span className="font-semibold">Chrome:</span> menú ⋮ →{" "}
+                      <span className="font-semibold">“Instalar app”</span> (o “Agregar a pantalla
+                      principal”).
+                    </li>
+                    <li>
+                      <span className="font-semibold">Edge:</span> menú ≡ →{" "}
+                      <span className="font-semibold">“Agregar al teléfono”</span> (o “Instalar app”).
+                    </li>
+                  </ul>
+                  <p className="mt-2 text-xs text-ink-400">
+                    Hacen exactamente lo mismo que el botón de arriba cuando aparece: Unify queda con su
+                    ícono, como una app más, y se actualiza sola.
+                  </p>
                 </>
               ) : (
                 <>

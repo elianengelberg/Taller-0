@@ -310,16 +310,28 @@ const UA = {
       (await ipad.page.locator('a[href="/unify-ipad.mobileconfig"]').count()) === 1 && /Perfil descargado/.test(ti));
     await ipad.ctx.close();
 
-    // Chrome de iPhone (CriOS): ahí NADA de esto funciona -- regla de Apple.
-    // La página lo tiene que DECIR y dar el enlace para abrir en Safari.
+    // Chrome de iPhone (CriOS): desde iOS 16.4 TAMBIÉN puede instalar, pero
+    // el gesto va por su menú Compartir. La página da esos pasos, y Safari
+    // queda como plan B para un iOS viejo (con el botón de copiar el enlace).
     const crios = await abrir(
       "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.0.0 Mobile/15E148 Safari/604.1",
       `${B}/instalar`
     );
     const tc = await texto(crios.page);
-    check("Chrome de iPhone: avisa que la instalación es SOLO desde Safari",
-      /no en Safari/.test(tc) && /Copiar el enlace para Safari/.test(tc));
+    check("Chrome de iPhone: dice que TAMBIÉN se puede, con sus pasos",
+      /también se puede/i.test(tc) && /Agregar a pantalla de inicio/.test(tc));
+    check("y deja Safari como plan B para un iOS viejo",
+      /iOS más viejo|iOS 16\.4/.test(tc) && /Copiar el enlace para Safari/.test(tc));
     await crios.ctx.close();
+
+    // Edge de iPhone (EdgiOS): mismo trato que Chrome.
+    const edgios = await abrir(
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/120.0.0.0 Mobile/15E148 Safari/604.1",
+      `${B}/instalar`
+    );
+    check("Edge de iPhone recibe los mismos pasos",
+      /también se puede/i.test(await texto(edgios.page)));
+    await edgios.ctx.close();
   }
 
   // ═══════ 6. El botón de instalar la app (cuando el navegador lo ofrece) ═══════
@@ -374,6 +386,24 @@ const UA = {
   }
 
   // ═══════ 7. Los archivos de Apple ═══════
+  // ═══════ 6b. ANDROID: Chrome y Edge, cada uno con su gesto ═══════
+  console.log("\n── 6b. Como Android ──");
+  {
+    const android = await abrir(
+      "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+      `${B}/instalar`
+    );
+    const ta = await texto(android.page);
+    // Con el botón de un toque (beforeinstallprompt) o sin él, los pasos
+    // manuales tienen que nombrar a los DOS navegadores del teléfono.
+    check("Android: un toque, o los pasos que nombran a Chrome Y a Edge",
+      /Instalar Unify en este dispositivo/.test(ta) ||
+      (/Chrome:/.test(ta) && /Edge:/.test(ta) && /Instalar app|Agregar al teléfono/.test(ta)));
+    check("sin mandar a nadie a un ícono de monitor que el teléfono no tiene",
+      !/monitor con una flecha/.test(ta));
+    await android.ctx.close();
+  }
+
   console.log("\n── 7. El perfil de Apple y el ícono de inicio ──");
   {
     const res2 = await fetch(`${B}/unify-ipad.mobileconfig`);
