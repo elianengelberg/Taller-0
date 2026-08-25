@@ -15,7 +15,11 @@
 // config informa que la verificación y la recuperación están apagadas, y la
 // interfaz esconde los botones en vez de ofrecer algo que nunca va a llegar.
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY?.trim();
+// El despliegue real guarda la clave como RESEND_API_KEY_MAIL (en ese entorno
+// ya existía otra variable llamada RESEND_API_KEY): se acepta ese nombre
+// primero y el clásico queda como respaldo -- cualquiera de los dos enciende
+// el correo.
+const RESEND_API_KEY = process.env.RESEND_API_KEY_MAIL?.trim() || process.env.RESEND_API_KEY?.trim();
 const MAIL_LOG = process.env.MAIL_LOG === "1";
 
 // Remitente. Con Resend tiene que ser un dominio verificado en la cuenta, si
@@ -26,7 +30,7 @@ export const mailerEnabled = Boolean(RESEND_API_KEY) || MAIL_LOG;
 
 if (!mailerEnabled) {
   console.warn(
-    "[mail] Sin RESEND_API_KEY (ni MAIL_LOG=1): no se pueden enviar correos, " +
+    "[mail] Sin RESEND_API_KEY_MAIL ni RESEND_API_KEY (ni MAIL_LOG=1): no se pueden enviar correos, " +
       "así que la verificación de email y la recuperación de contraseña quedan apagadas."
   );
 } else if (RESEND_API_KEY) {
