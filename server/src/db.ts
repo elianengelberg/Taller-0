@@ -1070,6 +1070,28 @@ export function createMeetingRecord(params: {
   }, undefined);
 }
 
+// La reunión viva muere si el servidor se reinicia (viven en memoria), pero
+// su registro no. Esta consulta trae lo justo para RESUCITARLA cuando alguien
+// vuelve a entrar con su código: la más reciente con ese join_code, siempre
+// que haya empezado hace poco -- un código viejo del historial no reabre una
+// reunión de hace días.
+export function findRecentMeetingByJoinCode(
+  joinCode: string
+): Promise<{ id: string; roles: PersistedRole[] } | null> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `SELECT id, roles FROM meetings
+        WHERE join_code = $1 AND started_at > now() - interval '12 hours'
+        ORDER BY started_at DESC
+        LIMIT 1`,
+      [joinCode]
+    );
+    if (!rows[0]) return null;
+    const roles = Array.isArray(rows[0].roles) ? (rows[0].roles as PersistedRole[]) : [];
+    return { id: String(rows[0].id), roles };
+  }, null);
+}
+
 export function updateMeetingRoles(id: string, roles: PersistedRole[]): Promise<void> {
   return safe(async () => {
     await pool!.query(`UPDATE meetings SET roles = $2 WHERE id = $1`, [id, JSON.stringify(roles)]);

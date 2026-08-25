@@ -45,6 +45,39 @@ export function createMeeting(): Meeting {
   return meeting;
 }
 
+// Vuelve a la vida una reunión que un reinicio del servidor borró de la
+// memoria (un deploy, el plan gratuito que recicla la instancia). MISMO
+// código y MISMO dbId: el historial (transcripción, chat, grabaciones) sigue
+// siendo uno solo. Renace vacía y sin anfitrión: cada participante re-entra
+// apenas su socket reconecta, y el primero queda de anfitrión (la regla de
+// siempre para una sala vacía en join-meeting).
+export function reviveMeeting(joinCode: string, dbId: string, roles: Role[]): Meeting {
+  const meeting: Meeting = {
+    id: joinCode.toUpperCase(),
+    dbId,
+    hostId: "",
+    createdAt: Date.now(),
+    roles: roles.map((r, i) => ({
+      id: String(r?.id ?? `rol-${i}`),
+      name: String(r?.name ?? "").slice(0, 40),
+      colorIndex: Number.isFinite(r?.colorIndex) ? r.colorIndex : i,
+    })),
+    participants: new Map(),
+    historicalParticipants: new Map(),
+    pendingHostReclaim: null,
+    chat: [],
+    transcript: [],
+    settings: { locked: false, waitingRoomEnabled: false, chatMode: "everyone", sharePolicy: "everyone" },
+    presenterId: null,
+    waiting: new Map(),
+    bannedNames: new Set(),
+    authedUsers: new Map(),
+    endedByHost: false,
+  };
+  meetings.set(meeting.id, meeting);
+  return meeting;
+}
+
 export function getMeeting(meetingId: string): Meeting | undefined {
   return meetings.get(meetingId.toUpperCase());
 }

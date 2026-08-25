@@ -13,6 +13,7 @@ import {
   getOrCreateCompanionMeeting,
   promoteNextHost,
   removeParticipant,
+  reviveMeeting,
   scheduleMeetingCleanupIfEmpty,
 } from "./meetingStore";
 import { cleanTranscriptFragment, translateFragmentToAll } from "./transcriptCleanup";
@@ -245,7 +246,19 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
         const resumeParticipantId =
           typeof payload?.resumeParticipantId === "string" ? payload.resumeParticipantId : null;
 
-        const meeting = getMeeting(meetingId);
+        let meeting = getMeeting(meetingId);
+        if (!meeting) {
+          // El servidor pudo reiniciarse en plena reunión (un deploy, el plan
+          // gratuito que recicla la instancia): las reuniones viven en
+          // memoria y el reinicio las borra, pero su registro queda en la
+          // base. Si el código es de una reunión RECIENTE, se resucita con el
+          // MISMO dbId: cada participante re-entra solo apenas su socket
+          // reconecta -- nadie va a parar al inicio -- y el historial sigue
+          // siendo uno solo. El primero en volver queda de anfitrión (regla
+          // de la sala vacía, más abajo).
+          const registro = await db.findRecentMeetingByJoinCode(meetingId);
+          if (registro) meeting = reviveMeeting(meetingId, registro.id, registro.roles);
+        }
         if (!meeting) {
           ack?.({ ok: false, error: "No encontramos una reunión con ese código." });
           return;
