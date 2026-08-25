@@ -31,8 +31,8 @@ export default defineConfig({
         scope: "/",
         display: "standalone",
         orientation: "any",
-        background_color: "#0F172A",
-        theme_color: "#0F172A",
+        background_color: "#F8FAFC",
+        theme_color: "#F8FAFC",
         lang: "es-AR",
         description:
           "Videollamadas con transcripción, traducción en vivo y grabación — también sobre Zoom, Meet y Teams.",

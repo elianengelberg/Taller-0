@@ -7,11 +7,14 @@
 // ejecutaría y el destello volvería en cada carga.
 (function () {
   try {
-    var t = localStorage.getItem("unify_theme") || "auto";
+    // Sin elección guardada, el tema es el CLARO (decisión de producto:
+    // la primera impresión es la pantalla clara). "auto" sigue existiendo,
+    // pero sólo para quien lo elige en Ajustes.
+    var t = localStorage.getItem("unify_theme") || "light";
     var d =
       t === "auto" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : t;
     document.documentElement.dataset.theme = d;
   } catch (e) {
-    document.documentElement.dataset.theme = "dark";
+    document.documentElement.dataset.theme = "light";
   }
 })();

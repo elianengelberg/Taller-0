@@ -7,9 +7,11 @@ const KEY = "unify_theme";
 function readStored(): ThemeMode {
   try {
     const raw = localStorage.getItem(KEY);
-    return raw === "light" || raw === "dark" || raw === "auto" ? raw : "auto";
+    // El predeterminado es "light" y tiene que coincidir con theme-init.js:
+    // si difirieran, la página parpadearía del uno al otro en cada carga.
+    return raw === "light" || raw === "dark" || raw === "auto" ? raw : "light";
   } catch {
-    return "auto";
+    return "light";
   }
 }
 

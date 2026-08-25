@@ -56,6 +56,30 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
   });
   check("el SW queda ACTIVO bajo la CSP de producción", swState === "activated", swState);
 
+  console.log("\n── 2b. El tema predeterminado ──");
+  {
+    // Perfil nuevo, sin nada guardado: la primera impresión es la pantalla
+    // CLARA (decisión de producto). Quien prefiera oscuro u "auto" lo elige
+    // en Ajustes y queda guardado -- eso también se prueba.
+    const p = await ctx.newPage();
+    await p.goto(`${B}/`, { waitUntil: "networkidle" });
+    check("sin elección guardada, la app abre en tema claro",
+      (await p.evaluate(() => document.documentElement.dataset.theme)) === "light",
+      await p.evaluate(() => document.documentElement.dataset.theme));
+    check("y el fondo pintado es claro de verdad",
+      await p.evaluate(() => {
+        const rgb = getComputedStyle(document.body).backgroundColor.match(/\d+/g)?.map(Number) ?? [0, 0, 0];
+        return (rgb[0] + rgb[1] + rgb[2]) / 3 > 160;
+      }));
+    // La elección guardada le gana al predeterminado.
+    await p.evaluate(() => localStorage.setItem("unify_theme", "dark"));
+    await p.reload({ waitUntil: "networkidle" });
+    check("quien eligió oscuro lo conserva al recargar",
+      (await p.evaluate(() => document.documentElement.dataset.theme)) === "dark");
+    await p.evaluate(() => localStorage.removeItem("unify_theme"));
+    await p.close();
+  }
+
   console.log("\n── 3. Compartir un enlace hacia la app ──");
   {
     await page.goto(`${B}/externa?url=${encodeURIComponent("https://us05web.zoom.us/j/91234567890?pwd=abc")}`, { waitUntil: "networkidle" });
