@@ -149,6 +149,18 @@ async function botonesChicos(p, minimo = 40) {
     }
     check(`sin errores de JS en toda la sesión (${nombre})`, bag.length === 0, bag.slice(0, 3).join(" | "));
 
+    // ── 2b. El "cartel" del teléfono: pegar el enlace con UN toque ──
+    // En el teléfono no hay extensiones (regla de Google y Apple): el aviso
+    // de "te estás uniendo" nace acá, del enlace copiado en WhatsApp.
+    await ctx.grantPermissions(["clipboard-read", "clipboard-write"], { origin: B });
+    await p.goto(`${B}/`, { waitUntil: "networkidle" });
+    await p.evaluate(() => navigator.clipboard.writeText("https://us05web.zoom.us/j/91234567890"));
+    await p.getByRole("button", { name: /Pegar el enlace/i }).first().tap();
+    await p.waitForTimeout(2000);
+    check("un toque en «Pegar el enlace» lleva a la detección", p.url().includes("/externa"), p.url());
+    check("y la reunión de Zoom queda detectada en el teléfono",
+      /Zoom/i.test((await p.locator("body").textContent()) || ""));
+
     // ── 3. Un enlace externo compartido AL teléfono ──
     await p.goto(`${B}/externa?url=${encodeURIComponent("https://us05web.zoom.us/j/91234567890")}`, { waitUntil: "networkidle" });
     await p.waitForTimeout(1500);

@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import AccountMenu from "../components/AccountMenu";
+import { useState } from "react";
 import Button from "../components/Button";
 import GradientBackdrop from "../components/GradientBackdrop";
 import Logo from "../components/Logo";
@@ -13,6 +14,35 @@ import { cardClass } from "../lib/ui";
 export default function Home() {
   const navigate = useNavigate();
   const location = useLocation();
+  // El cartel de "te estás uniendo a una reunión" en el TELÉFONO y el iPad:
+  // ahí no hay extensiones (regla de Google y de Apple), así que el enlace
+  // tiene que llegar a Unify de la forma más corta posible. Un toque: se lee
+  // el portapapeles (el navegador pide permiso, y en iPhone muestra su
+  // "¿Pegar?" -- ese gesto ES el consentimiento) y si hay un enlace, directo
+  // a la pantalla de detección con todo armado. Si no se puede leer o no hay
+  // nada, nunca es un callejón: queda el campo de pegar a mano.
+  const [pegando, setPegando] = useState<"" | "sin-enlace">("");
+  async function pegarEnlace(): Promise<void> {
+    let texto = "";
+    try {
+      texto = (await navigator.clipboard.readText()).trim();
+    } catch {
+      navigate("/externa");
+      return;
+    }
+    if (texto && /https?:\/\//.test(texto)) {
+      navigate(`/externa?url=${encodeURIComponent(texto)}`);
+      return;
+    }
+    if (texto) {
+      // Copió algo que no es un enlace (un código, una invitación con texto):
+      // que la pantalla de externa lo intente igual, sabe leer invitaciones.
+      navigate(`/externa?text=${encodeURIComponent(texto.slice(0, 500))}`);
+      return;
+    }
+    setPegando("sin-enlace");
+    setTimeout(() => setPegando(""), 2500);
+  }
   // One-shot notice from a meeting exit (kicked, meeting ended for all).
   const notice = (location.state as { notice?: string } | null)?.notice ?? null;
   const { user } = useAuth();
@@ -125,9 +155,21 @@ export default function Home() {
               title="Zoom · Teams · Meet"
               description="Pegá el enlace de una reunión externa y usá las funciones de Unify encima."
               cta={
-                <Button className="mt-5 w-full" onClick={() => navigate("/externa")}>
-                  Unirme a una externa
-                </Button>
+                <>
+                  <Button className="mt-5 w-full" onClick={() => void pegarEnlace()}>
+                    {pegando === "sin-enlace" ? "No había un enlace copiado" : "Pegar el enlace que me mandaron"}
+                  </Button>
+                  {/* El plan B a la vista: si el portapapeles no se puede
+                      leer (permiso denegado, navegador que no deja), la misma
+                      pantalla de siempre con el campo para pegar a mano. */}
+                  <button
+                    type="button"
+                    onClick={() => navigate("/externa")}
+                    className="mt-2.5 w-full rounded-lg px-3 py-2.5 text-sm font-medium text-ink-300 underline-offset-2 hover:text-ink-100 hover:underline"
+                  >
+                    o escribirlo a mano
+                  </button>
+                </>
               }
             />
           </div>
