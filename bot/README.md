@@ -23,6 +23,15 @@ siempre.
 
 ## Correrlo
 
+La forma corta (deriva plataforma y clave de sala sola, con las mismas reglas
+que la web, y apunta al servidor de producción):
+
+```bash
+node bot/lanzar.mjs "https://meet.jit.si/MiSala"
+```
+
+La forma larga, con todo explícito (lo que usa `lanzar.mjs` por debajo):
+
 ```bash
 MEETING_URL="https://meet.jit.si/MiSala" \
 ROOM_KEY="jitsi:meet.jit.si/misala" \
