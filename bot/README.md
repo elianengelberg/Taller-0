@@ -24,6 +24,14 @@ audio) y al salir lo sube por el MISMO camino que usa la extensión
 cuelga del historial). La reunión del bot queda igual que una tuya: video +
 transcripción + resumen. Se apaga con `BOT_GRABAR=0`.
 
+**La voz que transcribe** sale de mezclar los reproductores de audio de la
+reunión (los `<audio>`/`<video>` de cada participante), no del audio de la
+captura de pantalla — que según los flags del navegador puede venir falso o
+mudo. Y el navegador corre CON pantalla: si el host no tiene una, el bot se
+relanza solo bajo `xvfb` (pantalla virtual, lo instala `instalar-host.sh`),
+que es lo que hace que la captura de pestaña tenga imagen de verdad en vez de
+la "cámara falsa" verde.
+
 O sea: el bot es "un par de oídos con patas". Toda la inteligencia es la de
 siempre.
 

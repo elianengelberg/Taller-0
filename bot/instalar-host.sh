@@ -10,7 +10,7 @@ set -euo pipefail
 
 echo "== 1/7  Paquetes del sistema =="
 apt-get update -y
-apt-get install -y curl git pulseaudio pulseaudio-utils
+apt-get install -y curl git pulseaudio pulseaudio-utils xvfb
 
 echo "== 2/7  Node.js 20 =="
 if ! command -v node >/dev/null 2>&1; then

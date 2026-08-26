@@ -119,19 +119,39 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   check("y al salir avisó al bridge que ya no está en la llamada",
     /saliendo:/.test(salida), salida.split("\n").filter((l) => /saliendo/.test(l))[0] || "");
 
-  // La grabación de VIDEO: el bot graba lo que ve (la pestaña con su audio) y
-  // al colgar la sube por el mismo camino que la extensión (recording-started
-  // + recording-upload). Acá no hay R2 configurado, así que lo comprobable de
-  // verdad es la cadena entera hasta el intento de subida y su manejo honesto.
-  check("grabó el video de la reunión (recorder andando, t=0 anclado en el servidor)",
-    /grabación: video de la reunión GRABÁNDOSE/.test(salida),
-    salida.split("\n").filter((l) => /GRABÁNDOSE/.test(l))[0] || "sin rastro de grabación");
-  check("al colgar intentó subir el video con bytes de verdad",
-    /grabación: subiendo \d+(\.\d+)? MB/.test(salida),
-    salida.split("\n").filter((l) => /subiendo/.test(l))[0] || "sin rastro de subida");
-  check("y manejó la respuesta del almacenamiento sin romperse",
-    /grabación: (guardada|el servidor no la aceptó|no se pudo subir)/.test(salida),
-    salida.split("\n").filter((l) => /guardada|no la aceptó|no se pudo subir/.test(l))[0] || "sin rastro");
+  // La grabación de VIDEO, probada por el camino LIMPIO (como en producción,
+  // cuando el vigilante ve que la reunión se vació). Un bot aparte que graba,
+  // sale solo (BOT_TEST_EXIT) y sube el video por el mismo camino que la
+  // extensión (recording-started + recording-upload). Acá no hay R2, así que
+  // lo comprobable es la cadena entera hasta el intento de subida (con bytes
+  // de verdad) y su manejo honesto del error de almacenamiento.
+  {
+    const keyRec = `externa:reunion.falsa/grab-${Date.now()}`;
+    const botRec = spawn("node", ["/home/user/Taller-0/bot/joinbot.mjs"], {
+      env: {
+        ...process.env, MEETING_URL: URL_REUNION, ROOM_KEY: keyRec, SERVER_URL: API,
+        BOT_NAME: "Unify Notetaker", PLATFORM: "test",
+        BOT_TEST_LINES: JSON.stringify(["grabando el video de la reunión"]),
+        BOT_TEST_EXIT: "1", MAX_MIN: "5",
+      },
+      stdio: ["ignore", "pipe", "pipe"], detached: true,
+    });
+    let salRec = "";
+    botRec.stdout.on("data", (d) => { salRec += d; });
+    botRec.stderr.on("data", (d) => { salRec += d; });
+    await new Promise((resolve) => { botRec.on("exit", resolve); setTimeout(resolve, 30_000); });
+
+    check("grabó el video de la reunión (recorder andando, t=0 anclado en el servidor)",
+      /grabación: video de la reunión GRABÁNDOSE/.test(salRec),
+      salRec.split("\n").filter((l) => /GRABÁNDOSE/.test(l))[0] || "sin rastro de grabación");
+    check("al colgar subió el video con bytes de verdad",
+      /grabación: subiendo \d+(\.\d+)? MB/.test(salRec),
+      salRec.split("\n").filter((l) => /subiendo/.test(l))[0] || "sin rastro de subida");
+    check("y manejó la respuesta del almacenamiento sin romperse",
+      /grabación: (guardada|el servidor no la aceptó|no se pudo subir)/.test(salRec),
+      salRec.split("\n").filter((l) => /guardada|no la aceptó|no se pudo subir/.test(l))[0] || "sin rastro");
+    try { process.kill(-botRec.pid, "SIGTERM"); } catch { try { botRec.kill("SIGTERM"); } catch {} }
+  }
 
   console.log("\n── 3. El endpoint de despacho (el servidor lanza el bot) ──");
   {

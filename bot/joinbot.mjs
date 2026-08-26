@@ -37,6 +37,8 @@ import { existsSync, createWriteStream, createReadStream, unlinkSync } from "fs"
 import { Readable } from "stream";
 import { tmpdir } from "os";
 import { join as joinPath } from "path";
+import { spawn as spawnHijo, spawnSync } from "child_process";
+import { fileURLToPath } from "url";
 const require = createRequire(import.meta.url);
 
 // Playwright puede vivir en distintos lugares según el host:
@@ -410,33 +412,97 @@ async function arrancarEscucha(page) {
     const diag = (m) => { try { window.botDiag(String(m)); } catch { /* sin diag */ } };
     const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
     (async () => {
+      // --- La VOZ de la reunión: directo de los reproductores de la página --
+      // Jitsi/Meet ponen el audio de cada participante en un <audio>/<video>.
+      // Mezclarlos con WebAudio da la señal REAL de la reunión, sin depender
+      // de la captura de pantalla (cuyo audio puede venir falso o mudo según
+      // los flags del navegador -- exactamente lo que arruinó la primera
+      // grabación real). Los elementos aparecen de a poco: se barre al inicio,
+      // con un observador y cada 3 s.
+      let mezclaTrack = null;
+      let mezclados = 0;
+      try {
+        const ctxA = new AudioContext();
+        const dest = ctxA.createMediaStreamDestination();
+        const vistos = new WeakSet();
+        const conectar = (el) => {
+          if (vistos.has(el)) return;
+          try {
+            const src = el.srcObject instanceof MediaStream
+              ? el.srcObject
+              : (typeof el.captureStream === "function" ? el.captureStream() : null);
+            if (!src || !src.getAudioTracks().length) return;
+            ctxA.createMediaStreamSource(src).connect(dest);
+            vistos.add(el);
+            mezclados++;
+            diag(`voz: mezclando el audio de ${mezclados} reproductor(es) de la reunión`);
+          } catch { /* ese elemento todavía no tiene audio */ }
+        };
+        const barrer = () => document.querySelectorAll("audio, video").forEach(conectar);
+        barrer();
+        new MutationObserver(barrer).observe(document.documentElement, { childList: true, subtree: true });
+        setInterval(barrer, 3000);
+        void ctxA.resume().catch(() => {});
+        mezclaTrack = dest.stream.getAudioTracks()[0] || null;
+      } catch (e) {
+        diag(`no pude armar la mezcla de audio: ${e?.message || e}`);
+      }
+
+      // --- La IMAGEN: captura de la pestaña (para el video de la grabación) --
       let s = null;
-      let track = null;
       try {
         s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true, preferCurrentTab: true });
-        track = s.getAudioTracks()[0] || null;
-        diag(track ? "capturando el audio de la pestaña" : "la captura vino SIN pista de audio");
+        diag("capturando la pestaña para el video");
       } catch (e) {
-        diag(`no pude capturar la pestaña: ${e?.name || e}`);
+        diag(`no pude capturar la pestaña (la grabación saldrá sin video): ${e?.name || e}`);
       }
-      // La grabación de video usa la MISMA captura que la escucha: un solo
-      // permiso, dos consumidores. Chunks cada 3 s hacia el bot (base64).
+
+      // La voz para el reconocimiento: la mezcla real primero; el audio de la
+      // captura sólo como último recurso.
+      const track = mezclaTrack || (s && s.getAudioTracks()[0]) || null;
+      diag(
+        mezclaTrack
+          ? "voz: usando la mezcla de los reproductores"
+          : track
+            ? "voz: usando el audio de la captura de pestaña"
+            : "SIN pista de voz -- no va a haber transcripción"
+      );
+
+      // La grabación: se graba el stream de captura de la pestaña TAL CUAL
+      // (video + su audio real, ahora que no falseamos dispositivos). Grabar
+      // ese stream directo emite chunks bien; un MediaStream compuesto a mano
+      // (mezcla WebAudio + captura) se queda MUDO en este entorno. Si además
+      // tenemos la mezcla real de los reproductores, se la sumamos como pista
+      // extra para que el audio del video quede lo más limpio posible.
       if (grabar && s) {
         try {
+          if (mezclaTrack) { try { s.addTrack(mezclaTrack); } catch { /* ya estaba */ } }
           let mr;
           try { mr = new MediaRecorder(s, { mimeType: "video/webm;codecs=vp8,opus", videoBitsPerSecond: 1_200_000 }); }
           catch { mr = new MediaRecorder(s); }
           mr.ondataavailable = async (ev) => {
-            if (!ev.data || !ev.data.size) return;
-            const bytes = new Uint8Array(await ev.data.arrayBuffer());
-            let bin = "";
-            for (let i = 0; i < bytes.length; i += 0x8000) {
-              bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+            try {
+              if (!ev.data || !ev.data.size) return;
+              const bytes = new Uint8Array(await ev.data.arrayBuffer());
+              let bin = "";
+              for (let i = 0; i < bytes.length; i += 0x8000) {
+                bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+              }
+              window.botChunk(btoa(bin));
+            } catch (e) {
+              diag(`grabador: un chunk falló: ${e?.message || e}`);
             }
-            window.botChunk(btoa(bin));
           };
           mr.onstart = () => window.botGrabando();
+          mr.onerror = (e) => diag(`grabador: error: ${e?.error?.message || e?.error || "?"}`);
           mr.start(3000);
+          // Forzamos un chunk cada 2 s con requestData(): sin esto, una
+          // reunión con poco movimiento (una pantalla compartida quieta, una
+          // charla con las cámaras apagadas) puede no emitir datos por mucho
+          // rato y perderse el principio si el bot sale antes del primer corte.
+          const latido = setInterval(() => { try { if (mr.state === "recording") mr.requestData(); } catch { /* nada */ } }, 2000);
+          const stopViejo = mr.stop.bind(mr);
+          mr.stop = () => { clearInterval(latido); try { stopViejo(); } catch { /* ya paró */ } };
           window.__unifyPararGrabacion = () =>
             new Promise((res) => {
               if (mr.state === "inactive") { res(); return; }
@@ -486,11 +552,38 @@ async function arrancarEscucha(page) {
 }
 
 (async () => {
+  // La captura de pestaña (el VIDEO de la grabación) necesita una pantalla:
+  // en headless puro getDisplayMedia tira NotSupportedError. Si no hay
+  // DISPLAY pero el host tiene xvfb (lo instala instalar-host.sh), el bot se
+  // relanza a sí mismo bajo una pantalla VIRTUAL y sigue como si nada. Si no
+  // hay xvfb, continúa headless: transcribe igual, pero graba sin video.
+  if (!process.env.DISPLAY && !process.env.__UNIFY_XVFB) {
+    const hay = spawnSync("xvfb-run", ["--help"], { stdio: "ignore" });
+    if (!hay.error) {
+      log("sin pantalla: me relanzo bajo xvfb (pantalla virtual) para poder grabar video");
+      const hijo = spawnHijo(
+        "xvfb-run",
+        ["-a", "-s", "-screen 0 1280x800x24", process.execPath, fileURLToPath(import.meta.url)],
+        { env: { ...process.env, __UNIFY_XVFB: "1" }, stdio: "inherit" }
+      );
+      process.on("SIGTERM", () => hijo.kill("SIGTERM"));
+      process.on("SIGINT", () => hijo.kill("SIGINT"));
+      hijo.on("exit", (code) => process.exit(code ?? 0));
+      await new Promise(() => {}); // el hijo es el bot; este proceso sólo espera
+    }
+    log("sin pantalla y sin xvfb: sigo headless (la grabación saldrá sin video)");
+  }
+
   log(`entrando a ${PLATFORM} :: ${MEETING_URL} :: sala ${ROOM_KEY}`);
   const args = [
     "--no-sandbox",
-    "--use-fake-ui-for-media-stream", // acepta los permisos de cam/mic sin diálogo
-    "--auto-accept-this-tab-capture", // deja capturar el audio de la pestaña sin selector
+    // OJO: acá NO va --use-fake-ui-for-media-stream. Ese flag "auto-acepta"
+    // la captura de pantalla entregando DISPOSITIVOS FALSOS: el video verde
+    // con contador y un audio mudo -- la primera grabación real salió así y
+    // el reconocimiento no escuchó nada. Los permisos de cam/mic los da
+    // Playwright (permissions) y la captura de pestaña la acepta el flag de
+    // abajo, con la pestaña REAL.
+    "--auto-accept-this-tab-capture", // deja capturar la pestaña sin selector
     "--autoplay-policy=no-user-gesture-required",
   ];
   // Cámara/micrófono FALSOS sólo si el bot NO usa un perfil real: con un perfil
@@ -508,16 +601,20 @@ async function arrancarEscucha(page) {
   if (ejecutable) log("navegador: Chrome del sistema en", ejecutable);
   else log("navegador: el Chromium de Playwright (ojo: su servicio de voz suele fallar con \"network\"; instalá Google Chrome con bot/instalar-host.sh)");
   const conEjecutable = ejecutable ? { executablePath: ejecutable } : {};
+  // Con pantalla (real o xvfb) el navegador va CON CABEZA: es lo que hace
+  // funcionar la captura de pestaña. Sin pantalla, headless.
+  const headless = !process.env.DISPLAY;
   if (process.env.BOT_PROFILE_DIR) {
     ctx = await chromium.launchPersistentContext(process.env.BOT_PROFILE_DIR, {
       args,
       ...conEjecutable,
+      headless,
       permissions: ["microphone", "camera"],
       viewport: { width: 1280, height: 800 },
     });
   } else {
-    browser = await chromium.launch({ args, ...conEjecutable });
-    ctx = await browser.newContext({ permissions: ["microphone", "camera"] });
+    browser = await chromium.launch({ args, ...conEjecutable, headless });
+    ctx = await browser.newContext({ permissions: ["microphone", "camera"], viewport: { width: 1280, height: 800 } });
   }
   const page = ctx.pages()[0] || (await ctx.newPage());
   let saliendo = false;
@@ -566,6 +663,15 @@ async function arrancarEscucha(page) {
     for (const l of lineas) {
       await page.evaluate((t) => window.botEmit(t, []), l);
       await page.waitForTimeout(400);
+    }
+    // BOT_TEST_EXIT: sale por el camino LIMPIO (el mismo que en producción usa
+    // el vigilante al vaciarse la reunión), para poder probar la subida de la
+    // grabación de punta a punta, sin depender de un SIGTERM que corta a la
+    // mitad. Espera un poco a que caiga al menos un chunk de video.
+    if (process.env.BOT_TEST_EXIT) {
+      await page.waitForTimeout(2500);
+      await salir("fin de prueba");
+      return;
     }
   }
 
