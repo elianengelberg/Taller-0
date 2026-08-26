@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><title>Reunión de prueba</title></head>
+<body>
+  <h1>Sala de prueba</h1>
+  <!-- El bot busca #entrar para "unirse", y luego #en-reunion para confirmar
+       que está adentro. Es exactamente el contrato del adaptador "test". -->
+  <button id="entrar" onclick="entrar()">Unirse a la reunión</button>
+  <div id="sala" hidden>
+    <div id="en-reunion">Estás en la reunión</div>
+    <p>Participantes: <span id="cuenta">2</span></p>
+  </div>
+  <script>
+    function entrar() {
+      document.getElementById("sala").hidden = false;
+      document.getElementById("entrar").hidden = true;
+    }
+    // La reunión "termina" cuando algo agrega #fin (lo hace el test).
+    window.terminar = function () {
+      const f = document.createElement("div");
+      f.id = "fin";
+      f.textContent = "La reunión terminó";
+      document.body.appendChild(f);
+    };
+  </script>
+</body>
+</html>

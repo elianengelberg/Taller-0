@@ -1,6 +1,8 @@
 import cors from "cors";
 import express, { NextFunction, Request, Response } from "express";
 import { createServer } from "http";
+import { spawn } from "child_process";
+import { resolve as resolvePath } from "path";
 import { Server } from "socket.io";
 import { answerFromMeeting, generateMeetingReport , autoReportOnFinalize } from "./ai";
 import {
@@ -1693,6 +1695,81 @@ function allowMeetBridge(meetId: string): boolean {
   }
   return entry.count <= 40;
 }
+
+// --- El bot que entra a la reunión (estilo "Notetaker") ---------------------
+// Manda un participante-bot a una reunión para grabarla y transcribirla desde
+// dentro, aunque vos no estés. La detección (URL -> plataforma + clave de
+// sala) la hace el CLIENTE con detectMeetingPlatform (una sola fuente de
+// verdad); acá se valida y se lanza el proceso del bot (bot/joinbot.mjs), que
+// POSTea al mismo bridge que todo lo demás.
+//
+// Gated por BOT_ENABLED: unir un navegador headless a Zoom/Meet reales exige
+// un host que lo permita (no el web dyno de siempre) y afinar selectores por
+// plataforma, así que en producción se enciende a propósito, no por descuido.
+const BOT_ENABLED = process.env.BOT_ENABLED === "1";
+const BOT_PLATFORMS = new Set(["jitsi", "google-meet", "zoom-web", "test"]);
+const botsVivos = new Map<string, ReturnType<typeof spawn>>();
+
+app.post("/api/bot/dispatch", requireAuth, (req, res) => {
+  if (!BOT_ENABLED) {
+    res.status(503).json({
+      error:
+        "El bot no está habilitado en este servidor. Se enciende con BOT_ENABLED=1 en un host que permita navegador headless.",
+    });
+    return;
+  }
+  const url = String(req.body?.url ?? "").trim().slice(0, 2000);
+  const roomKey = bridgeRoomKey(String(req.body?.roomKey ?? ""));
+  const platform = String(req.body?.platform ?? "");
+  if (!/^https?:\/\//.test(url)) {
+    res.status(400).json({ error: "Falta la URL de la reunión." });
+    return;
+  }
+  if (!roomKey) {
+    res.status(400).json({ error: "La clave de sala no es válida." });
+    return;
+  }
+  const plataformaBot = BOT_PLATFORMS.has(platform) ? platform : "jitsi";
+  if (botsVivos.has(roomKey)) {
+    res.json({ ok: true, yaEstaba: true, message: "El bot ya está en esa reunión." });
+    return;
+  }
+  const hijo = spawn("node", [resolvePath(process.cwd(), "..", "bot", "joinbot.mjs")], {
+    env: {
+      ...process.env,
+      MEETING_URL: url,
+      ROOM_KEY: roomKey,
+      SERVER_URL: `http://localhost:${process.env.PORT || 4001}`,
+      BOT_NAME: process.env.BOT_NAME || "Unify Notetaker",
+      PLATFORM: plataformaBot,
+    },
+    stdio: "ignore",
+    detached: true,
+  });
+  botsVivos.set(roomKey, hijo);
+  hijo.on("exit", () => botsVivos.delete(roomKey));
+  res.json({ ok: true, roomKey, platform: plataformaBot, message: "El bot está entrando a la reunión." });
+});
+
+// Sacar el bot de una reunión a mano.
+app.post("/api/bot/leave", requireAuth, (req, res) => {
+  const roomKey = bridgeRoomKey(String(req.body?.roomKey ?? ""));
+  const hijo = roomKey ? botsVivos.get(roomKey) : undefined;
+  if (hijo) {
+    try {
+      process.kill(-hijo.pid!, "SIGTERM");
+    } catch {
+      try {
+        hijo.kill("SIGTERM");
+      } catch {
+        /* ya no está */
+      }
+    }
+    res.json({ ok: true });
+    return;
+  }
+  res.json({ ok: false, message: "No hay un bot en esa reunión." });
+});
 
 app.post("/api/meet-bridge/:meetId", bridgeLimit, (req, res) => {
   const roomKey = bridgeRoomKey(req.params.meetId);
