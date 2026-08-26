@@ -18,6 +18,12 @@ encarga de todo lo demás, que ya estaba hecho y probado:
   al bot hablar en tiempo real),
 - las analíticas de participación salen gratis del transcripto.
 
+Además el bot **graba el video de la reunión** (lo que ve su pestaña, con el
+audio) y al salir lo sube por el MISMO camino que usa la extensión
+(`recording-started` ancla el t=0, `recording-upload` lo guarda en R2 y lo
+cuelga del historial). La reunión del bot queda igual que una tuya: video +
+transcripción + resumen. Se apaga con `BOT_GRABAR=0`.
+
 O sea: el bot es "un par de oídos con patas". Toda la inteligencia es la de
 siempre.
 

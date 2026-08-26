@@ -119,6 +119,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   check("y al salir avisó al bridge que ya no está en la llamada",
     /saliendo:/.test(salida), salida.split("\n").filter((l) => /saliendo/.test(l))[0] || "");
 
+  // La grabación de VIDEO: el bot graba lo que ve (la pestaña con su audio) y
+  // al colgar la sube por el mismo camino que la extensión (recording-started
+  // + recording-upload). Acá no hay R2 configurado, así que lo comprobable de
+  // verdad es la cadena entera hasta el intento de subida y su manejo honesto.
+  check("grabó el video de la reunión (recorder andando, t=0 anclado en el servidor)",
+    /grabación: video de la reunión GRABÁNDOSE/.test(salida),
+    salida.split("\n").filter((l) => /GRABÁNDOSE/.test(l))[0] || "sin rastro de grabación");
+  check("al colgar intentó subir el video con bytes de verdad",
+    /grabación: subiendo \d+(\.\d+)? MB/.test(salida),
+    salida.split("\n").filter((l) => /subiendo/.test(l))[0] || "sin rastro de subida");
+  check("y manejó la respuesta del almacenamiento sin romperse",
+    /grabación: (guardada|el servidor no la aceptó|no se pudo subir)/.test(salida),
+    salida.split("\n").filter((l) => /guardada|no la aceptó|no se pudo subir/.test(l))[0] || "sin rastro");
+
   console.log("\n── 3. El endpoint de despacho (el servidor lanza el bot) ──");
   {
     const reg = await fetch(`${API}/api/auth/register`, {

@@ -33,7 +33,10 @@
 //                   ejercitar la cadena sin el servicio de voz real
 //   MAX_MIN       corte de seguridad en minutos (default 180)
 import { createRequire } from "module";
-import { existsSync } from "fs";
+import { existsSync, createWriteStream, createReadStream, unlinkSync } from "fs";
+import { Readable } from "stream";
+import { tmpdir } from "os";
+import { join as joinPath } from "path";
 const require = createRequire(import.meta.url);
 
 // Playwright puede vivir en distintos lugares según el host:
@@ -114,6 +117,65 @@ async function postEstado(estado) {
       body: JSON.stringify(estado),
     });
   } catch { /* el estado es best-effort */ }
+}
+
+// --- La grabación de video de la reunión ----------------------------------
+// El bot graba lo mismo que ve (la pestaña de la reunión, con su audio) y al
+// salir lo sube por el MISMO camino que usa la extensión: la sesión del
+// bridge da el dbId de la reunión, recording-started ancla el t=0 y
+// recording-upload guarda el archivo y lo cuelga del historial. Los chunks
+// van cayendo a un archivo temporal (no a memoria: una reunión larga pesa
+// cientos de MB y el droplet chico no la aguantaría en RAM).
+// Se apaga con BOT_GRABAR=0.
+const GRABAR = process.env.BOT_GRABAR !== "0";
+const TOPE_GRABACION = 700 * 1024 * 1024; // el servidor rechaza >800 MB
+let recPath = null;
+let recStream = null;
+let recBytes = 0;
+let recStartTs = 0;
+let recDbId = null;
+let recTope = false;
+
+async function dbIdDeLaSala() {
+  const r = await fetch(`${SERVER_URL}/api/meet-bridge/${encodeURIComponent(ROOM_KEY)}/session`);
+  if (!r.ok) throw new Error(`session HTTP ${r.status}`);
+  const s = await r.json();
+  if (!s?.dbId) throw new Error("la sala no tiene reunión de respaldo");
+  return s.dbId;
+}
+
+async function subirGrabacion() {
+  if (!recStream) return;
+  const stream = recStream;
+  recStream = null;
+  await new Promise((res) => stream.end(res));
+  if (!recBytes) { try { unlinkSync(recPath); } catch {} return; }
+  if (!recDbId) {
+    // El aviso de inicio pudo fallar (red); un último intento antes de rendirse.
+    try { recDbId = await dbIdDeLaSala(); } catch (e) { log("grabación: sin reunión adónde subirla:", e.message); }
+  }
+  if (!recDbId) { try { unlinkSync(recPath); } catch {} return; }
+  const durationMs = Math.max(1, Date.now() - recStartTs);
+  log(`grabación: subiendo ${(recBytes / 1024 / 1024).toFixed(1)} MB…`);
+  try {
+    const res = await fetch(
+      `${SERVER_URL}/api/meetings/${encodeURIComponent(recDbId)}/recording-upload?durationMs=${Math.round(durationMs)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "video/webm" },
+        body: Readable.toWeb(createReadStream(recPath)),
+        duplex: "half",
+      }
+    );
+    if (res.ok) log("grabación: guardada, queda en el historial de la reunión");
+    else {
+      const data = await res.json().catch(() => ({}));
+      log(`grabación: el servidor no la aceptó (HTTP ${res.status})${data?.error ? `: ${data.error}` : ""}`);
+    }
+  } catch (e) {
+    log("grabación: no se pudo subir:", e.message);
+  }
+  try { unlinkSync(recPath); } catch { /* temporal */ }
 }
 
 // --- Ayudantes de unión, compartidos por las plataformas reales ------------
@@ -312,19 +374,78 @@ async function arrancarEscucha(page) {
   // permite ver, en un host nuevo, exactamente en qué eslabón se corta la
   // cadena (captura de audio -> reconocimiento -> bridge).
   await page.exposeFunction("botDiag", (m) => log("escucha:", m));
-  await page.evaluate(() => {
+  // Los chunks del video llegan por acá (base64) y caen al archivo temporal.
+  await page.exposeFunction("botChunk", (b64) => {
+    if (!recStream || recTope) return;
+    const buf = Buffer.from(b64, "base64");
+    recBytes += buf.length;
+    if (recBytes > TOPE_GRABACION) {
+      recTope = true;
+      log("grabación: llegó al tope de tamaño; se corta acá (la transcripción sigue)");
+      page.evaluate(() => window.__unifyPararGrabacion?.()).catch(() => {});
+      return;
+    }
+    recStream.write(buf);
+  });
+  // El recorder arrancó: anclar el t=0 en el servidor (recording-started),
+  // igual que hace la extensión, para que el video y el transcripto queden
+  // sincronizados en el reproductor del historial.
+  await page.exposeFunction("botGrabando", async () => {
+    recStartTs = Date.now();
+    try {
+      recDbId = await dbIdDeLaSala();
+      await fetch(`${SERVER_URL}/api/meetings/${encodeURIComponent(recDbId)}/recording-started`, { method: "POST" });
+      log("grabación: video de la reunión GRABÁNDOSE (reunión", recDbId + ")");
+    } catch (e) {
+      log("grabación: no pude avisar el inicio:", e.message);
+    }
+  });
+  if (GRABAR) {
+    recPath = joinPath(tmpdir(), `unify-bot-${process.pid}.webm`);
+    recStream = createWriteStream(recPath);
+  }
+  await page.evaluate(({ grabar }) => {
     if (window.__unifyEscuchando) return;
     window.__unifyEscuchando = true;
     const diag = (m) => { try { window.botDiag(String(m)); } catch { /* sin diag */ } };
     const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
     (async () => {
+      let s = null;
       let track = null;
       try {
-        const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true, preferCurrentTab: true });
+        s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true, preferCurrentTab: true });
         track = s.getAudioTracks()[0] || null;
         diag(track ? "capturando el audio de la pestaña" : "la captura vino SIN pista de audio");
       } catch (e) {
         diag(`no pude capturar la pestaña: ${e?.name || e}`);
+      }
+      // La grabación de video usa la MISMA captura que la escucha: un solo
+      // permiso, dos consumidores. Chunks cada 3 s hacia el bot (base64).
+      if (grabar && s) {
+        try {
+          let mr;
+          try { mr = new MediaRecorder(s, { mimeType: "video/webm;codecs=vp8,opus", videoBitsPerSecond: 1_200_000 }); }
+          catch { mr = new MediaRecorder(s); }
+          mr.ondataavailable = async (ev) => {
+            if (!ev.data || !ev.data.size) return;
+            const bytes = new Uint8Array(await ev.data.arrayBuffer());
+            let bin = "";
+            for (let i = 0; i < bytes.length; i += 0x8000) {
+              bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+            }
+            window.botChunk(btoa(bin));
+          };
+          mr.onstart = () => window.botGrabando();
+          mr.start(3000);
+          window.__unifyPararGrabacion = () =>
+            new Promise((res) => {
+              if (mr.state === "inactive") { res(); return; }
+              mr.onstop = res;
+              try { mr.stop(); } catch { res(); }
+            });
+        } catch (e) {
+          diag(`no pude grabar el video: ${e?.message || e}`);
+        }
       }
       // start(pista) llegó con available() (Chrome 139); sin eso, transcribir
       // el micrófono del bot sería inútil (el bot no habla).
@@ -361,7 +482,7 @@ async function arrancarEscucha(page) {
       try { r.start(track); diag("reconocimiento ARRANCADO sobre la pista de la reunión"); } catch (e) { diag(`start() falló: ${e?.message || e}`); }
       window.__unifyParar = () => { activa = false; try { r.stop(); } catch {} };
     })();
-  });
+  }, { grabar: GRABAR });
 }
 
 (async () => {
@@ -407,6 +528,11 @@ async function arrancarEscucha(page) {
     log("saliendo:", motivo);
     await postEstado({ inCall: false, participantCount: 0 });
     try { await page.evaluate(() => window.__unifyParar?.()); } catch {}
+    // Cerrar la grabación ANTES de cerrar el navegador: stop() dispara el
+    // último chunk, que todavía tiene que viajar por el puente botChunk.
+    try { await page.evaluate(() => window.__unifyPararGrabacion?.()); } catch {}
+    await new Promise((r) => setTimeout(r, 1000));
+    await subirGrabacion();
     if (browser) await browser.close().catch(() => {});
     else await ctx.close().catch(() => {});
     process.exit(0);
