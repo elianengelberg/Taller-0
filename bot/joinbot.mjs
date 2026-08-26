@@ -77,60 +77,154 @@ async function postEstado(estado) {
   } catch { /* el estado es best-effort */ }
 }
 
+// --- Ayudantes de unión, compartidos por las plataformas reales ------------
+
+// Un notetaker entra SILENCIADO y SIN CÁMARA: no habla ni se muestra, sólo
+// escucha. En la pantalla previa (prejoin) de Meet/Zoom hay botones para
+// apagar micrófono y cámara -- se tocan sólo si están encendidos.
+async function apagarCamaraYMic(page) {
+  const apagar = async (patrones) => {
+    for (const p of patrones) {
+      const b = page.locator(p).first();
+      try {
+        if ((await b.count()) && (await b.isVisible())) { await b.click({ timeout: 1500 }); return; }
+      } catch { /* seguir con el próximo patrón */ }
+    }
+  };
+  // "Turn off microphone" / "Desactivar micrófono" (si dice "Turn on", ya está apagado).
+  await apagar([
+    '[aria-label*="Turn off microphone" i]', '[aria-label*="Desactivar micrófono" i]',
+    '[aria-label*="mute" i][aria-pressed="false"]', 'div[role="button"][aria-label*="micrófono" i][data-is-muted="false"]',
+  ]);
+  await apagar([
+    '[aria-label*="Turn off camera" i]', '[aria-label*="Desactivar cámara" i]',
+    'div[role="button"][aria-label*="cámara" i][data-is-muted="false"]',
+  ]);
+}
+
+// Descarta los diálogos que Meet/Zoom ponen encima: "Got it", "Continuar sin
+// micrófono", "Descartar", cookies. Se corren varias veces porque aparecen en
+// tandas.
+async function descartarDialogos(page) {
+  const textos = [
+    "Got it", "Entendido", "Dismiss", "Descartar", "Continue without microphone",
+    "Continuar sin micrófono", "Continue without camera", "Continuar sin cámara",
+    "Accept all", "Aceptar todo", "No thanks", "Ahora no", "Close", "Cerrar",
+  ];
+  for (let ronda = 0; ronda < 2; ronda++) {
+    for (const t of textos) {
+      const b = page.locator(`button:has-text("${t}"), [role="button"]:has-text("${t}")`).first();
+      try { if ((await b.count()) && (await b.isVisible())) await b.click({ timeout: 1000 }); } catch { /* nada */ }
+    }
+    await page.waitForTimeout(500);
+  }
+}
+
+// ¿Ya estamos DENTRO de la llamada? La barra de controles con "colgar/leave"
+// es la señal más confiable en las tres plataformas.
+async function estaEnLlamada(page) {
+  return page.evaluate(() =>
+    Boolean(document.querySelector(
+      '[aria-label*="Leave call" i], [aria-label*="Salir de la llamada" i], [aria-label*="Abandonar" i], ' +
+      '[aria-label*="Leave" i], .filmstrip, #largeVideoContainer, .footer__leave-btn, [aria-label*="End" i]'
+    ))
+  ).catch(() => false);
+}
+
+// ¿Nos rebotaron? (denegado, expulsado, sala llena). Para no esperar de gusto.
+async function fueRechazado(page) {
+  return page.evaluate(() =>
+    /no one responded|nadie respondió|denied|denegad|removed you|te quitó|meeting is full|reunión está llena|you can't join|no podés unirte/i
+      .test(document.body?.innerText || "")
+  ).catch(() => false);
+}
+
+// Espera a ser admitido (sala de espera de Meet/Zoom): sondea hasta que
+// aparece la barra de la llamada, o hasta el tope, o hasta que rebotan.
+async function esperarAdmision(page, ms) {
+  const hasta = Date.now() + ms;
+  while (Date.now() < hasta) {
+    if (await estaEnLlamada(page)) return true;
+    if (await fueRechazado(page)) return false;
+    await page.waitForTimeout(2000);
+  }
+  return false;
+}
+
 // --- Adaptadores de unión, uno por plataforma -----------------------------
 // Cada uno recibe la página ya navegada y devuelve true cuando el bot está
-// DENTRO de la reunión (o lo mejor que se pueda afirmar sin la plataforma
-// real). Devuelven false si no se pudo entrar.
+// DENTRO de la reunión. Los de Meet/Zoom son "mejor esfuerzo": los selectores
+// de esas páginas cambian seguido y se afinan contra la plataforma viva.
+const ADMISION_MS = Number(process.env.ADMISION_MS) > 0 ? Number(process.env.ADMISION_MS) : 120_000;
+
 const adaptadores = {
   async test(page) {
-    // La página de prueba marca el ingreso con #entrar y expone que ya está
-    // "en la reunión". Es lo que permite probar el resto sin Zoom.
     await page.waitForSelector("#entrar", { timeout: 8000 }).catch(() => {});
     await page.click("#entrar").catch(() => {});
     return page.evaluate(() => Boolean(document.getElementById("en-reunion"))).catch(() => false);
   },
 
   async jitsi(page) {
-    // Jitsi: pantalla de "prejoin". Se pone el nombre y se toca "Entrar".
-    // Muchas salas no piden permiso, así que el bot queda adentro directo.
+    // Jitsi: pantalla de prejoin. Nombre, apagar cam/mic, entrar. Muchas salas
+    // no piden permiso, así que el bot queda adentro directo -- por eso es el
+    // camino más sólido para arrancar en producción.
     await page.waitForTimeout(4000);
+    await descartarDialogos(page);
     const nombre = page.locator('input[placeholder*="name" i], input[aria-label*="name" i], input[name="displayName"]').first();
     if (await nombre.count()) { await nombre.fill(BOT_NAME).catch(() => {}); }
+    await apagarCamaraYMic(page);
     const entrar = page.locator(
-      'div[aria-label*="Join" i], button:has-text("Join"), button:has-text("Entrar"), [data-testid="prejoin.joinMeeting"]'
+      '[data-testid="prejoin.joinMeeting"], div[aria-label*="Join" i], button:has-text("Join"), button:has-text("Entrar")'
     ).first();
     if (await entrar.count()) { await entrar.click().catch(() => {}); }
-    await page.waitForTimeout(4000);
-    // "Adentro" = existe la barra de la llamada (colgar) o el film de videos.
-    return page.evaluate(() =>
-      Boolean(document.querySelector('[aria-label*="Leave" i], [aria-label*="hang" i], .filmstrip, #largeVideoContainer'))
-    ).catch(() => false);
+    return esperarAdmision(page, ADMISION_MS);
   },
 
   async "google-meet"(page) {
-    // Mejor esfuerzo: Meet suele exigir que alguien ADMITA al bot, así que
-    // "entrar" acá es "pedir unirse". Los selectores cambian seguido.
+    // Google Meet exige, casi siempre, que alguien ADMITA al bot ("Ask to
+    // join"), y que la cuenta esté INICIADA (Google bloquea invitados anónimos
+    // en muchas reuniones). Por eso conviene el perfil persistente con una
+    // sesión de Google ya abierta (ver BOT_PROFILE_DIR en el README).
     await page.waitForTimeout(5000);
+    await descartarDialogos(page);
+    // Nombre sólo si Meet lo pide (invitado sin sesión).
     const nombre = page.locator('input[aria-label*="name" i], input[placeholder*="name" i]').first();
     if (await nombre.count()) { await nombre.fill(BOT_NAME).catch(() => {}); }
-    const pedir = page.locator(
-      'button:has-text("Ask to join"), button:has-text("Pedir unirse"), button:has-text("Join now"), button:has-text("Unirte ahora")'
+    await apagarCamaraYMic(page);
+    await descartarDialogos(page);
+    const entrar = page.locator(
+      'button:has-text("Ask to join"), button:has-text("Pedir unirse"), button:has-text("Join now"), ' +
+      'button:has-text("Unirte ahora"), button:has-text("Unirse ahora")'
     ).first();
-    if (await pedir.count()) { await pedir.click().catch(() => {}); }
-    // Espera a ser admitido: la barra de controles aparece cuando entrás.
-    return page.waitForSelector('[aria-label*="Leave call" i], [aria-label*="Salir de la llamada" i]', { timeout: 90_000 })
-      .then(() => true).catch(() => false);
+    if (await entrar.count()) { await entrar.click().catch(() => {}); }
+    // Puede quedar "esperando que te dejen entrar": esperarAdmision aguanta eso.
+    return esperarAdmision(page, ADMISION_MS);
   },
 
   async "zoom-web"(page) {
-    // Mejor esfuerzo contra el cliente web de Zoom. Requiere afinado real.
+    // Cliente web de Zoom (app.zoom.us/wc/...). El camino robusto de verdad es
+    // el Zoom Meeting SDK con credenciales de app; este es el del navegador,
+    // que sirve para salas sin restricción. Maneja el "unirse desde el
+    // navegador", el nombre, y unir el audio por computadora.
     await page.waitForTimeout(6000);
-    const nombre = page.locator('#input-for-name, input[placeholder*="name" i]').first();
+    await descartarDialogos(page);
+    // "Join from your browser" / "Unirse desde el navegador", si aparece.
+    const desdeNavegador = page.locator(
+      'a:has-text("Join from your browser"), a:has-text("desde el navegador"), button:has-text("Join from Browser")'
+    ).first();
+    try { if (await desdeNavegador.count()) await desdeNavegador.click({ timeout: 2000 }); } catch { /* ya en el cliente */ }
+    await page.waitForTimeout(2000);
+    const nombre = page.locator('#input-for-name, input[placeholder*="name" i], input[placeholder*="nombre" i]').first();
     if (await nombre.count()) { await nombre.fill(BOT_NAME).catch(() => {}); }
-    const entrar = page.locator('button:has-text("Join"), #joinBtn, button:has-text("Unirse")').first();
+    const entrar = page.locator('#joinBtn, button:has-text("Join"), button:has-text("Unirse")').first();
     if (await entrar.count()) { await entrar.click().catch(() => {}); }
-    return page.waitForSelector('[aria-label*="mute" i], .footer__leave-btn, button:has-text("Leave")', { timeout: 90_000 })
-      .then(() => true).catch(() => false);
+    const admitido = await esperarAdmision(page, ADMISION_MS);
+    // Unir el audio por computadora (si Zoom lo pregunta) para poder escuchar.
+    const unirAudio = page.locator(
+      'button:has-text("Join Audio by Computer"), button:has-text("Unirse al audio por computadora"), button:has-text("Computer Audio")'
+    ).first();
+    try { if (await unirAudio.count()) await unirAudio.click({ timeout: 2000 }); } catch { /* nada */ }
+    return admitido;
   },
 };
 
@@ -182,17 +276,34 @@ async function arrancarEscucha(page) {
 
 (async () => {
   log(`entrando a ${PLATFORM} :: ${MEETING_URL} :: sala ${ROOM_KEY}`);
-  const browser = await chromium.launch({
-    args: [
-      "--no-sandbox",
-      "--use-fake-ui-for-media-stream",
-      "--use-fake-device-for-media-stream",
-      "--auto-accept-this-tab-capture",
-      "--autoplay-policy=no-user-gesture-required",
-    ],
-  });
-  const ctx = await browser.newContext({ permissions: ["microphone", "camera"] });
-  const page = await ctx.newPage();
+  const args = [
+    "--no-sandbox",
+    "--use-fake-ui-for-media-stream", // acepta los permisos de cam/mic sin diálogo
+    "--auto-accept-this-tab-capture", // deja capturar el audio de la pestaña sin selector
+    "--autoplay-policy=no-user-gesture-required",
+  ];
+  // Cámara/micrófono FALSOS sólo si el bot NO usa un perfil real: con un perfil
+  // persistente (sesión de Google de verdad) conviene no falsear dispositivos.
+  // Igual el bot entra silenciado y sin cámara -- los dispositivos falsos son
+  // sólo para que Meet/Zoom no se traben pidiendo permisos.
+  if (!process.env.BOT_PROFILE_DIR) args.push("--use-fake-device-for-media-stream");
+
+  // Perfil persistente: la clave para Google Meet. Iniciás sesión de Google
+  // UNA vez en ese perfil (ver README) y el bot reusa esa sesión, así Meet lo
+  // deja entrar como una cuenta de verdad en vez de rebotar al invitado anónimo.
+  let browser = null;
+  let ctx;
+  if (process.env.BOT_PROFILE_DIR) {
+    ctx = await chromium.launchPersistentContext(process.env.BOT_PROFILE_DIR, {
+      args,
+      permissions: ["microphone", "camera"],
+      viewport: { width: 1280, height: 800 },
+    });
+  } else {
+    browser = await chromium.launch({ args });
+    ctx = await browser.newContext({ permissions: ["microphone", "camera"] });
+  }
+  const page = ctx.pages()[0] || (await ctx.newPage());
   let saliendo = false;
 
   async function salir(motivo) {
@@ -201,7 +312,8 @@ async function arrancarEscucha(page) {
     log("saliendo:", motivo);
     await postEstado({ inCall: false, participantCount: 0 });
     try { await page.evaluate(() => window.__unifyParar?.()); } catch {}
-    await browser.close().catch(() => {});
+    if (browser) await browser.close().catch(() => {});
+    else await ctx.close().catch(() => {});
     process.exit(0);
   }
 
@@ -239,13 +351,27 @@ async function arrancarEscucha(page) {
   // página dice que terminó), el bot se va solo. En test la página marca fin
   // con #fin.
   const arranque = Date.now();
+  let controlesFueraDesde = 0; // barra de llamada ausente desde este instante
   const vigilante = setInterval(async () => {
     if (Date.now() - arranque > MAX_MIN * 60_000) { clearInterval(vigilante); await salir("máximo de tiempo"); return; }
+    // 1. La reunión dice explícitamente que terminó, o nos sacaron.
     const termino = await page.evaluate(() =>
       Boolean(document.getElementById("fin")) ||
-      /call ended|meeting ended|reunión finaliz|has abandonado/i.test(document.body?.innerText || "")
+      /call ended|meeting ended|reunión finaliz|has abandonado|you (have )?left|removed you|te quitó|returned to home/i
+        .test(document.body?.innerText || "")
     ).catch(() => false);
-    if (termino) { clearInterval(vigilante); await salir("la reunión terminó"); }
+    if (termino) { clearInterval(vigilante); await salir("la reunión terminó"); return; }
+    // 2. La barra de la llamada desapareció y no vuelve en ~15 s: la reunión se
+    //    vació o nos echó. En modo test no aplica (no hay barra real).
+    if (PLATFORM !== "test") {
+      const enLlamada = await estaEnLlamada(page);
+      if (enLlamada) {
+        controlesFueraDesde = 0;
+      } else {
+        if (!controlesFueraDesde) controlesFueraDesde = Date.now();
+        else if (Date.now() - controlesFueraDesde > 15_000) { clearInterval(vigilante); await salir("la barra de la llamada desapareció"); return; }
+      }
+    }
   }, 5000);
 
   // Señal externa para colgar (el servidor puede querer sacarlo).

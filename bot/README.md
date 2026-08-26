@@ -37,14 +37,78 @@ O por el servidor (lo que usa la web): `POST /api/bot/dispatch` con
 `URL → plataforma + clave` la hace el cliente con `detectMeetingPlatform`, así
 que el bot y la gente caen en **la misma sala**.
 
+## El bot entra silenciado y sin cámara
+
+Un notetaker no habla ni se muestra: en la pantalla previa apaga micrófono y
+cámara antes de entrar, descarta los diálogos de permiso ("Got it",
+"Continuar sin micrófono"), y espera a ser admitido si la reunión tiene sala
+de espera. Sale solo cuando la reunión termina, cuando lo echan, o cuando la
+barra de la llamada desaparece ~15 s (la sala se vació).
+
+Variables extra:
+- `BOT_PROFILE_DIR`   carpeta de un perfil de Chrome persistente (clave para
+                      Google Meet: iniciás sesión de Google ahí UNA vez y el
+                      bot reusa esa cuenta). Ver el paso a paso de abajo.
+- `ADMISION_MS`       cuánto esperar a que te admitan (default 120000 = 2 min).
+
 ## Estado por plataforma (honesto)
 
 | Plataforma | Estado |
 |---|---|
-| **Jitsi** | Funciona: muchas salas no piden permiso, el bot entra directo. Es el camino más sólido. |
-| **Google Meet** | Mejor esfuerzo: Meet suele exigir que **alguien admita** al bot, y los selectores de la página cambian seguido. Se afina contra Meet real. |
-| **Zoom (cliente web)** | Mejor esfuerzo: el camino robusto de verdad es el **Zoom Meeting SDK** (requiere credenciales de app y revisión de Zoom). |
-| **`test`** | Una reunión local simulada, para probar toda la cadena sin depender de Zoom ni del servicio de voz. Es lo que corre `pruebas/sim_bot.js`. |
+| **Jitsi** | Funciona: muchas salas no piden permiso, el bot entra directo. Es el camino más sólido para empezar. |
+| **Google Meet** | Afinado: apaga cam/mic, pide unirse y espera admisión. Meet casi siempre exige que **alguien admita** al bot y que la cuenta esté **iniciada** — por eso el perfil persistente. Los selectores de Meet cambian seguido; se ajustan contra Meet vivo. |
+| **Zoom (cliente web)** | Afinado para salas sin restricción: "unirse desde el navegador", nombre, unir audio por computadora. El camino robusto de verdad es el **Zoom Meeting SDK** (credenciales de app + revisión de Zoom). |
+| **`test`** | Una reunión local simulada, para probar toda la cadena sin Zoom ni el servicio de voz. Es lo que corre `pruebas/sim_bot.js`. |
+
+## Paso a paso para ponerlo en producción (lo que hacés VOS)
+
+Esto es lo que este entorno no puede hacer por sí solo (no llega a Zoom/Meet
+reales) y queda de tu lado. En orden:
+
+### 1. Un host que permita navegador headless
+El web service de Render de siempre NO sirve para esto (no trae navegador ni
+audio). Necesitás una máquina con Linux donde el bot pueda abrir Chromium:
+- Un **Render Background Worker**, un droplet de DigitalOcean, una VM de
+  Google Cloud/AWS, o incluso una compu de la oficina prendida.
+- En esa máquina: `node` 20+, y `npx playwright install chromium` una vez.
+- Para que el bot ESCUCHE el audio de la reunión hace falta un audio virtual:
+  en Linux, `sudo apt-get install -y pulseaudio` y correr el bot con un sink
+  virtual (`pulseaudio --start`). Sin eso, el bot entra pero no oye.
+
+### 2. Encender el bot en el servidor
+En las variables de entorno del servidor de Unify (Render):
+- `BOT_ENABLED=1`
+- (opcional) `BOT_NAME=Unify Notetaker` — cómo aparece en la lista de participantes.
+
+### 3. Preparar la cuenta de Google del bot (para Meet)
+Meet rebota a los invitados anónimos, así que el bot necesita una cuenta:
+1. Creá una cuenta de Google para el bot (ej. `notetaker@tuempresa.com`).
+2. En el host del bot, una sola vez, abrí Chromium con el perfil que va a usar
+   y logueá esa cuenta a mano:
+   `npx playwright open --browser chromium --user-data-dir=/ruta/al/perfil https://accounts.google.com`
+   Iniciá sesión y cerrá la ventana.
+3. Corré el bot con `BOT_PROFILE_DIR=/ruta/al/perfil`. Ahora entra a Meet como
+   esa cuenta (alguien de la reunión igual tiene que **admitirlo** la primera
+   vez, salvo que sea de tu organización).
+
+### 4. Zoom (si lo vas a usar en serio)
+Para salas sin contraseña, el cliente web ya alcanza. Para producción formal:
+1. Creá una app en el **Zoom App Marketplace** (tipo "Meeting SDK").
+2. Guardá su Client ID / Secret como variables del servidor.
+3. (Esto es una fase aparte: el join por SDK es más robusto que el navegador,
+   pero pide la revisión de Zoom. Avisame cuando tengas las credenciales y lo
+   cableo.)
+
+### 5. Probar, en este orden
+1. **Jitsi primero** (no necesita nada): creá una sala en `meet.jit.si`,
+   despachá el bot con `PLATFORM=jitsi`. Tiene que aparecer como participante
+   y las líneas caer en el historial.
+2. **Meet** con el perfil de Google listo: entrá vos a una reunión, despachá
+   el bot, admitilo cuando pida entrar.
+3. **Zoom** en una sala sin contraseña.
+
+Si algo no entra, corré el bot con `stdio` visible y mandame lo que imprime:
+los selectores de Meet/Zoom se ajustan mirando qué botón no encontró.
 
 ## Lo que este entorno NO puede probar (y por qué)
 
