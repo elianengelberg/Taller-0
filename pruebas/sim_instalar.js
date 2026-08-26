@@ -158,7 +158,7 @@ const UA = {
   {
     const { ctx, page } = await abrir(UA.windows, `${B}/instalar`, ["clipboard-read", "clipboard-write"]);
     const t = await texto(page);
-    check("detecta Windows y lo dice", /estás en Windows/.test(t));
+    check("marca Windows como el sistema detectado (chip «el tuyo»)", /Windows ·\s*el tuyo/.test(t), t.match(/Windows[^\n]{0,20}/)?.[0]);
     // Lección de la vida real: el .bat como camino principal hacía saltar los
     // avisos de seguridad de Edge/SmartScreen en cadena y abría una terminal.
     // El camino principal es el ZIP: sin terminal, sin sustos.
@@ -256,7 +256,7 @@ const UA = {
   {
     const { ctx, page } = await abrir(UA.mac, `${B}/instalar`, ["clipboard-read", "clipboard-write"]);
     const t = await texto(page);
-    check("detecta Mac y lo dice", /estás en Mac/.test(t));
+    check("marca Mac como el sistema detectado (chip «el tuyo»)", /Mac ·\s*el tuyo/.test(t), t.match(/Mac[^\n]{0,20}/)?.[0]);
     // El comando de Terminal quedó atrás: con la ficha publicada, en Mac
     // también es un clic. (El .command sigue en el sitio por si alguien lo
     // necesita, pero ya no es lo que se ofrece.)
@@ -274,7 +274,7 @@ const UA = {
   {
     const { ctx, page } = await abrir(UA.iphone, `${B}/instalar`);
     const t = await texto(page);
-    check("detecta iPhone/iPad", /estás en iPhone\/iPad/.test(t));
+    check("marca iPhone/iPad como el sistema detectado (chip «el tuyo»)", /iPhone\/iPad ·\s*el tuyo/.test(t), t.match(/iPhone[^\n]{0,20}/)?.[0]);
     check("el camino: Compartir → Agregar a inicio (Safari)", /Agregar a inicio/.test(t));
     // El perfil de Apple es un camino para iPadS (empresas que precargan el
     // acceso). En un iPhone común sólo confundía: "toco descargar y no pasa
@@ -538,6 +538,39 @@ const UA = {
       (await page.locator('a[href="https://wa.me/5491130254522"]').count()) === 1);
     check("y es honesto con el límite real (la app de escritorio de Zoom)",
       /extensión de navegador no puede/.test(sop));
+    await ctx.close();
+  }
+
+  // ═══════ 8. El selector de sistema: una sección por cada uno ═══════
+  // Alguien en Windows preparando el iPhone de un compañero, o sistemas
+  // armando 100 máquinas mixtas: los cuatro sistemas están a un toque, cada
+  // uno con SUS pasos, sin cambiar de aparato.
+  console.log("\n── 8. Elegir el sistema a mano (Windows/Mac/iPhone/Android) ──");
+  {
+    // Entra "como Windows" pero tiene que poder ver los pasos de cualquiera.
+    const { ctx, page } = await abrir(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      `${B}/instalar`
+    );
+    const chips = await page.getByRole("group", { name: /Elegí el sistema/i }).getByRole("button").allTextContents();
+    check("hay un chip por cada sistema", chips.length === 4 && /Windows/.test(chips.join()) &&
+      /Mac/.test(chips.join()) && /iPhone/.test(chips.join()) && /Android/.test(chips.join()), chips.join());
+    check("y el sistema detectado (Windows) viene marcado como «el tuyo»",
+      chips.some((c) => /Windows/.test(c) && /el tuyo/.test(c)), chips.join());
+
+    const marcas = {
+      Windows: /Chrome o Edge/i,
+      Mac: /Agregar al Dock/i,
+      "iPhone/iPad": /Agregar a (pantalla de )?inicio/i,
+      Android: /Instalar app|Agregar al teléfono/i,
+    };
+    for (const [sys, re] of Object.entries(marcas)) {
+      await page.getByRole("button", { name: new RegExp("^" + sys.replace("/", "\\/")) }).first().click();
+      await page.waitForTimeout(300);
+      const t = await texto(page);
+      check(`al elegir ${sys}, aparecen SUS pasos`, re.test(t), t.slice(0, 0));
+      check(`y ${sys} sigue mostrando la parte de la extensión`, /extensi/i.test(t));
+    }
     await ctx.close();
   }
 

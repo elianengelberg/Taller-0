@@ -77,7 +77,12 @@ export default function Instalar() {
   const [instalada, setInstalada] = useState(isStandalone());
   const [estado, setEstado] = useState<string | null>(null);
   const [copiado, setCopiado] = useState<string | null>(null);
-  const plataforma = detectarPlataforma();
+  // Se detecta el sistema al entrar, pero se puede CAMBIAR con los chips de
+  // abajo: alguien en Windows que prepara el iPhone de un compañero, o el de
+  // sistemas que arma las 100 máquinas de la empresa, ve los pasos de
+  // cualquiera sin cambiar de aparato.
+  const [plataforma, setPlataforma] = useState<Plataforma>(detectarPlataforma());
+  const [autodetectada] = useState<Plataforma>(detectarPlataforma());
   const esApple = plataforma === "mac" || plataforma === "ios";
   const movil = plataforma === "ios" || plataforma === "android";
 
@@ -202,12 +207,32 @@ export default function Instalar() {
 
         <h1 className="text-3xl font-bold text-strong">Instalar Unify</h1>
         <p className="mt-2 text-sm leading-relaxed text-ink-300">
-          Detectamos que estás en <span className="font-semibold text-strong">{NOMBRE[plataforma]}</span>: esta
-          página te muestra sólo los pasos que te tocan. Dos piezas: la{" "}
+          Elegí tu sistema abajo (ya marcamos el que detectamos) y te mostramos sólo los pasos que le
+          tocan. Dos piezas: la{" "}
           <span className="font-semibold text-strong">app</span> (reuniones desde su propio ícono) y la{" "}
           <span className="font-semibold text-strong">extensión</span> que vigila por vos — entrás a un Zoom,
           Meet o Teams y te ofrece subtítulos y grabación; si no respondés, arranca sola a los 5 segundos.
         </p>
+        {/* Selector de sistema: una sección por cada uno, para elegir a mano.
+            El detectado arranca marcado; los demás están a un toque. */}
+        <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Elegí el sistema">
+          {(["windows", "mac", "ios", "android"] as Plataforma[]).map((sys) => (
+            <button
+              key={sys}
+              type="button"
+              onClick={() => setPlataforma(sys)}
+              aria-pressed={plataforma === sys}
+              className={`min-h-[40px] rounded-full px-4 py-2 text-sm font-semibold transition ${
+                plataforma === sys
+                  ? "bg-brand-500 text-on-accent"
+                  : "border border-ink-600 text-ink-200 hover:border-brand-400 hover:text-strong"
+              }`}
+            >
+              {NOMBRE[sys]}
+              {autodetectada === sys ? " ·  el tuyo" : ""}
+            </button>
+          ))}
+        </div>
         {bajarSolo && !movil && (
           <p className="mt-3 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm text-brand-200">
             La descarga de la extensión ya arrancó sola — mirá los pasos de abajo.
