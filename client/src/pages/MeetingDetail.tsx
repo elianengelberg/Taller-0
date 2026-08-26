@@ -273,39 +273,68 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
 
         <MeetingReportCard meeting={meeting} />
 
+        {/* La vista de reproducción (estilo Read AI): el video y la
+            transcripción sincronizada VIVEN JUNTOS, lado a lado en pantallas
+            grandes. La transcripción corre en su propio panel con scroll: la
+            frase que se está diciendo se ilumina y el panel la sigue solo,
+            mientras el video queda fijo a la vista. */}
         {meeting.recordingUrl && (
-          <div className={`${cardClass} mt-6`}>
-            {/* Una grabación automática puede ser sólo audio (capturar la
-                pantalla exige un gesto del usuario que no existe al entrar).
-                Un <video> con audio suelto se ve como un rectángulo negro
-                roto, así que mostramos el reproductor que corresponde -- el
-                mismo ref sirve para los dos, y la sincronización con la
-                transcripción funciona igual porque ambos son HTMLMediaElement. */}
-            {audioOnlyRecording ? (
-              <audio
-                ref={videoRef as React.RefObject<HTMLVideoElement> & React.RefObject<HTMLAudioElement>}
-                controls
-                src={meeting.recordingUrl}
-                className="w-full"
-              />
-            ) : (
-              <video
-                ref={videoRef}
-                controls
-                src={meeting.recordingUrl}
-                className="w-full rounded-lg"
-              />
-            )}
-            <a
-              href={meeting.recordingUrl}
-              download
-              className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-brand-300 transition-colors hover:text-brand-200"
-            >
-              <DownloadIcon className="h-4 w-4" />
-              {audioOnlyRecording ? "Descargar audio" : "Descargar video"}
-            </a>
+          <div className="mt-6 items-start gap-4 lg:grid lg:grid-cols-5">
+            <div className={`${cardClass} lg:sticky lg:top-4 lg:col-span-3`}>
+              {/* Una grabación automática puede ser sólo audio (capturar la
+                  pantalla exige un gesto del usuario que no existe al entrar).
+                  Un <video> con audio suelto se ve como un rectángulo negro
+                  roto, así que mostramos el reproductor que corresponde -- el
+                  mismo ref sirve para los dos, y la sincronización con la
+                  transcripción funciona igual porque ambos son HTMLMediaElement. */}
+              {audioOnlyRecording ? (
+                <audio
+                  ref={videoRef as React.RefObject<HTMLVideoElement> & React.RefObject<HTMLAudioElement>}
+                  controls
+                  src={meeting.recordingUrl}
+                  className="w-full"
+                />
+              ) : (
+                <video
+                  ref={videoRef}
+                  controls
+                  src={meeting.recordingUrl}
+                  className="w-full rounded-lg"
+                />
+              )}
+              <a
+                href={meeting.recordingUrl}
+                download
+                className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-brand-300 transition-colors hover:text-brand-200"
+              >
+                <DownloadIcon className="h-4 w-4" />
+                {audioOnlyRecording ? "Descargar audio" : "Descargar video"}
+              </a>
+            </div>
+
+            <div className={`${cardClass} mt-6 lg:col-span-2 lg:mt-0`}>
+              <h2 className="text-lg font-semibold text-strong">Palabra por palabra</h2>
+              <p className="mt-1 text-xs leading-relaxed text-ink-400">
+                Lo que se está diciendo se ilumina mientras el video corre. Tocá cualquier frase
+                para saltar a ese momento.
+              </p>
+              {meeting.messages.length === 0 ? (
+                <p className="mt-3 text-sm text-ink-400">No se guardó nada en esta reunión.</p>
+              ) : (
+                <div className="mt-3 max-h-[70vh] overflow-y-auto pr-1 lg:max-h-[34rem]">
+                  <SyncedTranscript
+                    messages={meeting.messages}
+                    baseMs={baseMs}
+                    videoRef={videoRef}
+                    onSeek={seekTo}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         )}
+
+        <ResumenTiles messages={meeting.messages} />
 
         <AiChatBox
           className="mt-6"
@@ -323,22 +352,15 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
 
         <SeguimientoPanel messages={meeting.messages} />
 
+        {/* Sin grabación, la transcripción va acá abajo como lista simple.
+            Con grabación NO se repite: ya vive sincronizada junto al video. */}
+        {!meeting.recordingUrl && (
         <div className={`${cardClass} mt-6`}>
           <h2 className="mb-3 flex items-center justify-between gap-2 text-lg font-semibold text-strong">
             Transcripción y chat
-            {meeting.recordingUrl && meeting.messages.length > 0 && (
-              <span className="text-xs font-normal text-ink-400">Tocá una línea para saltar el video ahí</span>
-            )}
           </h2>
           {meeting.messages.length === 0 ? (
             <p className="text-sm text-ink-400">No se guardó nada en esta reunión.</p>
-          ) : meeting.recordingUrl ? (
-            <SyncedTranscript
-              messages={meeting.messages}
-              baseMs={baseMs}
-              videoRef={videoRef}
-              onSeek={seekTo}
-            />
           ) : (
             <ul className="space-y-3">
               {/* Consecutive VOICE entries from the same person merge into one
@@ -380,7 +402,31 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
             </ul>
           )}
         </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+// La fila de métricas de un vistazo (estilo Read AI): duración, gente,
+// palabras y ritmo, sacadas del mismo transcripto que todo lo demás.
+function ResumenTiles({ messages }: { messages: MeetingHistoryMessage[] }) {
+  const a = useMemo(() => analizarReunion(messages), [messages]);
+  if (a.hablantes.length === 0) return null;
+  const tiles = [
+    { valor: a.duracionMin >= 1 ? `${Math.round(a.duracionMin)} min` : "<1 min", nombre: "Duración" },
+    { valor: String(a.hablantes.length), nombre: a.hablantes.length === 1 ? "Persona habló" : "Personas hablaron" },
+    { valor: a.totalPalabras.toLocaleString("es"), nombre: "Palabras" },
+    { valor: a.ritmoGlobal ? `${a.ritmoGlobal}/min` : "—", nombre: "Ritmo" },
+  ];
+  return (
+    <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {tiles.map((t) => (
+        <div key={t.nombre} className="rounded-2xl border border-ink-700 bg-ink-800 px-4 py-3 text-center shadow-soft">
+          <p className="font-display text-xl font-bold tracking-tight text-strong">{t.valor}</p>
+          <p className="mt-0.5 text-xs text-ink-400">{t.nombre}</p>
+        </div>
+      ))}
     </div>
   );
 }

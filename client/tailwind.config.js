@@ -51,6 +51,9 @@ export default {
         "on-accent": "#FFFFFF",
       },
       fontFamily: {
+        // La display de los títulos y números protagonistas (misma que h1-h3
+        // vía index.css); acá como clase para usarla fuera de encabezados.
+        display: ["Sora", "Inter", "ui-sans-serif", "system-ui", "sans-serif"],
         sans: [
           "Inter",
           "ui-sans-serif",
