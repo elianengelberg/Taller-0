@@ -1,4 +1,5 @@
 import { anthropicClient } from "./anthropicClient";
+import { enviarResumenAWebhook } from "./integrations";
 import {
   getMeetingDetailForUser,
   getMeetingDetailRaw,
@@ -364,7 +365,18 @@ export async function autoReportOnFinalize(
       { timeout: 60_000 }
     );
     const resumen = firstText(response.content).trim();
-    if (resumen) await saveMeetingReport(meetingId, resumen.slice(0, 12_000));
+    if (resumen) {
+      const guardado = resumen.slice(0, 12_000);
+      await saveMeetingReport(meetingId, guardado);
+      // Integración: si hay un webhook configurado, el resumen se empuja al
+      // canal de la empresa (Slack/Discord/Zapier). Best-effort -- nunca
+      // frena el cierre de la reunión.
+      void enviarResumenAWebhook(guardado, {
+        meetingDbId: meetingId,
+        hostName: existente.hostName,
+        startedAt: existente.startedAt,
+      });
+    }
   } catch (err) {
     // Sin resumen no pasa nada: la transcripción completa queda igual.
     console.error("No se pudo generar el resumen automático:", (err as Error).message);

@@ -52,6 +52,18 @@ const json = (b, extra = {}) => ({
   });
   await new Promise((r) => anthropicStub.listen(ANTHROPIC_PORT, r));
 
+  // ═══════ El webhook de integración de mentira (Slack/Zapier) ═══════
+  const webhookRecibido = [];
+  const webhookStub = http.createServer((req, res) => {
+    const partes = [];
+    req.on("data", (c) => partes.push(c));
+    req.on("end", () => {
+      try { webhookRecibido.push(JSON.parse(Buffer.concat(partes).toString())); } catch {}
+      res.writeHead(200); res.end("ok");
+    });
+  });
+  await new Promise((r) => webhookStub.listen(4176, r));
+
   // ═══════ Nuestro servidor, apuntando al stub ═══════
   const server = spawn("npx", ["tsx", "src/index.ts"], {
     cwd: "/home/user/Taller-0/server",
@@ -66,6 +78,8 @@ const json = (b, extra = {}) => ({
       // La gracia real es de 3 minutos; para probar el resumen automático al
       // quedar la sala vacía, acá se acorta (ver meetingStore).
       GRACIA_LIMPIEZA_MS: "2500",
+      // La integración de salida: el resumen al terminar se empuja acá.
+      SUMMARY_WEBHOOK_URL: "http://localhost:4176/hook",
     },
     stdio: "ignore",
     // Grupo propio para poder matar npx Y tsx juntos al final (matar sólo
@@ -324,6 +338,16 @@ const json = (b, extra = {}) => ({
     check("y el informe se generó SOLO, sin que nadie lo pida",
       /RESPUESTA-STUB/.test(fila.rows[0]?.report ?? ""), (fila.rows[0]?.report ?? "(vacío)").slice(0, 50));
 
+    // La integración: el resumen tiene que haber llegado al webhook (el canal
+    // de la empresa), con el texto y el enlace al detalle.
+    await sleep(2000);
+    const hook = webhookRecibido[webhookRecibido.length - 1];
+    check("el resumen se empujó al webhook de integración (Slack/Zapier)", Boolean(hook), String(webhookRecibido.length));
+    check("con el texto para Slack y el informe suelto para Zapier",
+      typeof hook?.text === "string" && /RESPUESTA-STUB/.test(hook?.report ?? ""), JSON.stringify(hook)?.slice(0, 80));
+    check("y con el enlace al detalle de la reunión",
+      /\/historial\//.test(hook?.meetingUrl ?? "") && /\/historial\//.test(hook?.text ?? ""), hook?.meetingUrl);
+
     // Una reunión trivial (2 frases) NO gasta IA ni genera informe.
     const beto = conectar();
     await new Promise((r, x) => { beto.on("connect", r); beto.on("connect_error", x); });
@@ -344,6 +368,7 @@ const json = (b, extra = {}) => ({
   await pg.end();
   try { process.kill(-server.pid); } catch { server.kill(); }
   anthropicStub.close();
+  webhookStub.close();
   const failed = results.filter((r) => !r).length;
   console.log(`\n${results.length - failed}/${results.length} OK`);
   process.exit(failed ? 1 : 0);
