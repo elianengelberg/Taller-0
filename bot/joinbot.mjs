@@ -33,6 +33,7 @@
 //                   ejercitar la cadena sin el servicio de voz real
 //   MAX_MIN       corte de seguridad en minutos (default 180)
 import { createRequire } from "module";
+import { existsSync } from "fs";
 const require = createRequire(import.meta.url);
 
 // Playwright puede vivir en distintos lugares según el host:
@@ -56,6 +57,22 @@ function cargarChromium() {
   process.exit(2);
 }
 const chromium = cargarChromium();
+
+// El navegador para el bot. El Chromium "de testing" de Playwright NO trae
+// las llaves de Google del servicio de voz: el reconocimiento arranca pero
+// muere con "network". El Google Chrome de verdad sí las trae (es el mismo
+// motivo por el que la extensión funciona en el Chrome de la gente), así que
+// si el host lo tiene instalado, se usa ese.
+//   BOT_CHROME=/ruta   fuerza un ejecutable puntual
+//   BOT_CHROMIUM=1     obliga al Chromium de Playwright (para depurar)
+function ejecutableDelNavegador() {
+  if (process.env.BOT_CHROMIUM) return null;
+  if (process.env.BOT_CHROME) return process.env.BOT_CHROME;
+  for (const p of ["/usr/bin/google-chrome-stable", "/usr/bin/google-chrome", "/opt/google/chrome/chrome"]) {
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
 
 const MEETING_URL = process.env.MEETING_URL;
 const ROOM_KEY = process.env.ROOM_KEY;
@@ -337,7 +354,10 @@ async function arrancarEscucha(page) {
       r.onerror = (e) => {
         if (e.error !== "no-speech" && e.error !== "aborted") { fallas += 1; diag(`error del reconocimiento: ${e.error}`); }
       };
-      r.onend = () => { if (activa && fallas < 8 && track.readyState === "live") { try { r.start(track); } catch {} } };
+      r.onend = () => {
+        if (activa && fallas < 8 && track.readyState === "live") { try { r.start(track); } catch {} }
+        else if (activa) diag(`reconocimiento DETENIDO (errores seguidos=${fallas}, pista=${track.readyState})`);
+      };
       try { r.start(track); diag("reconocimiento ARRANCADO sobre la pista de la reunión"); } catch (e) { diag(`start() falló: ${e?.message || e}`); }
       window.__unifyParar = () => { activa = false; try { r.stop(); } catch {} };
     })();
@@ -363,14 +383,19 @@ async function arrancarEscucha(page) {
   // deja entrar como una cuenta de verdad en vez de rebotar al invitado anónimo.
   let browser = null;
   let ctx;
+  const ejecutable = ejecutableDelNavegador();
+  if (ejecutable) log("navegador: Chrome del sistema en", ejecutable);
+  else log("navegador: el Chromium de Playwright (ojo: su servicio de voz suele fallar con \"network\"; instalá Google Chrome con bot/instalar-host.sh)");
+  const conEjecutable = ejecutable ? { executablePath: ejecutable } : {};
   if (process.env.BOT_PROFILE_DIR) {
     ctx = await chromium.launchPersistentContext(process.env.BOT_PROFILE_DIR, {
       args,
+      ...conEjecutable,
       permissions: ["microphone", "camera"],
       viewport: { width: 1280, height: 800 },
     });
   } else {
-    browser = await chromium.launch({ args });
+    browser = await chromium.launch({ args, ...conEjecutable });
     ctx = await browser.newContext({ permissions: ["microphone", "camera"] });
   }
   const page = ctx.pages()[0] || (await ctx.newPage());

@@ -8,18 +8,18 @@
 # Requisito: Ubuntu 22.04+ (el droplet más barato de DigitalOcean alcanza).
 set -euo pipefail
 
-echo "== 1/5  Paquetes del sistema =="
+echo "== 1/6  Paquetes del sistema =="
 apt-get update -y
 apt-get install -y curl git pulseaudio pulseaudio-utils
 
-echo "== 2/5  Node.js 20 =="
+echo "== 2/6  Node.js 20 =="
 if ! command -v node >/dev/null 2>&1; then
   curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
   apt-get install -y nodejs
 fi
 node --version
 
-echo "== 3/5  Dependencias del bot (Playwright) =="
+echo "== 3/6  Dependencias del bot (Playwright) =="
 # Corré este script DESDE la carpeta del repo ya clonado (git clone ...).
 if [ ! -f "bot/joinbot.mjs" ]; then
   echo "Ejecutá esto desde la raíz del repo de Unify (donde está la carpeta bot/)." >&2
@@ -27,12 +27,26 @@ if [ ! -f "bot/joinbot.mjs" ]; then
 fi
 npm --prefix bot install --no-audit --no-fund
 
-echo "== 4/5  Navegador de Playwright =="
+echo "== 4/6  Navegador de Playwright =="
 # Se instala con el MISMO playwright-core del bot, así la versión de la
 # librería y la del navegador siempre coinciden.
 "$(pwd)/bot/node_modules/.bin/playwright-core" install --with-deps chromium
 
-echo "== 5/5  Audio virtual (para que el bot oiga la reunión) =="
+echo "== 5/6  Google Chrome (las llaves del servicio de voz) =="
+# El Chromium de Playwright NO trae las llaves de Google del reconocimiento
+# de voz: el bot entra pero la transcripción muere con "network". El Google
+# Chrome de verdad sí las trae, y el bot lo usa solo si está instalado.
+if ! command -v google-chrome-stable >/dev/null 2>&1; then
+  curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+    | gpg --dearmor --yes -o /usr/share/keyrings/google-chrome.gpg
+  echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
+    > /etc/apt/sources.list.d/google-chrome.list
+  apt-get update -y
+  apt-get install -y google-chrome-stable
+fi
+google-chrome-stable --version
+
+echo "== 6/6  Audio virtual (para que el bot oiga la reunión) =="
 # Un "parlante" virtual: lo que la reunión reproduce cae acá y el
 # reconocimiento de voz lo puede tomar.
 pulseaudio --start --exit-idle-time=-1 || true
@@ -43,11 +57,7 @@ echo
 echo "LISTO. El host quedó preparado."
 echo
 echo "Ahora, para probar (Jitsi primero, que no pide nada):"
-echo '  MEETING_URL="https://meet.jit.si/UnaSalaDePrueba" \'
-echo '  ROOM_KEY="jitsi:meet.jit.si/unasaladeprueba" \'
-echo '  SERVER_URL="https://taller-0.onrender.com" \'
-echo '  PLATFORM=jitsi BOT_NAME="Unify Notetaker" \'
-echo '  node bot/joinbot.mjs'
+echo '  node bot/lanzar.mjs "https://meet.jit.si/UnaSalaDePrueba"'
 echo
 echo "Para Google Meet necesitás el perfil con la sesión de Google del bot"
 echo "(ver bot/README.md, sección 3). Pasás BOT_PROFILE_DIR=/ruta/al/perfil."
