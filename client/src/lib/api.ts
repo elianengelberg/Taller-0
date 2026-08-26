@@ -865,3 +865,27 @@ export async function fetchUpcomingMeetings(): Promise<{
     return { configured: false, connected: false, events: [] };
   }
 }
+
+// Manda el bot "Notetaker" a una reunión: entra como participante, la graba y
+// la transcribe aunque vos no estés. La detección (URL -> plataforma + clave
+// de sala) se hace ANTES, en el cliente, con detectMeetingPlatform (una sola
+// fuente de verdad), y se pasa acá ya resuelta. El servidor sólo lanza el bot
+// si BOT_ENABLED está encendido; si no, devuelve un mensaje claro.
+export async function dispatchBot(params: {
+  url: string;
+  roomKey: string;
+  platform: string;
+}): Promise<{ ok?: boolean; message?: string; error?: string }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/bot/dispatch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(params),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo mandar el bot." };
+    return { ok: true, message: data.message };
+  } catch {
+    return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };
+  }
+}

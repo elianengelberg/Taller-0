@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import Button from "../components/Button";
 import Logo from "../components/Logo";
 import { useMeeting } from "../context/MeetingContext";
-import { fetchPlatformConfig, PlatformConfig } from "../lib/api";
+import { dispatchBot, fetchPlatformConfig, PlatformConfig } from "../lib/api";
 import {
   autoRecordEnabled,
   requestDisplayStreamOnGesture,
@@ -538,6 +538,48 @@ function DetectionResult({
           )}
         </>
       )}
+
+      {/* El bot "Notetaker": entra a la reunión POR VOS, aunque no estés.
+          Aparece cuando tenemos el enlace y la clave de sala. Si el bot no
+          está encendido en el servidor, lo dice con claridad (no rompe). */}
+      {url && roomKey && <BotButton url={url} roomKey={roomKey} platform={platform} />}
+    </div>
+  );
+}
+
+// El botón que manda al bot. La plataforma se traduce a las que el bot
+// entiende (jitsi / google-meet / zoom-web); el resto cae a jitsi, que el
+// servidor también usa por defecto.
+function BotButton({ url, roomKey, platform }: { url: string; roomKey: string; platform: string }) {
+  const [estado, setEstado] = useState<string | null>(null);
+  const [mandando, setMandando] = useState(false);
+  const plataformaBot =
+    platform === "google-meet" ? "google-meet" : platform === "zoom" ? "zoom-web" : platform === "jitsi" ? "jitsi" : "jitsi";
+
+  async function mandar() {
+    setMandando(true);
+    setEstado(null);
+    const r = await dispatchBot({ url, roomKey, platform: plataformaBot });
+    setMandando(false);
+    setEstado(r.error ?? r.message ?? "El bot está entrando a la reunión.");
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-ink-700 bg-ink-800/40 p-3">
+      <p className="text-sm font-medium text-strong">¿Preferís no entrar vos?</p>
+      <p className="mt-1 text-xs leading-relaxed text-ink-400">
+        Mandá el bot de Unify: entra a la reunión como un participante más, la graba y la transcribe, y
+        te deja las notas en el historial. Ideal si no vas a poder estar.
+      </p>
+      <button
+        type="button"
+        onClick={() => void mandar()}
+        disabled={mandando}
+        className="mt-2.5 w-full rounded-xl border border-brand-500/50 px-4 py-2.5 text-sm font-semibold text-brand-200 hover:bg-brand-500/10 disabled:opacity-60"
+      >
+        {mandando ? "Mandando el bot…" : "Que entre el bot por mí"}
+      </button>
+      {estado && <p className="mt-2 text-xs leading-relaxed text-ink-300">{estado}</p>}
     </div>
   );
 }

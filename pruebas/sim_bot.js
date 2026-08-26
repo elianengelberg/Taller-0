@@ -200,6 +200,34 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     try { process.kill(-srv.pid, "SIGTERM"); } catch { try { srv.kill("SIGTERM"); } catch {} }
   }
 
+  console.log("\n── 5. El botón «Que entre el bot por mí» en la web ──");
+  {
+    const { chromium } = require("/opt/node22/lib/node_modules/playwright/node_modules/playwright-core");
+    const B = "http://localhost:4174";
+    const browser = await chromium.launch({ args: ["--no-sandbox"] });
+    const p = await browser.newPage();
+    const errs = [];
+    p.on("pageerror", (e) => errs.push(e.message.slice(0, 120)));
+    // Un enlace de Jitsi ya detectado: la pantalla de externa muestra el botón.
+    await p.goto(`${B}/externa?url=${encodeURIComponent("https://meet.jit.si/SalaDelBot")}`, { waitUntil: "networkidle" });
+    await p.waitForTimeout(1500);
+    const boton = p.getByRole("button", { name: /Que entre el bot por mí/i });
+    check("la web ofrece «Que entre el bot por mí» en una reunión detectada",
+      (await boton.count()) >= 1, `botones=${await boton.count()}`);
+    // Sin BOT_ENABLED en el servidor de pruebas, tocarlo tiene que mostrar el
+    // mensaje honesto (no romperse).
+    if (await boton.count()) {
+      await boton.first().click();
+      await p.waitForTimeout(2500);
+      const cuerpo = (await p.locator("body").textContent()) || "";
+      check("al tocarlo, muestra un mensaje claro y NO rompe (sesión o bot apagado)",
+        /no está habilitado|BOT_ENABLED|entrando a la reunión|Iniciá sesión|sesión/i.test(cuerpo),
+        cuerpo.match(/(no está habilitado|Iniciá sesión|entrando a la reunión)[^\n]{0,30}/i)?.[0] || "sin mensaje");
+    }
+    check("sin errores de JavaScript en la web del bot", errs.length === 0, errs.slice(0, 2).join(" | "));
+    await browser.close();
+  }
+
   socket.close();
   await pg.end();
   await new Promise((r) => sitio.close(r));
