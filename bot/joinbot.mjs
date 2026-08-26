@@ -78,6 +78,7 @@ const log = (...a) => console.log("[bot]", ...a);
 async function postLinea(texto, alts = []) {
   const t = String(texto || "").trim();
   if (!t) return;
+  log("dice:", t.length > 90 ? `${t.slice(0, 90)}…` : t);
   try {
     await fetch(`${SERVER_URL}/api/meet-bridge/${encodeURIComponent(ROOM_KEY)}/transcript`, {
       method: "POST",
@@ -172,6 +173,38 @@ async function esperarAdmision(page, ms) {
   return false;
 }
 
+// Jitsi acepta configuración por el fragmento de la URL: entrar YA silenciado,
+// SIN cámara, sin pantalla previa y con el nombre puesto. Es la forma robusta
+// -- no depende de selectores que cambian, y evita que el bot transmita la
+// "cámara falsa" de Chromium (la pantalla verde con el contador).
+function urlJitsiSilenciosa(raw) {
+  const extras =
+    "config.startWithAudioMuted=true" +
+    "&config.startWithVideoMuted=true" +
+    "&config.prejoinConfig.enabled=false" +
+    `&userInfo.displayName=${encodeURIComponent(`"${BOT_NAME}"`)}`;
+  return raw + (raw.includes("#") ? "&" : "#") + extras;
+}
+
+// ¿Cuánta gente hay en la sala? En Jitsi el objeto global APP lo dice de
+// verdad; si no, el globito del botón de participantes. null = no se sabe
+// (y entonces NO se toman decisiones con esto).
+async function contarParticipantes(page) {
+  return page
+    .evaluate(() => {
+      try {
+        const n = window.APP?.conference?.membersCount;
+        if (Number.isFinite(n) && n > 0) return n;
+      } catch { /* no es Jitsi */ }
+      const badge = document.querySelector(
+        '[data-testid="participantsCountBadge"], .badge-round, .toolbox-badge, .participants-count'
+      );
+      const m = Number(badge?.textContent?.trim());
+      return Number.isFinite(m) && m > 0 ? m : null;
+    })
+    .catch(() => null);
+}
+
 // --- Adaptadores de unión, uno por plataforma -----------------------------
 // Cada uno recibe la página ya navegada y devuelve true cuando el bot está
 // DENTRO de la reunión. Los de Meet/Zoom son "mejor esfuerzo": los selectores
@@ -258,19 +291,33 @@ async function arrancarEscucha(page) {
   await page.exposeFunction("botEmit", async (texto, alts) => {
     await postLinea(texto, Array.isArray(alts) ? alts : []);
   });
+  // El diagnóstico de la escucha sale por la consola del bot: es lo que
+  // permite ver, en un host nuevo, exactamente en qué eslabón se corta la
+  // cadena (captura de audio -> reconocimiento -> bridge).
+  await page.exposeFunction("botDiag", (m) => log("escucha:", m));
   await page.evaluate(() => {
     if (window.__unifyEscuchando) return;
     window.__unifyEscuchando = true;
+    const diag = (m) => { try { window.botDiag(String(m)); } catch { /* sin diag */ } };
     const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
     (async () => {
       let track = null;
       try {
         const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true, preferCurrentTab: true });
         track = s.getAudioTracks()[0] || null;
-      } catch { /* sin captura: en modo test la página emite sola */ }
+        diag(track ? "capturando el audio de la pestaña" : "la captura vino SIN pista de audio");
+      } catch (e) {
+        diag(`no pude capturar la pestaña: ${e?.name || e}`);
+      }
       // start(pista) llegó con available() (Chrome 139); sin eso, transcribir
       // el micrófono del bot sería inútil (el bot no habla).
-      if (!track || !Ctor || typeof Ctor.available !== "function") return;
+      if (!track) return;
+      if (!Ctor) { diag("este navegador no trae SpeechRecognition"); return; }
+      if (typeof Ctor.available !== "function") { diag("SpeechRecognition sin soporte de pista (Chrome < 139)"); return; }
+      try {
+        const disp = await Ctor.available({ langs: ["es-AR"], processLocally: false });
+        diag(`reconocimiento disponible: ${disp}`);
+      } catch (e) { diag(`available() falló: ${e?.message || e}`); }
       let activa = true, fallas = 0;
       const r = new Ctor();
       r.lang = "es-AR";
@@ -287,9 +334,11 @@ async function arrancarEscucha(page) {
           if (alts.length) window.botEmit(alts[0], alts.slice(1));
         }
       };
-      r.onerror = (e) => { if (e.error !== "no-speech" && e.error !== "aborted") fallas += 1; };
+      r.onerror = (e) => {
+        if (e.error !== "no-speech" && e.error !== "aborted") { fallas += 1; diag(`error del reconocimiento: ${e.error}`); }
+      };
       r.onend = () => { if (activa && fallas < 8 && track.readyState === "live") { try { r.start(track); } catch {} } };
-      try { r.start(track); } catch {}
+      try { r.start(track); diag("reconocimiento ARRANCADO sobre la pista de la reunión"); } catch (e) { diag(`start() falló: ${e?.message || e}`); }
       window.__unifyParar = () => { activa = false; try { r.stop(); } catch {} };
     })();
   });
@@ -339,7 +388,8 @@ async function arrancarEscucha(page) {
   }
 
   try {
-    await page.goto(MEETING_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    const destino = PLATFORM === "jitsi" ? urlJitsiSilenciosa(MEETING_URL) : MEETING_URL;
+    await page.goto(destino, { waitUntil: "domcontentloaded", timeout: 60_000 });
   } catch (e) {
     log("no se pudo abrir la URL:", e.message);
     await salir("url inaccesible");
@@ -373,6 +423,11 @@ async function arrancarEscucha(page) {
   // con #fin.
   const arranque = Date.now();
   let controlesFueraDesde = 0; // barra de llamada ausente desde este instante
+  let soloDesde = 0; // el bot es el único participante desde este instante
+  // Cuánto aguanta el bot siendo el ÚNICO en la sala antes de irse (default
+  // 90 s: suficiente para que la gente entre, sin quedarse colgado para
+  // siempre en una sala vacía cuando todos ya se fueron).
+  const SOLO_MS = Number(process.env.SOLO_MS) > 0 ? Number(process.env.SOLO_MS) : 90_000;
   const vigilante = setInterval(async () => {
     if (Date.now() - arranque > MAX_MIN * 60_000) { clearInterval(vigilante); await salir("máximo de tiempo"); return; }
     // 1. La reunión dice explícitamente que terminó, o nos sacaron.
@@ -382,9 +437,21 @@ async function arrancarEscucha(page) {
         .test(document.body?.innerText || "")
     ).catch(() => false);
     if (termino) { clearInterval(vigilante); await salir("la reunión terminó"); return; }
-    // 2. La barra de la llamada desapareció y no vuelve en ~15 s: la reunión se
-    //    vació o nos echó. En modo test no aplica (no hay barra real).
     if (PLATFORM !== "test") {
+      // 2. El bot quedó SOLO en la sala un buen rato: todos se fueron (o nadie
+      //    vino). Se cuenta de verdad (APP.conference en Jitsi, el globito de
+      //    participantes si no); cuando no se puede saber, no se decide nada.
+      const gente = await contarParticipantes(page);
+      if (gente !== null) {
+        if (gente <= 1) {
+          if (!soloDesde) { soloDesde = Date.now(); log("quedé solo en la sala; espero", Math.round(SOLO_MS / 1000), "s por si vuelven"); }
+          else if (Date.now() - soloDesde > SOLO_MS) { clearInterval(vigilante); await salir("la sala quedó vacía"); return; }
+        } else {
+          soloDesde = 0;
+        }
+      }
+      // 3. La barra de la llamada desapareció y no vuelve en ~15 s: la reunión
+      //    se cerró o nos echó.
       const enLlamada = await estaEnLlamada(page);
       if (enLlamada) {
         controlesFueraDesde = 0;
