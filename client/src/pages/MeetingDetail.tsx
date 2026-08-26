@@ -19,6 +19,7 @@ import {
 } from "../lib/api";
 import { isExternalMeeting, meetingSourceLabel } from "../lib/meetingPlatforms";
 import { groupConsecutive } from "../lib/transcriptGroups";
+import { analizarReunion } from "../lib/meetingAnalytics";
 import { cardClass } from "../lib/ui";
 
 export default function MeetingDetail() {
@@ -316,6 +317,8 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
           placeholder="Ej: ¿Qué dijo Germán? ¿Qué se mostró en pantalla?"
           onAsk={askWithVideo}
         />
+
+        <ParticipacionPanel messages={meeting.messages} />
 
         <div className={`${cardClass} mt-6`}>
           <h2 className="mb-3 flex items-center justify-between gap-2 text-lg font-semibold text-strong">
@@ -695,3 +698,52 @@ function StatusMessage({ text, children }: { text: string; children?: ReactNode 
   );
 }
 
+// Participación y coaching: quién habló cuánto, a qué ritmo, con cuántas
+// muletillas. Todo calculado del transcripto (meetingAnalytics), sin IA ni
+// costo. Es la analítica que Read AI cobra; acá viene de fábrica, sobre la
+// misma reunión que además tuvo subtítulos traducidos en vivo.
+function ParticipacionPanel({ messages }: { messages: MeetingHistoryMessage[] }) {
+  const a = useMemo(() => analizarReunion(messages), [messages]);
+  if (a.hablantes.length === 0) return null;
+
+  return (
+    <div className={`${cardClass} mt-6`}>
+      <h2 className="text-lg font-semibold text-strong">Participación</h2>
+      <p className="mt-1 text-sm text-ink-400">
+        {a.hablantes.length} {a.hablantes.length === 1 ? "persona habló" : "personas hablaron"} · {a.totalPalabras.toLocaleString("es")} palabras
+        {a.duracionMin >= 1 ? ` · ${Math.round(a.duracionMin)} min` : ""}
+        {a.ritmoGlobal ? ` · ${a.ritmoGlobal} palabras/min` : ""}
+      </p>
+
+      <div className="mt-4 space-y-3">
+        {a.hablantes.map((h) => (
+          <div key={h.nombre}>
+            <div className="flex items-baseline justify-between gap-2 text-sm">
+              <span className="truncate font-medium text-strong">{h.nombre}</span>
+              <span className="shrink-0 tabular-nums text-ink-300">{h.porcentaje}%</span>
+            </div>
+            <div className="mt-1 h-2 overflow-hidden rounded-full bg-ink-800">
+              <div
+                className="h-full rounded-full bg-brand-500"
+                style={{ width: `${Math.max(h.porcentaje, 2)}%` }}
+              />
+            </div>
+            <p className="mt-1 text-xs text-ink-400">
+              {h.palabras.toLocaleString("es")} palabras · {h.intervenciones} {h.intervenciones === 1 ? "intervención" : "intervenciones"}
+              {h.ritmo ? ` · ${h.ritmo} palabras/min` : ""}
+              {h.muletillas > 0 ? ` · ${h.muletillas} ${h.muletillas === 1 ? "muletilla" : "muletillas"}` : ""}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {a.masHablo && a.menosHablo && a.masHablo !== a.menosHablo && (
+        <p className="mt-4 rounded-lg bg-ink-800/60 px-3 py-2 text-xs leading-relaxed text-ink-300">
+          <span className="font-semibold text-ink-200">{a.masHablo}</span> fue quien más habló y{" "}
+          <span className="font-semibold text-ink-200">{a.menosHablo}</span> el que menos. Una reunión pareja
+          suele dar mejores resultados: si buscás más participación, invitá a quienes hablaron poco a sumar.
+        </p>
+      )}
+    </div>
+  );
+}

@@ -47,6 +47,7 @@ node pruebas/sim_renacer.js             # el servidor MUERE en plena reunión y 
 node pruebas/sim_carga.js               # la oficina entera: 120 clientes, 20 salas, una sola IP (4001 LIBRE)
 node pruebas/sim_movil.js               # iPhone y Pixel emulados: táctil, sin desbordes, botones de dedo
 node pruebas/sim_calendario.js          # el vigilante de calendario: cartel + notificación del sistema
+node pruebas/sim_analiticas.js          # participación y coaching (talk-time, ritmo, muletillas) — sin servidor
 ```
 
 Criterios de la casa: probar el arreglo revirtiéndolo; desconfiar de los PASS
