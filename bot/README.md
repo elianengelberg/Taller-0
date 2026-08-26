@@ -91,9 +91,20 @@ audio). Necesitás una máquina con Linux donde el bot pueda abrir Chromium:
   virtual (`pulseaudio --start`). Sin eso, el bot entra pero no oye.
 
 ### 2. Encender el bot en el servidor
-En las variables de entorno del servidor de Unify (Render):
+Render no puede abrir navegadores, así que los despachos del botón «Que entre
+el bot por mí» viajan del servidor al **agente** que corre en tu host
+(`bot/agente.mjs`, lo deja andando como servicio `instalar-host.sh`). En las
+variables de entorno del servidor de Unify (Render) van las TRES que el
+instalador imprime al final:
 - `BOT_ENABLED=1`
+- `BOT_HOST_URL=http://<ip-del-droplet>:4790`
+- `BOT_HOST_SECRET=<el secreto generado>` (vive en `/etc/unify-bot.env`)
 - (opcional) `BOT_NAME=Unify Notetaker` — cómo aparece en la lista de participantes.
+
+La reunión que despacha una persona logueada queda **a su nombre** en el
+historial (video + transcripción + resumen). Ojo: un bot lanzado a mano por
+consola crea una reunión sin dueño — para que te quede en el historial,
+despachalo desde la web.
 
 ### 3. Preparar la cuenta de Google del bot (para Meet)
 Meet rebota a los invitados anónimos, así que el bot necesita una cuenta:

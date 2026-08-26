@@ -576,9 +576,9 @@ async function arrancarEscucha(page) {
   let controlesFueraDesde = 0; // barra de llamada ausente desde este instante
   let soloDesde = 0; // el bot es el único participante desde este instante
   // Cuánto aguanta el bot siendo el ÚNICO en la sala antes de irse (default
-  // 90 s: suficiente para que la gente entre, sin quedarse colgado para
+  // 60 s: suficiente para que la gente entre, sin quedarse colgado para
   // siempre en una sala vacía cuando todos ya se fueron).
-  const SOLO_MS = Number(process.env.SOLO_MS) > 0 ? Number(process.env.SOLO_MS) : 90_000;
+  const SOLO_MS = Number(process.env.SOLO_MS) > 0 ? Number(process.env.SOLO_MS) : 60_000;
   const vigilante = setInterval(async () => {
     if (Date.now() - arranque > MAX_MIN * 60_000) { clearInterval(vigilante); await salir("máximo de tiempo"); return; }
     // 1. La reunión dice explícitamente que terminó, o nos sacaron.

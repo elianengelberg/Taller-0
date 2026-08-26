@@ -203,6 +203,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     }
     check("el bot lanzado POR EL SERVIDOR entró a la reunión (creó su sala)", entro);
 
+    // La reunión del bot es de QUIEN LO DESPACHÓ: tiene que quedar a nombre
+    // de la usuaria (antes quedaba sin dueño y no aparecía en ningún
+    // historial, aunque todo hubiera funcionado).
+    {
+      const ses = await fetch(`${API2}/api/meet-bridge/${encodeURIComponent(key2)}/session`).then((r) => r.json()).catch(() => ({}));
+      let dueño = null;
+      for (let i = 0; i < 10 && !dueño; i++) {
+        const { rows: filas } = await pg.query(`SELECT owner_id FROM meetings WHERE id = $1`, [ses.dbId]);
+        dueño = filas[0]?.owner_id || null;
+        if (!dueño) await sleep(500);
+      }
+      check("la reunión del bot queda EN EL HISTORIAL de quien lo mandó (owner)",
+        Boolean(dueño), dueño ? `owner=${String(dueño).slice(0, 8)}…` : "quedó sin dueño");
+    }
+
     // Sacarlo por el endpoint de leave.
     const leave = await fetch(`${API2}/api/bot/leave`, {
       method: "POST",
@@ -240,6 +255,68 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     }
     check("sin errores de JavaScript en la web del bot", errs.length === 0, errs.slice(0, 2).join(" | "));
     await browser.close();
+  }
+
+  console.log("\n── 6. El agente del host (los despachos llegan al droplet) ──");
+  {
+    // El agente es lo que corre en el droplet: Render no abre navegadores,
+    // así que el servidor le reenvía los despachos a él. Acá se prueba la
+    // cadena real: secreto -> despacho -> el bot ENTRA (estado inCall en
+    // vivo, que sólo lo publica el bot) -> colgar.
+    const SECRETO = "secreto-de-prueba-bien-largo-123";
+    const agente = spawn("node", ["/home/user/Taller-0/bot/agente.mjs"], {
+      env: { ...process.env, BOT_HOST_SECRET: SECRETO, SERVER_URL: API, BOT_AGENT_PORT: "4791" },
+      stdio: "ignore", detached: true,
+    });
+    const AG = "http://localhost:4791";
+    let arriba = false;
+    for (let i = 0; i < 20 && !arriba; i++) {
+      try { arriba = (await fetch(`${AG}/salud`)).ok; } catch { /* todavía no */ }
+      if (!arriba) await sleep(300);
+    }
+    check("el agente levanta y responde /salud", arriba);
+
+    const sinSecreto = await fetch(`${AG}/despachar`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: URL_REUNION, roomKey: "externa:x/y", platform: "test" }),
+    }).catch(() => ({ status: 0 }));
+    check("sin el secreto, rechaza el despacho (401)", sinSecreto.status === 401, `HTTP ${sinSecreto.status}`);
+
+    // Un testigo en la sala companion ANTES del despacho, para ver el estado
+    // inCall que sólo el bot publica (la creación de la sala no prueba nada:
+    // consultar la sesión ya la crea).
+    const keyAg = `externa:reunion.falsa/agente-${Date.now()}`;
+    const socket2 = io(API, { transports: ["websocket"], forceNew: true, reconnection: false });
+    let estadoAg = null;
+    socket2.on("meet-state", (s) => { estadoAg = s; });
+    await new Promise((resolve) => {
+      socket2.emit("join-companion", { externalKey: keyAg, name: "Testigo Agente", language: "es-AR" }, resolve);
+      setTimeout(resolve, 4000);
+    });
+
+    const desp = await fetch(`${AG}/despachar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-unify-secret": SECRETO },
+      body: JSON.stringify({ url: URL_REUNION, roomKey: keyAg, platform: "test" }),
+    });
+    check("con el secreto, acepta el despacho", desp.ok, `HTTP ${desp.status}`);
+
+    let entroAg = false;
+    for (let i = 0; i < 40 && !entroAg; i++) {
+      entroAg = estadoAg?.inCall === true;
+      if (!entroAg) await sleep(500);
+    }
+    check("el bot despachado POR EL AGENTE entró (estado inCall en vivo)", entroAg, JSON.stringify(estadoAg)?.slice(0, 100));
+
+    const colgar = await fetch(`${AG}/colgar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-unify-secret": SECRETO },
+      body: JSON.stringify({ roomKey: keyAg }),
+    }).then((r) => r.json());
+    check("y el agente lo hace colgar", colgar.ok === true, JSON.stringify(colgar));
+
+    socket2.close();
+    try { process.kill(-agente.pid, "SIGTERM"); } catch { try { agente.kill("SIGTERM"); } catch { /* nada */ } }
   }
 
   socket.close();

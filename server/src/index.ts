@@ -1710,7 +1710,14 @@ const BOT_ENABLED = process.env.BOT_ENABLED === "1";
 const BOT_PLATFORMS = new Set(["jitsi", "google-meet", "zoom-web", "test"]);
 const botsVivos = new Map<string, ReturnType<typeof spawn>>();
 
-app.post("/api/bot/dispatch", requireAuth, (req, res) => {
+// El host real de los bots: Render no puede abrir un navegador, así que en
+// producción los despachos se REENVÍAN al agente que corre en el host del bot
+// (bot/agente.mjs en el droplet), autenticados con un secreto compartido. Sin
+// BOT_HOST_URL, el bot se lanza acá mismo (el modo de desarrollo/pruebas).
+const BOT_HOST_URL = (process.env.BOT_HOST_URL ?? "").trim().replace(/\/+$/, "");
+const BOT_HOST_SECRET = process.env.BOT_HOST_SECRET ?? "";
+
+app.post("/api/bot/dispatch", requireAuth, async (req, res) => {
   if (!BOT_ENABLED) {
     res.status(503).json({
       error:
@@ -1730,6 +1737,45 @@ app.post("/api/bot/dispatch", requireAuth, (req, res) => {
     return;
   }
   const plataformaBot = BOT_PLATFORMS.has(platform) ? platform : "jitsi";
+
+  // La reunión del bot es de QUIEN LO MANDA: sin esto quedaba sin dueño y no
+  // aparecía en el historial de nadie, aunque todo hubiera funcionado. El
+  // claim no pisa a un dueño existente, y se reintenta un momento porque el
+  // registro de la sala se crea en paralelo.
+  const companion = companionForRoomKey(roomKey);
+  const dueño = (req as AuthedRequest).userId!;
+  void (async () => {
+    for (let intento = 0; intento < 5; intento++) {
+      if (await claimMeeting(companion.dbId, dueño)) return;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  })();
+
+  if (BOT_HOST_URL) {
+    try {
+      const r = await fetch(`${BOT_HOST_URL}/despachar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-unify-secret": BOT_HOST_SECRET },
+        body: JSON.stringify({ url, roomKey, platform: plataformaBot }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      const data = (await r.json().catch(() => ({}))) as { ok?: boolean; yaEstaba?: boolean };
+      if (!r.ok) {
+        res.status(502).json({ error: "El host del bot rechazó el despacho." });
+        return;
+      }
+      res.json({
+        ok: true,
+        roomKey,
+        platform: plataformaBot,
+        message: data.yaEstaba ? "El bot ya está en esa reunión." : "El bot está entrando a la reunión.",
+      });
+    } catch {
+      res.status(502).json({ error: "No pudimos hablar con el host del bot. ¿El agente está corriendo?" });
+    }
+    return;
+  }
+
   if (botsVivos.has(roomKey)) {
     res.json({ ok: true, yaEstaba: true, message: "El bot ya está en esa reunión." });
     return;
@@ -1752,8 +1798,22 @@ app.post("/api/bot/dispatch", requireAuth, (req, res) => {
 });
 
 // Sacar el bot de una reunión a mano.
-app.post("/api/bot/leave", requireAuth, (req, res) => {
+app.post("/api/bot/leave", requireAuth, async (req, res) => {
   const roomKey = bridgeRoomKey(String(req.body?.roomKey ?? ""));
+  if (BOT_HOST_URL && roomKey) {
+    try {
+      const r = await fetch(`${BOT_HOST_URL}/colgar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-unify-secret": BOT_HOST_SECRET },
+        body: JSON.stringify({ roomKey }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      res.json(await r.json().catch(() => ({ ok: false })));
+    } catch {
+      res.status(502).json({ error: "No pudimos hablar con el host del bot." });
+    }
+    return;
+  }
   const hijo = roomKey ? botsVivos.get(roomKey) : undefined;
   if (hijo) {
     try {
