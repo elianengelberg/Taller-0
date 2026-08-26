@@ -425,6 +425,17 @@ export default function ExternalMeeting() {
           diseño), no acá. */}
       <header className="flex items-center justify-between gap-2 border-b border-ink-800 bg-ink-900/95 px-4 py-2.5 shadow-soft backdrop-blur-md sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
+          {/* SIEMPRE tiene que haber un Volver a la vista (regla de la casa):
+              el Salir del dock de abajo no alcanza si no se lo reconoce. Pasa
+              por handleLeave, el salir seguro (guarda y reclama antes de irse). */}
+          <button
+            type="button"
+            onClick={handleLeave}
+            aria-label="Volver al inicio (salís de la reunión)"
+            className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium text-ink-300 hover:bg-ink-800 hover:text-strong"
+          >
+            <span aria-hidden>←</span> Volver
+          </button>
           <Logo />
           <span className="hidden truncate text-xs text-ink-400 sm:inline">{draft.roomLabel}</span>
         </div>

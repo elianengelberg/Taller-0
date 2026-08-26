@@ -29,6 +29,12 @@ export default function GoogleCallback() {
     <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-ink-950 px-6">
       <Logo />
       <p className="text-sm text-ink-300">Iniciando sesión…</p>
+      {/* Si el redireccionamiento se traba, que nadie quede atrapado acá:
+          siempre un Volver a la vista (regla de la casa). Enlace pleno (no
+          navigate) para que AuthProvider rehaga su chequeo al llegar. */}
+      <a href="/" className="text-sm text-brand-300 underline">
+        Volver al inicio
+      </a>
     </div>
   );
 }

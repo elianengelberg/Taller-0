@@ -612,7 +612,19 @@ export default function Meeting() {
     // rendered below the visible fold with no way to scroll down to it.
     <div className="flex h-dvh flex-col bg-ink-950 pb-[env(safe-area-inset-bottom)]">
       <header className="flex items-center justify-between border-b border-ink-800 bg-ink-900/95 px-4 py-3 shadow-soft backdrop-blur-md sm:px-6">
-        <Logo />
+        <div className="flex items-center gap-3">
+          {/* SIEMPRE un Volver a la vista (regla de la casa). Sale por el
+              camino seguro: si hay grabación en curso primero la guarda. */}
+          <button
+            type="button"
+            onClick={handleLeave}
+            aria-label="Volver al inicio (salís de la reunión)"
+            className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium text-ink-300 hover:bg-ink-800 hover:text-strong"
+          >
+            <span aria-hidden>←</span> Volver
+          </button>
+          <Logo />
+        </div>
         <div className="flex items-center gap-2">
           <div className="hidden items-center gap-1.5 rounded-full bg-ink-800 px-3 py-1.5 font-mono text-sm font-medium text-ink-200 ring-1 ring-ink-700 sm:flex">
             <ClockIcon className="h-3.5 w-3.5 text-brand-300" />

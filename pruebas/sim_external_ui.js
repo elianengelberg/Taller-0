@@ -109,6 +109,29 @@ async function detectAndJoin(page, link, { passcode } = {}) {
     await p.waitForTimeout(2500);
     check("Jitsi: la capa Unify conecta (companion)", (await p.getByTitle(/Invitar a los demás/i).count()) > 0);
     check("Jitsi con script bloqueado: no crashea, muestra algo", errs.length === 0, errs[0] || "");
+    // Regla de la casa: DENTRO de la reunión también tiene que haber un
+    // Volver a la vista en el encabezado (el Salir del dock no alcanza).
+    check("Jitsi adentro: hay un Volver en el encabezado",
+      (await p.getByRole("button", { name: /Volver/i }).count()) > 0);
+    await p.close();
+  }
+
+  // ---- Regla de la casa: TODA pantalla tiene un "Volver" a la vista --------
+  // (Salvo el inicio, que es la raíz.) Esto existe porque ya pasó dos veces
+  // que una pantalla quedaba sin salida; acá se recorren todas las rutas.
+  {
+    const rutas = [
+      "/instalar", "/privacidad", "/soporte", "/ingresar", "/registrarse",
+      "/verificar-email", "/recuperar", "/restablecer", "/crear", "/unirse",
+      "/externa",
+    ];
+    const p = await ctx.newPage();
+    for (const ruta of rutas) {
+      await p.goto(`${BASE}${ruta}`, { waitUntil: "domcontentloaded" });
+      await p.waitForTimeout(600);
+      const visible = await p.getByText(/volver/i).count();
+      check(`hay un Volver a la vista en ${ruta}`, visible > 0, `coincidencias=${visible}`);
+    }
     await p.close();
   }
 
