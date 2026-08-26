@@ -26,7 +26,7 @@
 
   const DEFAULT_SERVER = "https://taller-0.onrender.com";
   const DEFAULT_APP = "https://www.unify-meet.com";
-  const cfg = { serverBase: DEFAULT_SERVER, appBase: DEFAULT_APP, token: null, lang: "" };
+  const cfg = { serverBase: DEFAULT_SERVER, appBase: DEFAULT_APP, token: null, lang: "", langVoz: "" };
   // Traducciones por id de línea, para no volver a pedir la misma dos veces.
   // Se vacía al cambiar el idioma.
   const traducciones = new Map();
@@ -398,6 +398,9 @@
   }
   let vozPropia = null;
   let vozPantalla = null;
+  // Para re-arrancar el reconocimiento cuando cambia el idioma hablado desde
+  // el selector, sin recargar la reunión.
+  let reiniciarVozHook = null;
 
   // La línea final viaja al bridge de ESTA sala: así la ven el overlay (al
   // próximo sondeo), el companion web si está abierto, el historial y la IA.
@@ -638,7 +641,7 @@
     if (pistaAudio) {
       if (vozPantalla) vozPantalla.parar();
       vozPantalla = crearVozPropia({
-        lang: navigator.language || "es-AR",
+        lang: cfg.langVoz || navigator.language || "es-AR",
         track: pistaAudio,
         alTextoFinal: (texto, alts) =>
           void publicarVozPropia(det, texto, navigator.language || "es-AR", alts, "Pantalla compartida"),
@@ -698,10 +701,38 @@
       idioma.appendChild(op);
     }
     idioma.value = cfg.lang || "";
+    idioma.title = "Traducirme los subtítulos a este idioma";
+    idioma.setAttribute("aria-label", "Traducirme a");
     idioma.addEventListener("change", () => {
       cfg.lang = idioma.value;
       traducciones.clear(); // re-traducir lo visible al idioma nuevo
       seguro(() => chrome.storage.local.set({ lang: cfg.lang }));
+    });
+
+    // Idioma QUE SE HABLA en la reunión (el del reconocimiento de voz). Sin
+    // esto, la extensión suponía el idioma de tu Chrome: si tus compañeros
+    // hablan inglés y tu navegador está en español, la transcripción salía
+    // mal. Vacío = el idioma del navegador (el comportamiento de siempre).
+    const idiomaVozSel = document.createElement("select");
+    idiomaVozSel.className = "sel";
+    idiomaVozSel.title = "Idioma en el que se habla en la reunión";
+    idiomaVozSel.setAttribute("aria-label", "Idioma que se habla en la reunión");
+    for (const [valor, etiqueta] of [
+      ["", "Se habla: el idioma de tu Chrome"], ["es-AR", "Se habla: Español"],
+      ["en-US", "Se habla: English"], ["pt-BR", "Se habla: Português"],
+      ["fr-FR", "Se habla: Français"], ["de-DE", "Se habla: Deutsch"],
+      ["it-IT", "Se habla: Italiano"], ["zh-CN", "Se habla: 中文"], ["ja-JP", "Se habla: 日本語"],
+    ]) {
+      const op = document.createElement("option");
+      op.value = valor;
+      op.textContent = etiqueta;
+      idiomaVozSel.appendChild(op);
+    }
+    idiomaVozSel.value = cfg.langVoz || "";
+    idiomaVozSel.addEventListener("change", () => {
+      cfg.langVoz = idiomaVozSel.value;
+      seguro(() => chrome.storage.local.set({ langVoz: cfg.langVoz }));
+      reiniciarVozHook?.(); // aplica al instante, sin recargar la reunión
     });
 
     const subs = document.createElement("div");
@@ -795,7 +826,7 @@
     pie.textContent =
       "Unify transcribe TU voz con el micrófono. Para transcribir a TODOS, que cada quien abra Unify de su lado (o usá la extensión dentro de Google Meet).";
 
-    caja.append(rec, idioma, subs, iaFila, iaResp, fila, pie);
+    caja.append(rec, idioma, idiomaVozSel, subs, iaFila, iaResp, fila, pie);
     root.appendChild(caja);
 
     abrir.addEventListener("click", () => {
@@ -911,7 +942,6 @@
     };
     // Tu voz: arranca junto con el overlay. Lo interino se pinta al instante
     // (sin esperar al sondeo) y lo final viaja al bridge.
-    const idiomaVoz = navigator.language || "es-AR";
     let textoInterino = "";
     const pintarInterina = () => {
       if (textoInterino) subs.querySelector(".vacio")?.remove();
@@ -925,6 +955,10 @@
       el.textContent = `Vos: ${textoInterino}`;
       subs.scrollTop = subs.scrollHeight;
     };
+    // Función (y no inline) para poder RE-arrancar con otro idioma cuando la
+    // persona lo cambia en el selector "Se habla: …" del overlay.
+    const arrancarVozPropia = () => {
+    const idiomaVoz = cfg.langVoz || navigator.language || "es-AR";
     if (vozPropia) vozPropia.parar();
     vozPropia = crearVozPropia({
       lang: idiomaVoz,
@@ -948,6 +982,9 @@
       },
     });
     vozPropia.arrancar();
+    };
+    arrancarVozPropia();
+    reiniciarVozHook = arrancarVozPropia;
 
     void sondear();
     overlayTimer = setInterval(sondear, 2500);
@@ -987,11 +1024,12 @@
     return IDIOMAS.includes(dos) ? dos : "";
   }
   seguro(() =>
-    chrome.storage?.local?.get(["serverBase", "appBase", "token", "lang"], (v) => {
+    chrome.storage?.local?.get(["serverBase", "appBase", "token", "lang", "langVoz"], (v) => {
       if (v?.serverBase?.startsWith?.("http")) cfg.serverBase = v.serverBase.replace(/\/+$/, "");
       if (v?.appBase?.startsWith?.("http")) cfg.appBase = v.appBase.replace(/\/+$/, "");
       cfg.token = v?.token ?? null;
       cfg.lang = typeof v?.lang === "string" ? v.lang : idiomaDelNavegador();
+      cfg.langVoz = typeof v?.langVoz === "string" ? v.langVoz : "";
     })
   );
   // La config puede cambiar con el overlay ya abierto (la persona inicia
@@ -1002,6 +1040,7 @@
     if (area !== "local") return;
     if (c.token) cfg.token = c.token.newValue ?? null;
     if (c.lang) { cfg.lang = c.lang.newValue ?? ""; traducciones.clear(); }
+    if (c.langVoz) { cfg.langVoz = c.langVoz.newValue ?? ""; reiniciarVozHook?.(); }
     if (c.serverBase?.newValue?.startsWith?.("http")) cfg.serverBase = c.serverBase.newValue.replace(/\/+$/, "");
     if (c.appBase?.newValue?.startsWith?.("http")) cfg.appBase = c.appBase.newValue.replace(/\/+$/, "");
   })

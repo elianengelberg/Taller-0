@@ -732,10 +732,15 @@ async function arrancarEscucha(page) {
   const arranque = Date.now();
   let controlesFueraDesde = 0; // barra de llamada ausente desde este instante
   let soloDesde = 0; // el bot es el único participante desde este instante
-  // Cuánto aguanta el bot siendo el ÚNICO en la sala antes de irse (default
-  // 60 s: suficiente para que la gente entre, sin quedarse colgado para
-  // siempre en una sala vacía cuando todos ya se fueron).
+  let vioGente = false; // ¿alguna vez hubo alguien más en la sala?
+  // Dos paciencias distintas, a propósito:
+  //  - Al FINAL (ya hubo gente y se fueron): 60 s y chau (SOLO_MS).
+  //  - Al PRINCIPIO (nadie llegó todavía): la gente llega tarde a las
+  //    reuniones; esperar sólo un minuto haría que el bot del calendario se
+  //    fuera antes de que entre nadie. Default 5 min (ESPERA_INICIO_MS).
   const SOLO_MS = Number(process.env.SOLO_MS) > 0 ? Number(process.env.SOLO_MS) : 60_000;
+  const ESPERA_INICIO_MS =
+    Number(process.env.ESPERA_INICIO_MS) > 0 ? Number(process.env.ESPERA_INICIO_MS) : 5 * 60_000;
   const vigilante = setInterval(async () => {
     if (Date.now() - arranque > MAX_MIN * 60_000) { clearInterval(vigilante); await salir("máximo de tiempo"); return; }
     // 1. La reunión dice explícitamente que terminó, o nos sacaron.
@@ -751,11 +756,23 @@ async function arrancarEscucha(page) {
       //    participantes si no); cuando no se puede saber, no se decide nada.
       const gente = await contarParticipantes(page);
       if (gente !== null) {
-        if (gente <= 1) {
-          if (!soloDesde) { soloDesde = Date.now(); log("quedé solo en la sala; espero", Math.round(SOLO_MS / 1000), "s por si vuelven"); }
-          else if (Date.now() - soloDesde > SOLO_MS) { clearInterval(vigilante); await salir("la sala quedó vacía"); return; }
-        } else {
+        if (gente >= 2) {
+          vioGente = true;
           soloDesde = 0;
+        } else {
+          const paciencia = vioGente ? SOLO_MS : ESPERA_INICIO_MS;
+          if (!soloDesde) {
+            soloDesde = Date.now();
+            log(
+              vioGente
+                ? `quedé solo en la sala; espero ${Math.round(paciencia / 1000)} s por si vuelven`
+                : `todavía no llegó nadie; espero hasta ${Math.round(paciencia / 60000)} min`
+            );
+          } else if (Date.now() - soloDesde > paciencia) {
+            clearInterval(vigilante);
+            await salir(vioGente ? "la sala quedó vacía" : "no vino nadie");
+            return;
+          }
         }
       }
       // 3. La barra de la llamada desapareció y no vuelve en ~15 s: la reunión

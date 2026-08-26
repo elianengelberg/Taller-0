@@ -272,7 +272,9 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     check("a los 5 segundos, sin respuesta, los subtítulos arrancan SOLOS",
       /Subtítulos de Unify activos/i.test(estado), estado.slice(0, 60));
     check("con el selector de idioma en el idioma guardado",
-      (await page.locator("select.sel").inputValue().catch(() => "")) === "en");
+      (await page.locator('select.sel[aria-label="Traducirme a"]').inputValue().catch(() => "")) === "en");
+    check("y está el selector del idioma QUE SE HABLA (para reuniones en otro idioma)",
+      (await page.locator('select.sel[aria-label="Idioma que se habla en la reunión"]').count()) === 1);
     check("y el botón Grabar a mano (la grabación en sí exige un gesto tuyo)",
       (await page.locator("button.si", { hasText: "Grabar" }).count()) === 1);
 
@@ -337,7 +339,7 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     const zoomId3 = `9${(Date.now() + 21) % 1e9}7`;
     await page.goto(`https://acme.zoom.us/j/${zoomId3}`, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(9500); // toast + auto-SÍ
-    const valor = await page.locator("select.sel").inputValue().catch(() => "(sin overlay)");
+    const valor = await page.locator('select.sel[aria-label="Traducirme a"]').inputValue().catch(() => "(sin overlay)");
     // Este Chromium corre en inglés: la traducción tiene que arrancar sola en "en".
     check("sin elección previa, la traducción arranca sola en el idioma del navegador",
       valor === "en", `select=${valor}`);

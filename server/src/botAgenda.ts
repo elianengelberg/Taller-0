@@ -325,6 +325,12 @@ export async function repasarAgenda(despachar: Despachador, ahora = Date.now()):
     for (const ev of eventos) {
       const sala = derivarSala(ev.joinUrl);
       if (!sala) continue;
+      // El bot entra CUANDO la reunión empieza, no cuando el poller la ve:
+      // la ventana de parseo mira 15 min adelante, pero despachar ahí hacía
+      // que el bot llegara a una sala vacía, esperara su minuto a solas y se
+      // fuera -- y el dedup le impedía volver a la hora real. Un evento
+      // todavía lejano queda SIN marcar, para una próxima pasada.
+      if (ev.startMs > ahora + 90_000) continue;
       // dedup ANTES de despachar: si ya lo mandamos a este evento, nada.
       const primero = await tryMarkBotDispatch(u.id, ev.key);
       if (!primero) continue;

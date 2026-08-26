@@ -170,6 +170,28 @@ const compact = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, "").
   const n2 = await repasarAgenda(despachador);
   check("una segunda pasada NO manda un segundo bot (dedup real en la base)", n2 === 0, `despachados=${n2}`);
 
+  // El TIMING: una reunión agendada para dentro de 10 minutos NO recibe el
+  // bot todavía (llegaría a una sala vacía, se iría, y el dedup le impediría
+  // volver a la hora real). Recién cuando la hora llega, se despacha.
+  {
+    const T = Date.now();
+    const enDiezMin = T + 10 * 60_000;
+    _setBajarICS(async () => [
+      "BEGIN:VCALENDAR", "BEGIN:VEVENT", "UID:evento-futuro", "SUMMARY:Reunión de las seis",
+      `DTSTART:${compact(enDiezMin)}`,
+      "DESCRIPTION:https://meet.jit.si/ReunionDeLasSeis",
+      "END:VEVENT", "END:VCALENDAR",
+    ].join("\r\n"));
+    const soloCuenta: any[] = [];
+    const contador = async (a: any) => { soloCuenta.push(a); };
+    const antes = await repasarAgenda(contador, T);
+    check("una reunión que empieza en 10 min NO se despacha todavía", antes === 0, `despachados=${antes}`);
+    const alLlegar = await repasarAgenda(contador, enDiezMin - 30_000);
+    check("y cuando llega la hora, el bot SÍ sale (no quedó bloqueada por dedup)",
+      alLlegar === 1 && soloCuenta[0]?.roomKey === "jitsi:meet.jit.si/reuniondelasseis",
+      `despachados=${alLlegar} sala=${soloCuenta[0]?.roomKey}`);
+  }
+
   // Y el bot que entró de verdad dejó su línea en el bridge / la sala en vivo.
   const vio = await (async () => {
     for (let i = 0; i < 40; i++) {
