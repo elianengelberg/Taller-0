@@ -5,6 +5,7 @@ import AiChatBox from "../components/AiChatBox";
 import Button from "../components/Button";
 import Logo from "../components/Logo";
 import CalendarPanel from "../components/CalendarPanel";
+import BotAgendaPanel from "../components/BotAgendaPanel";
 import EmailVerificationNotice from "../components/EmailVerificationNotice";
 import FolderShareDialog from "../components/FolderShareDialog";
 import {
@@ -180,6 +181,10 @@ export default function History() {
         )}
 
         <CalendarPanel />
+
+        <div className="mt-4">
+          <BotAgendaPanel />
+        </div>
 
         {!error && meetings !== null && meetings.length > 0 && (
           <AiChatBox

@@ -64,7 +64,10 @@ import {
   updateUserAvatar,
   updateUserName,
   updateUserPasswordHash,
+  getBotAgenda,
+  setBotAgenda,
 } from "./db";
+import { arrancarAgenda } from "./botAgenda";
 import {
   sendGoogleOnlyResetEmail,
   sendPasswordResetEmail,
@@ -1717,6 +1720,67 @@ const botsVivos = new Map<string, ReturnType<typeof spawn>>();
 const BOT_HOST_URL = (process.env.BOT_HOST_URL ?? "").trim().replace(/\/+$/, "");
 const BOT_HOST_SECRET = process.env.BOT_HOST_SECRET ?? "";
 
+// El despacho del bot, compartido por el botón de la web y el piloto
+// automático del calendario. Deja la reunión a nombre de `ownerId` y lanza (o
+// reenvía al agente del host) el bot. Devuelve un resultado que el endpoint
+// traduce a HTTP.
+type ResultadoDespacho =
+  | { ok: true; yaEstaba?: boolean }
+  | { ok: false; status: number; error: string };
+
+async function despacharBot(args: {
+  url: string;
+  roomKey: string;
+  platform: string;
+  ownerId: string | null;
+}): Promise<ResultadoDespacho> {
+  const plataformaBot = BOT_PLATFORMS.has(args.platform) ? args.platform : "jitsi";
+
+  // La reunión del bot es de QUIEN LO MANDA: sin esto quedaba sin dueño y no
+  // aparecía en el historial de nadie, aunque todo hubiera funcionado. El
+  // claim no pisa a un dueño existente, y se reintenta un momento porque el
+  // registro de la sala se crea en paralelo.
+  const companion = companionForRoomKey(args.roomKey);
+  if (args.ownerId) {
+    const dueño = args.ownerId;
+    void (async () => {
+      for (let intento = 0; intento < 5; intento++) {
+        if (await claimMeeting(companion.dbId, dueño)) return;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    })();
+  }
+
+  if (BOT_HOST_URL) {
+    const r = await fetch(`${BOT_HOST_URL}/despachar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-unify-secret": BOT_HOST_SECRET },
+      body: JSON.stringify({ url: args.url, roomKey: args.roomKey, platform: plataformaBot }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const data = (await r.json().catch(() => ({}))) as { ok?: boolean; yaEstaba?: boolean };
+    if (!r.ok) return { ok: false, status: 502, error: "El host del bot rechazó el despacho." };
+    return { ok: true, yaEstaba: data.yaEstaba };
+  }
+
+  if (botsVivos.has(args.roomKey)) return { ok: true, yaEstaba: true };
+  const hijo = spawn("node", [resolvePath(process.cwd(), "..", "bot", "joinbot.mjs")], {
+    env: {
+      ...process.env,
+      MEETING_URL: args.url,
+      ROOM_KEY: args.roomKey,
+      SERVER_URL: `http://localhost:${process.env.PORT || 4001}`,
+      BOT_NAME: process.env.BOT_NAME || "Unify Notetaker",
+      PLATFORM: plataformaBot,
+    },
+    stdio: "ignore",
+    detached: true,
+  });
+  botsVivos.set(args.roomKey, hijo);
+  hijo.on("exit", () => botsVivos.delete(args.roomKey));
+  return { ok: true };
+}
+
 app.post("/api/bot/dispatch", requireAuth, async (req, res) => {
   if (!BOT_ENABLED) {
     res.status(503).json({
@@ -1737,64 +1801,43 @@ app.post("/api/bot/dispatch", requireAuth, async (req, res) => {
     return;
   }
   const plataformaBot = BOT_PLATFORMS.has(platform) ? platform : "jitsi";
-
-  // La reunión del bot es de QUIEN LO MANDA: sin esto quedaba sin dueño y no
-  // aparecía en el historial de nadie, aunque todo hubiera funcionado. El
-  // claim no pisa a un dueño existente, y se reintenta un momento porque el
-  // registro de la sala se crea en paralelo.
-  const companion = companionForRoomKey(roomKey);
-  const dueño = (req as AuthedRequest).userId!;
-  void (async () => {
-    for (let intento = 0; intento < 5; intento++) {
-      if (await claimMeeting(companion.dbId, dueño)) return;
-      await new Promise((r) => setTimeout(r, 500));
+  try {
+    const r = await despacharBot({ url, roomKey, platform: plataformaBot, ownerId: (req as AuthedRequest).userId! });
+    if (!r.ok) {
+      res.status(r.status).json({ error: r.error });
+      return;
     }
-  })();
+    res.json({
+      ok: true,
+      roomKey,
+      platform: plataformaBot,
+      message: r.yaEstaba ? "El bot ya está en esa reunión." : "El bot está entrando a la reunión.",
+    });
+  } catch {
+    res.status(502).json({ error: "No pudimos hablar con el host del bot. ¿El agente está corriendo?" });
+  }
+});
 
-  if (BOT_HOST_URL) {
-    try {
-      const r = await fetch(`${BOT_HOST_URL}/despachar`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-unify-secret": BOT_HOST_SECRET },
-        body: JSON.stringify({ url, roomKey, platform: plataformaBot }),
-        signal: AbortSignal.timeout(10_000),
-      });
-      const data = (await r.json().catch(() => ({}))) as { ok?: boolean; yaEstaba?: boolean };
-      if (!r.ok) {
-        res.status(502).json({ error: "El host del bot rechazó el despacho." });
-        return;
-      }
-      res.json({
-        ok: true,
-        roomKey,
-        platform: plataformaBot,
-        message: data.yaEstaba ? "El bot ya está en esa reunión." : "El bot está entrando a la reunión.",
-      });
-    } catch {
-      res.status(502).json({ error: "No pudimos hablar con el host del bot. ¿El agente está corriendo?" });
-    }
+// El piloto automático: encender/apagar que el bot entre SOLO a las reuniones
+// del calendario, y con qué fuentes (la dirección iCal secreta de Google
+// Calendar, y/o el Outlook ya conectado).
+app.get("/api/bot/agenda", requireAuth, async (req, res) => {
+  const cfg = await getBotAgenda((req as AuthedRequest).userId!);
+  res.json({ ...cfg, botEnabled: BOT_ENABLED });
+});
+
+app.post("/api/bot/agenda", requireAuth, async (req, res) => {
+  const auto = Boolean(req.body?.auto);
+  let icsUrl: string | null = String(req.body?.icsUrl ?? "").trim().slice(0, 1000) || null;
+  // Sólo una URL http(s) de verdad; nada raro que después el poller intente bajar.
+  if (icsUrl && !/^https?:\/\//i.test(icsUrl)) {
+    res.status(400).json({ error: "La dirección del calendario tiene que empezar con https://" });
     return;
   }
-
-  if (botsVivos.has(roomKey)) {
-    res.json({ ok: true, yaEstaba: true, message: "El bot ya está en esa reunión." });
-    return;
-  }
-  const hijo = spawn("node", [resolvePath(process.cwd(), "..", "bot", "joinbot.mjs")], {
-    env: {
-      ...process.env,
-      MEETING_URL: url,
-      ROOM_KEY: roomKey,
-      SERVER_URL: `http://localhost:${process.env.PORT || 4001}`,
-      BOT_NAME: process.env.BOT_NAME || "Unify Notetaker",
-      PLATFORM: plataformaBot,
-    },
-    stdio: "ignore",
-    detached: true,
-  });
-  botsVivos.set(roomKey, hijo);
-  hijo.on("exit", () => botsVivos.delete(roomKey));
-  res.json({ ok: true, roomKey, platform: plataformaBot, message: "El bot está entrando a la reunión." });
+  // webcal:// es lo que copia Google/Apple a veces: lo normalizamos a https.
+  if (icsUrl) icsUrl = icsUrl.replace(/^webcal:\/\//i, "https://");
+  await setBotAgenda((req as AuthedRequest).userId!, auto, icsUrl);
+  res.json({ ok: true, auto, icsUrl });
 });
 
 // Sacar el bot de una reunión a mano.
@@ -2019,4 +2062,11 @@ app.post("/api/meet-bridge/:meetId/ask", requireAuth, aiLimit, async (req, res) 
 
 httpServer.listen(PORT, () => {
   console.log(`Servidor de reuniones escuchando en el puerto ${PORT}`);
+  // El piloto automático del calendario sólo tiene sentido si el bot está
+  // encendido (hay un host donde correrlo). Cada minuto revisa la agenda de
+  // quienes lo activaron y despacha el bot a las reuniones que arrancan.
+  if (BOT_ENABLED) {
+    arrancarAgenda((a) => despacharBot({ ...a }).then(() => {}));
+    console.log("Piloto automático del bot: encendido (revisa el calendario cada 60 s)");
+  }
 });

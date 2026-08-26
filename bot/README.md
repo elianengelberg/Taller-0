@@ -106,6 +106,21 @@ historial (video + transcripción + resumen). Ojo: un bot lanzado a mano por
 consola crea una reunión sin dueño — para que te quede en el historial,
 despachalo desde la web.
 
+### Piloto automático (el bot entra solo a las reuniones del calendario)
+Con el bot encendido, cada persona puede activar en **Historial → "El bot
+entra solo a tus reuniones"** que el bot vaya SOLO a sus reuniones agendadas,
+sin tocar nada. Fuentes:
+- La **dirección iCal secreta** de Google Calendar (Config. del calendario →
+  "Dirección secreta en formato iCal"). Es el camino sin pedir permisos de
+  Google.
+- El **Outlook/365** ya conectado (el mismo del panel de próximas).
+
+El servidor revisa el calendario cada 60 s (`arrancarAgenda`, sólo si
+`BOT_ENABLED`); cuando una reunión con link (Meet/Zoom/Jitsi) está por
+empezar, despacha el bot a la MISMA sala que usaría la gente, a nombre de esa
+persona, y no lo manda dos veces (dedup en `bot_dispatches`). Probado de punta
+a punta en `pruebas/sim_agenda.ts`.
+
 ### 3. Preparar la cuenta de Google del bot (para Meet)
 Meet rebota a los invitados anónimos, así que el bot necesita una cuenta:
 1. Creá una cuenta de Google para el bot (ej. `notetaker@tuempresa.com`).

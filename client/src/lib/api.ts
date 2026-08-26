@@ -654,6 +654,40 @@ export async function claimMeeting(meetingDbId: string): Promise<boolean> {
   }
 }
 
+// --- La agenda del bot (piloto automático) ---------------------------------
+
+export interface BotAgenda {
+  auto: boolean;
+  icsUrl: string | null;
+  botEnabled: boolean;
+}
+
+export async function fetchBotAgenda(): Promise<BotAgenda> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/bot/agenda`, { headers: authHeaders() });
+    if (!res.ok) return { auto: false, icsUrl: null, botEnabled: false };
+    const data = await res.json();
+    return { auto: Boolean(data.auto), icsUrl: data.icsUrl ?? null, botEnabled: Boolean(data.botEnabled) };
+  } catch {
+    return { auto: false, icsUrl: null, botEnabled: false };
+  }
+}
+
+export async function saveBotAgenda(auto: boolean, icsUrl: string | null): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/bot/agenda`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ auto, icsUrl }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: data.error ?? "No se pudo guardar." };
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "No pudimos conectar con el servidor." };
+  }
+}
+
 // --- Folders ---------------------------------------------------------------
 
 export async function fetchFolders(): Promise<{ folders: FolderSummary[]; shared: FolderSummary[] }> {

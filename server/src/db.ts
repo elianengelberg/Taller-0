@@ -191,6 +191,23 @@ function migrate(): Promise<void> {
       // fetch the person's upcoming meetings on their behalf. NULL until they
       // connect their calendar; cleared when they disconnect.
       .then(() => pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ms_refresh_token TEXT;`))
+      // La agenda del bot: con bot_auto encendido, el bot entra SOLO a las
+      // reuniones del calendario de la persona (Outlook conectado y/o la
+      // dirección iCal secreta de Google Calendar).
+      .then(() => pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_auto BOOLEAN NOT NULL DEFAULT FALSE;`))
+      .then(() => pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS calendar_ics_url TEXT;`))
+      // Qué eventos ya recibieron su bot, para no mandarlo dos veces a la
+      // misma reunión (el poller repasa la agenda una y otra vez).
+      .then(() =>
+        pool.query(
+          `CREATE TABLE IF NOT EXISTS bot_dispatches (
+            user_id UUID NOT NULL,
+            event_key TEXT NOT NULL,
+            dispatched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (user_id, event_key)
+          );`
+        )
+      )
       // Folders: organize a person's saved meetings ("Ingeniería", "Clientes"…).
       .then(() =>
         pool.query(
@@ -855,6 +872,66 @@ export function clearMsRefreshToken(userId: string): Promise<void> {
   return safe(async () => {
     await pool!.query(`UPDATE users SET ms_refresh_token = NULL WHERE id = $1`, [userId]);
   }, undefined);
+}
+
+// --- La agenda del bot ------------------------------------------------------
+// El piloto automático: con bot_auto encendido, el poller mira el calendario
+// de la persona (Outlook conectado y/o su iCal de Google) y manda el bot solo.
+
+export interface BotAgendaConfig {
+  auto: boolean;
+  icsUrl: string | null;
+}
+
+export function getBotAgenda(userId: string): Promise<BotAgendaConfig> {
+  return safe(async () => {
+    const { rows } = await pool!.query(`SELECT bot_auto, calendar_ics_url FROM users WHERE id = $1`, [userId]);
+    return {
+      auto: Boolean(rows[0]?.bot_auto),
+      icsUrl: (rows[0]?.calendar_ics_url as string | null) ?? null,
+    };
+  }, { auto: false, icsUrl: null });
+}
+
+export function setBotAgenda(userId: string, auto: boolean, icsUrl: string | null): Promise<void> {
+  return safe(async () => {
+    await pool!.query(`UPDATE users SET bot_auto = $2, calendar_ics_url = $3 WHERE id = $1`, [
+      userId,
+      auto,
+      icsUrl,
+    ]);
+  }, undefined);
+}
+
+/** Todas las personas con el piloto automático encendido, con sus fuentes. */
+export function listBotAgendaUsers(): Promise<{ id: string; icsUrl: string | null; msConnected: boolean }[]> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `SELECT id, calendar_ics_url, ms_refresh_token IS NOT NULL AS ms
+         FROM users WHERE bot_auto = TRUE LIMIT 500`
+    );
+    return rows.map((r) => ({
+      id: r.id as string,
+      icsUrl: (r.calendar_ics_url as string | null) ?? null,
+      msConnected: Boolean(r.ms),
+    }));
+  }, []);
+}
+
+/**
+ * Registra el despacho de un evento y dice si es la PRIMERA vez. Es un solo
+ * INSERT con ON CONFLICT para que dos pasadas del poller (o dos instancias)
+ * no puedan mandar dos bots a la misma reunión.
+ */
+export function tryMarkBotDispatch(userId: string, eventKey: string): Promise<boolean> {
+  return safe(async () => {
+    const { rowCount } = await pool!.query(
+      `INSERT INTO bot_dispatches (user_id, event_key) VALUES ($1, $2)
+       ON CONFLICT (user_id, event_key) DO NOTHING`,
+      [userId, eventKey.slice(0, 300)]
+    );
+    return (rowCount ?? 0) > 0;
+  }, false);
 }
 
 // --- Folders ---------------------------------------------------------------
