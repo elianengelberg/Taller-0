@@ -115,7 +115,7 @@ export default function Home() {
       <main className="relative flex flex-1 flex-col items-center px-6 pb-20 pt-6">
         <div className="w-full max-w-4xl text-center">
           <span className="inline-block rounded-full bg-brand-500/15 px-4 py-1.5 text-sm font-medium text-brand-300">
-            Subtítulos, traducción y un asistente de IA en cada reunión
+            Tus reuniones: grabadas, traducidas y resumidas solas
           </span>
           <h1 className="mt-6 text-4xl font-extrabold leading-tight tracking-tight text-strong sm:text-6xl">
             Reuniones{" "}
@@ -124,16 +124,16 @@ export default function Home() {
             </span>
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-ink-300">
-            Asigná roles, seguí cada palabra con subtítulos en vivo, entendé cualquier idioma al
-            instante y dejá que la IA resuma lo importante. Nativo en Unify, o sumado a tus
-            llamadas de Zoom, Teams y Meet.
+            Entrá a cualquier reunión —de Zoom, Meet, Teams o acá mismo— y nosotros hacemos el
+            resto: subtítulos mientras hablan, traducción a tu idioma y un resumen con lo
+            importante cuando termina.
           </p>
 
           <div className="mx-auto mt-10 grid max-w-4xl gap-4 sm:grid-cols-3">
             <ActionCard
               highlight
               title="Crear una reunión"
-              description="Definí roles para tu equipo y arrancá una reunión de Unify."
+              description="Armá una sala acá en Unify y pasale el código a tu equipo."
               cta={
                 <Button className="mt-5 w-full" onClick={() => navigate("/crear")}>
                   Crear reunión
@@ -153,7 +153,7 @@ export default function Home() {
             <ActionCard
               highlight
               title="Zoom · Teams · Meet"
-              description="Pegá el enlace de una reunión externa y usá las funciones de Unify encima."
+              description="¿Te mandaron un link de reunión? Pegalo acá y sumale subtítulos, traducción y grabación."
               cta={
                 <>
                   <Button className="mt-5 w-full" onClick={() => void pegarEnlace()}>

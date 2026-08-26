@@ -43,11 +43,11 @@ export default function BotAgendaPanel() {
     <div className="rounded-2xl border border-ink-700 bg-ink-800/40 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-strong">El bot entra solo a tus reuniones</h3>
+          <h3 className="text-sm font-semibold text-strong">Grabá tus reuniones sin mover un dedo</h3>
           <p className="mt-1 text-xs leading-relaxed text-ink-400">
-            Conectá tu calendario una vez y el bot de Unify entra solo a cada reunión con link
-            (Google Meet, Zoom o Jitsi), la graba y te deja el video, la transcripción y el
-            resumen en el historial. No tenés que hacer nada más.
+            Conectá tu calendario una sola vez. Cada vez que tengas una reunión agendada, nuestro
+            asistente entra solo, la graba, y te deja acá el video con todo lo que se dijo y un
+            resumen. Vos no tenés que hacer nada.
           </p>
         </div>
         <button
@@ -77,7 +77,7 @@ export default function BotAgendaPanel() {
 
       <div className="mt-3">
         <label className="text-xs font-medium text-ink-300">
-          Dirección iCal secreta de tu Google Calendar
+          El link de tu calendario de Google
         </label>
         <div className="mt-1 flex flex-col gap-2 sm:flex-row">
           <input
@@ -101,18 +101,18 @@ export default function BotAgendaPanel() {
           onClick={() => setComoSacarlo((v) => !v)}
           className="mt-2 text-xs text-brand-300 underline"
         >
-          ¿De dónde saco esa dirección?
+          ¿Dónde consigo ese link? (te muestro paso a paso)
         </button>
         {comoSacarlo && (
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs leading-relaxed text-ink-400">
-            <li>Abrí Google Calendar en la computadora.</li>
-            <li>Pasá el mouse por tu calendario (a la izquierda) → los tres puntitos → <strong>Configuración y uso compartido</strong>.</li>
-            <li>Bajá hasta <strong>Dirección secreta en formato iCal</strong> y copiá esa dirección (termina en <code>.ics</code>).</li>
-            <li>Pegala acá arriba y tocá Guardar. Es privada: no la compartas.</li>
+            <li>En una compu, entrá a <strong>calendar.google.com</strong>.</li>
+            <li>A la izquierda está tu calendario con tu nombre. Dejá el mouse encima, tocá los <strong>tres puntitos</strong> y después <strong>Configuración</strong>.</li>
+            <li>Bajá hasta donde dice <strong>«Dirección secreta en formato iCal»</strong> y tocá el botón de copiar.</li>
+            <li>Volvé acá, pegá el link arriba y tocá <strong>Guardar</strong>. Listo, eso es todo.</li>
           </ol>
         )}
         <p className="mt-2 text-xs text-ink-500">
-          ¿Usás Outlook/365? Conectalo en la tarjeta de arriba y ya cuenta para el piloto automático.
+          ¿Tu calendario es de Outlook? Usá el botón de conectar Outlook, más arriba, y ya queda.
         </p>
       </div>
 

@@ -432,7 +432,7 @@ export default function ExternalMeeting() {
             type="button"
             onClick={handleLeave}
             aria-label="Volver al inicio (salís de la reunión)"
-            className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium text-ink-300 hover:bg-ink-800 hover:text-strong"
+            className="-my-2 flex min-h-[44px] shrink-0 items-center gap-1 rounded-lg px-3 text-sm font-medium text-ink-300 hover:bg-ink-800 hover:text-strong"
           >
             <span aria-hidden>←</span> Volver
           </button>

@@ -34,12 +34,14 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
-  /* Luminous light surfaces: white cards over a barely-blue page */
-  --ink-950: 248 250 252; /* page background  #F8FAFC */
+  /* Blanco y azul, elegante: tarjetas blancas puras sobre una página con un
+     velo azul apenas perceptible; los bordes y sombras van TEÑIDOS de azul
+     (no gris neutro), que es lo que le da carácter sin perder limpieza. */
+  --ink-950: 247 250 255; /* page background  #F7FAFF */
   --ink-900: 255 255 255; /* headers/toolbars #FFFFFF */
   --ink-800: 255 255 255; /* cards/panels     #FFFFFF */
-  --ink-700: 226 232 240; /* borders, soft bg #E2E8F0 */
-  --ink-600: 203 213 225; /* strong borders   #CBD5E1 */
+  --ink-700: 224 233 247; /* borders, soft bg #E0E9F7 (azulado) */
+  --ink-600: 197 211 233; /* strong borders   #C5D3E9 (azulado) */
   --ink-500: 100 116 139; /* faint text       #64748B */
   --ink-400: 71 85 105;   /* muted text       #475569 */
   --ink-300: 71 85 105;   /* secondary text   #475569 */
@@ -51,8 +53,8 @@
   --brand-100: 219 234 254;
   --brand-200: 29 78 216;
   --brand-300: 29 78 216;  /* accent text on light: Primary Blue #1D4ED8 */
-  --shadow-soft: 0 1px 2px rgb(15 23 42 / 0.05), 0 10px 30px -14px rgb(15 23 42 / 0.12);
-  --shadow-top: 0 -10px 30px -18px rgb(15 23 42 / 0.14);
+  --shadow-soft: 0 1px 2px rgb(37 99 235 / 0.06), 0 12px 32px -14px rgb(37 99 235 / 0.16);
+  --shadow-top: 0 -10px 30px -18px rgb(37 99 235 / 0.14);
 }
 
 html,
@@ -64,6 +66,41 @@ body,
 body {
   @apply bg-ink-950 text-ink-50 antialiased;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+/* Los "tonos difundidos": auras azules muy suaves detrás de todo el
+   contenido, fijas al viewport. Son parte de la identidad (blanco + azul con
+   carácter) y al ser el background-image del body aparecen en TODAS las
+   pantallas sin tocar ningún componente. */
+/* También sobre .bg-ink-950: las páginas pintan su propio fondo encima del
+   body, y con el anclaje al viewport todos los degradados coinciden y se ven
+   como UNO solo, continuo, en cualquier pantalla. */
+:root[data-theme="light"] body,
+:root[data-theme="light"] .bg-ink-950 {
+  background-image:
+    radial-gradient(60rem 42rem at 85% -12%, rgb(59 130 246 / 0.13), transparent 62%),
+    radial-gradient(52rem 38rem at -12% 30%, rgb(56 189 248 / 0.11), transparent 60%),
+    radial-gradient(46rem 46rem at 55% 115%, rgb(99 102 241 / 0.09), transparent 65%);
+  background-attachment: fixed;
+}
+
+:root[data-theme="dark"] body,
+:root[data-theme="dark"] .bg-ink-950 {
+  background-image:
+    radial-gradient(60rem 42rem at 85% -12%, rgb(59 130 246 / 0.14), transparent 62%),
+    radial-gradient(52rem 38rem at -12% 30%, rgb(56 189 248 / 0.07), transparent 60%);
+  background-attachment: fixed;
+}
+
+/* Los títulos llevan la tipografía display (Sora): geométrica y con
+   personalidad, mientras el cuerpo sigue en Inter para leerse liviano. El
+   tracking apenas negativo es lo que los hace ver "de producto", no de
+   documento. */
+h1,
+h2,
+h3 {
+  font-family: "Sora", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  letter-spacing: -0.02em;
 }
 
 ::selection {

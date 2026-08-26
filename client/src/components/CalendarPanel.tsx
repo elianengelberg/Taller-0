@@ -83,8 +83,8 @@ export default function CalendarPanel() {
       {!state.connected ? (
         <div className="mt-2">
           <p className="text-sm text-ink-400">
-            Conectá tu calendario para ver tus próximas reuniones y que Unify te ofrezca grabarlas
-            automáticamente cuando estén por empezar.
+            Conectá tu calendario y acá vas a ver tus próximas reuniones. Cuando una esté por
+            empezar, te avisamos y te ofrecemos grabarla con un toque.
           </p>
           <button
             type="button"

@@ -244,8 +244,8 @@ export default function ExternalJoin() {
         <div className={cardClass}>
           <h1 className="text-2xl font-bold text-strong">Unirme a una reunión externa</h1>
           <p className="mt-1 text-sm text-ink-300">
-            Pegá el enlace de una reunión de Zoom, Google Meet, Jitsi u otra plataforma y la
-            reconocemos automáticamente.
+            ¿Te mandaron un link de reunión? Pegalo acá abajo. Nos damos cuenta solos de qué
+            plataforma es (Zoom, Google Meet, Jitsi o la que sea).
           </p>
 
           <form className="mt-6 space-y-5" onSubmit={handleSubmit}>
@@ -296,8 +296,7 @@ export default function ExternalJoin() {
                 ))}
               </select>
               <p className="mt-1.5 text-xs text-ink-400">
-                Se usa para tus subtítulos y traducción en vivo con la IA de Unify, encima de la
-                reunión externa.
+                Decinos en qué idioma hablás y te armamos los subtítulos y la traducción en vivo.
               </p>
             </div>
 

@@ -207,11 +207,11 @@ export default function Instalar() {
 
         <h1 className="text-3xl font-bold text-strong">Instalar Unify</h1>
         <p className="mt-2 text-sm leading-relaxed text-ink-300">
-          Elegí tu sistema abajo (ya marcamos el que detectamos) y te mostramos sólo los pasos que le
-          tocan. Dos piezas: la{" "}
-          <span className="font-semibold text-strong">app</span> (reuniones desde su propio ícono) y la{" "}
-          <span className="font-semibold text-strong">extensión</span> que vigila por vos — entrás a un Zoom,
-          Meet o Teams y te ofrece subtítulos y grabación; si no respondés, arranca sola a los 5 segundos.
+          Tocá tu dispositivo acá abajo (ya marcamos cuál creemos que es) y te mostramos los pasos,
+          cortitos y con fotos de dónde tocar. Son dos cosas para instalar:{" "}
+          <span className="font-semibold text-strong">la app</span> (para abrir Unify con un ícono,
+          como cualquier app) y <span className="font-semibold text-strong">la extensión</span>{" "}
+          (para que, cuando entres a un Zoom o Meet, te aparezca solo el cartel de grabar).
         </p>
         {/* Selector de sistema: una sección por cada uno, para elegir a mano.
             El detectado arranca marcado; los demás están a un toque. */}
@@ -395,10 +395,11 @@ export default function Instalar() {
                     {plataforma === "windows" ? "En Windows (Chrome o Edge):" : "En Chrome o Edge:"}
                   </p>
                   <p className="mt-1.5">
-                    Buscá el ícono de <span className="font-semibold">instalar</span> (un monitor con una flecha)
-                    a la derecha de la barra de direcciones, o el menú ⋮ →{" "}
-                    <span className="font-semibold">“Instalar Unify”</span>. Si no aparece, navegá la app un
-                    momento y volvé: el navegador lo ofrece solo.
+                    Mirá arriba a la derecha, al final de la barra donde va la dirección de la
+                    página: hay un iconito de <span className="font-semibold">instalar</span> (una
+                    pantallita con una flecha). Tocalo y aceptá. Si no lo ves, tocá el menú de los
+                    tres puntitos (⋮) y elegí <span className="font-semibold">“Instalar Unify”</span>.
+                    Con eso Unify queda en tu compu con su propio ícono.
                   </p>
                 </>
               )}
