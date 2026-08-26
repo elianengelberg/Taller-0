@@ -406,7 +406,7 @@ async function arrancarEscucha(page) {
     recPath = joinPath(tmpdir(), `unify-bot-${process.pid}.webm`);
     recStream = createWriteStream(recPath);
   }
-  await page.evaluate(({ grabar }) => {
+  await page.evaluate(({ grabar, kbps, lang }) => {
     if (window.__unifyEscuchando) return;
     window.__unifyEscuchando = true;
     const diag = (m) => { try { window.botDiag(String(m)); } catch { /* sin diag */ } };
@@ -421,9 +421,11 @@ async function arrancarEscucha(page) {
       // con un observador y cada 3 s.
       let mezclaTrack = null;
       let mezclados = 0;
+      let ctxA = null;
+      let dest = null;
       try {
-        const ctxA = new AudioContext();
-        const dest = ctxA.createMediaStreamDestination();
+        ctxA = new AudioContext();
+        dest = ctxA.createMediaStreamDestination();
         const vistos = new WeakSet();
         const conectar = (el) => {
           if (vistos.has(el)) return;
@@ -451,10 +453,26 @@ async function arrancarEscucha(page) {
       // --- La IMAGEN: captura de la pestaña (para el video de la grabación) --
       let s = null;
       try {
-        s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true, preferCurrentTab: true });
-        diag("capturando la pestaña para el video");
+        s = await navigator.mediaDevices.getDisplayMedia({
+          video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+          audio: true,
+          preferCurrentTab: true,
+        });
+        const dim = s.getVideoTracks()[0]?.getSettings?.() ?? {};
+        diag(`capturando la pestaña para el video (${dim.width || "?"}x${dim.height || "?"})`);
       } catch (e) {
         diag(`no pude capturar la pestaña (la grabación saldrá sin video): ${e?.name || e}`);
+      }
+
+      // El audio propio de la captura se SUMA a la mezcla y se SACA del
+      // stream: si quedaran dos pistas de audio, el reproductor del historial
+      // usa la primera -- que puede ser la muda -- y el video "no se escucha"
+      // aunque la transcripción funcione (pasó en la primera prueba real).
+      if (s && ctxA && dest) {
+        for (const t of s.getAudioTracks()) {
+          try { ctxA.createMediaStreamSource(new MediaStream([t])).connect(dest); } catch { /* sin audio útil */ }
+          try { s.removeTrack(t); } catch { /* ya no estaba */ }
+        }
       }
 
       // La voz para el reconocimiento: la mezcla real primero; el audio de la
@@ -468,18 +486,21 @@ async function arrancarEscucha(page) {
             : "SIN pista de voz -- no va a haber transcripción"
       );
 
-      // La grabación: se graba el stream de captura de la pestaña TAL CUAL
-      // (video + su audio real, ahora que no falseamos dispositivos). Grabar
-      // ese stream directo emite chunks bien; un MediaStream compuesto a mano
-      // (mezcla WebAudio + captura) se queda MUDO en este entorno. Si además
-      // tenemos la mezcla real de los reproductores, se la sumamos como pista
-      // extra para que el audio del video quede lo más limpio posible.
+      // La grabación: el stream de captura MUTADO (no uno compuesto a mano,
+      // que en este entorno queda mudo): su video + UNA sola pista de audio,
+      // la mezcla real (reproductores de la reunión + el audio de la captura,
+      // todo junto). vp9 si el navegador puede (mejor calidad por bit), vp8
+      // si no; el bitrate se ajusta con BOT_VIDEO_KBPS.
       if (grabar && s) {
         try {
           if (mezclaTrack) { try { s.addTrack(mezclaTrack); } catch { /* ya estaba */ } }
+          const opciones = { videoBitsPerSecond: kbps * 1000, audioBitsPerSecond: 128_000 };
           let mr;
-          try { mr = new MediaRecorder(s, { mimeType: "video/webm;codecs=vp8,opus", videoBitsPerSecond: 1_200_000 }); }
-          catch { mr = new MediaRecorder(s); }
+          try { mr = new MediaRecorder(s, { ...opciones, mimeType: "video/webm;codecs=vp9,opus" }); }
+          catch {
+            try { mr = new MediaRecorder(s, { ...opciones, mimeType: "video/webm;codecs=vp8,opus" }); }
+            catch { mr = new MediaRecorder(s); }
+          }
           mr.ondataavailable = async (ev) => {
             try {
               if (!ev.data || !ev.data.size) return;
@@ -524,10 +545,28 @@ async function arrancarEscucha(page) {
       } catch (e) { diag(`available() falló: ${e?.message || e}`); }
       let activa = true, fallas = 0;
       const r = new Ctor();
-      r.lang = "es-AR";
+      r.lang = lang;
       r.continuous = true;
       r.interimResults = false;
       r.maxAlternatives = 3;
+      // El reconocimiento corta las frases donde respira, no donde terminan:
+      // "quedamos entonces" / "en revisar los números" quedaban como dos
+      // líneas sueltas y el transcripto se leía picado. Los fragmentos se
+      // juntan y se mandan como UNA frase cuando hay una pausa de verdad
+      // (~2 s sin hablar) o cuando ya se armó una oración larga. Las
+      // alternativas sólo viajan cuando el fragmento va solo (al juntar
+      // varias, mezclar sus alternativas no tiene sentido).
+      let pendiente = "";
+      let pendAlts = [];
+      let pendPartes = 0;
+      let timerFrase = null;
+      const soltar = () => {
+        if (timerFrase) { clearTimeout(timerFrase); timerFrase = null; }
+        const t = pendiente.trim();
+        const alts = pendPartes === 1 ? pendAlts : [];
+        pendiente = ""; pendAlts = []; pendPartes = 0;
+        if (t) window.botEmit(t, alts);
+      };
       r.onresult = (ev) => {
         fallas = 0;
         for (let i = ev.resultIndex; i < ev.results.length; i++) {
@@ -535,7 +574,15 @@ async function arrancarEscucha(page) {
           if (!res.isFinal) continue;
           const alts = [];
           for (let j = 0; j < res.length && j < 3; j++) { const t = res[j]?.transcript?.trim(); if (t) alts.push(t); }
-          if (alts.length) window.botEmit(alts[0], alts.slice(1));
+          if (!alts.length) continue;
+          pendiente = pendiente ? `${pendiente} ${alts[0]}` : alts[0];
+          pendAlts = alts.slice(1);
+          pendPartes++;
+          if (pendiente.length > 220) soltar();
+          else {
+            if (timerFrase) clearTimeout(timerFrase);
+            timerFrase = setTimeout(soltar, 2000);
+          }
         }
       };
       r.onerror = (e) => {
@@ -543,12 +590,16 @@ async function arrancarEscucha(page) {
       };
       r.onend = () => {
         if (activa && fallas < 8 && track.readyState === "live") { try { r.start(track); } catch {} }
-        else if (activa) diag(`reconocimiento DETENIDO (errores seguidos=${fallas}, pista=${track.readyState})`);
+        else if (activa) { soltar(); diag(`reconocimiento DETENIDO (errores seguidos=${fallas}, pista=${track.readyState})`); }
       };
-      try { r.start(track); diag("reconocimiento ARRANCADO sobre la pista de la reunión"); } catch (e) { diag(`start() falló: ${e?.message || e}`); }
-      window.__unifyParar = () => { activa = false; try { r.stop(); } catch {} };
+      try { r.start(track); diag(`reconocimiento ARRANCADO sobre la pista de la reunión (${lang})`); } catch (e) { diag(`start() falló: ${e?.message || e}`); }
+      window.__unifyParar = () => { activa = false; soltar(); try { r.stop(); } catch {} };
     })();
-  }, { grabar: GRABAR });
+  }, {
+    grabar: GRABAR,
+    kbps: Number(process.env.BOT_VIDEO_KBPS) > 0 ? Number(process.env.BOT_VIDEO_KBPS) : 2000,
+    lang: process.env.BOT_LANG || "es-AR",
+  });
 }
 
 (async () => {
@@ -563,7 +614,7 @@ async function arrancarEscucha(page) {
       log("sin pantalla: me relanzo bajo xvfb (pantalla virtual) para poder grabar video");
       const hijo = spawnHijo(
         "xvfb-run",
-        ["-a", "-s", "-screen 0 1280x800x24", process.execPath, fileURLToPath(import.meta.url)],
+        ["-a", "-s", "-screen 0 1920x1080x24", process.execPath, fileURLToPath(import.meta.url)],
         { env: { ...process.env, __UNIFY_XVFB: "1" }, stdio: "inherit" }
       );
       process.on("SIGTERM", () => hijo.kill("SIGTERM"));
@@ -610,11 +661,11 @@ async function arrancarEscucha(page) {
       ...conEjecutable,
       headless,
       permissions: ["microphone", "camera"],
-      viewport: { width: 1280, height: 800 },
+      viewport: { width: 1920, height: 1080 },
     });
   } else {
     browser = await chromium.launch({ args, ...conEjecutable, headless });
-    ctx = await browser.newContext({ permissions: ["microphone", "camera"], viewport: { width: 1280, height: 800 } });
+    ctx = await browser.newContext({ permissions: ["microphone", "camera"], viewport: { width: 1920, height: 1080 } });
   }
   const page = ctx.pages()[0] || (await ctx.newPage());
   let saliendo = false;

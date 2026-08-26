@@ -688,6 +688,32 @@ export async function saveBotAgenda(auto: boolean, icsUrl: string | null): Promi
   }
 }
 
+// --- Seguimiento de palabras -----------------------------------------------
+
+export async function fetchTrackedWords(): Promise<string[]> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/palabras-seguidas`, { headers: authHeaders() });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.palabras) ? data.palabras : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveTrackedWords(palabras: string[]): Promise<boolean> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/palabras-seguidas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ palabras }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 // --- Folders ---------------------------------------------------------------
 
 export async function fetchFolders(): Promise<{ folders: FolderSummary[]; shared: FolderSummary[] }> {

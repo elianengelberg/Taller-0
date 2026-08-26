@@ -83,7 +83,10 @@ const server = createServer((req, res) => {
           PLATFORM: platform,
           BOT_NAME: process.env.BOT_NAME || "Unify Notetaker",
         },
-        stdio: "ignore",
+        // La salida del bot pasa por el agente: con el agente corriendo como
+        // servicio, queda en journald (journalctl -u unify-bot-agent) y se
+        // puede depurar una reunión real sin lanzar nada a mano.
+        stdio: ["ignore", "inherit", "inherit"],
         detached: true,
       });
       vivos.set(roomKey, hijo);

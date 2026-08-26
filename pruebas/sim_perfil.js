@@ -166,6 +166,31 @@ async function api(path, opts = {}) {
     (canUpload === 0 && honest) || (canUpload > 0 && !honest), `botón=${canUpload} aviso=${honest}`);
   check("el editor de perfil no tira errores", errs2.length === 0, errs2[0] || "");
 
+  console.log("\n── Seguimiento de palabras: la lista por usuario ──");
+  {
+    const reg = await fetch(`${API}/api/auth/register`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: `palabras${Date.now()}@test.com`, password: "melon42Trueno", name: "Rastreadora" }),
+    }).then((r) => r.json());
+    const auth = { "Content-Type": "application/json", Authorization: `Bearer ${reg.token}` };
+
+    const sinSesion = await fetch(`${API}/api/palabras-seguidas`);
+    check("sin sesión, la lista es privada (401)", sinSesion.status === 401, `HTTP ${sinSesion.status}`);
+
+    const guardado = await fetch(`${API}/api/palabras-seguidas`, {
+      method: "POST", headers: auth,
+      body: JSON.stringify({ palabras: ["presupuesto", "  deadline  ", "presupuesto", "", 42] }),
+    }).then((r) => r.json());
+    check("guarda limpiando: recorta, saca duplicados y basura",
+      JSON.stringify(guardado.palabras) === JSON.stringify(["presupuesto", "deadline"]),
+      JSON.stringify(guardado.palabras));
+
+    const leido = await fetch(`${API}/api/palabras-seguidas`, { headers: auth }).then((r) => r.json());
+    check("y al releer la lista vuelve igual",
+      JSON.stringify(leido.palabras) === JSON.stringify(["presupuesto", "deadline"]),
+      JSON.stringify(leido.palabras));
+  }
+
   await browser.close();
   s.disconnect(); g.disconnect(); imp.disconnect();
   await pg.end();

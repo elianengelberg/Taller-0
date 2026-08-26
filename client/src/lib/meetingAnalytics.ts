@@ -150,3 +150,65 @@ export function analizarReunion(mensajes: LineaVoz[]): AnaliticaReunion {
     menosHablo: hablantes.length > 1 ? hablantes[hablantes.length - 1].nombre : null,
   };
 }
+
+// --- Seguimiento de palabras -----------------------------------------------
+// La persona define SUS palabras clave ("presupuesto", el nombre de un
+// competidor, "deadline") y cada reunión le cuenta cuántas veces se dijeron,
+// quién las dijo y en qué frases. Función pura, como el resto del módulo:
+// aritmética sobre el transcripto, sin IA ni costo.
+
+export interface PalabraSeguida {
+  palabra: string;
+  veces: number;
+  /** Quién la dijo y cuántas veces, de mayor a menor. */
+  porQuien: { nombre: string; veces: number }[];
+  /** Hasta 3 frases reales donde apareció (para ver el contexto). */
+  ejemplos: string[];
+}
+
+// Sin acentos y en minúsculas: "presupuesto" tiene que encontrar
+// "Presupuestó" dicho por el reconocimiento, y "Perez" a "Pérez".
+function normalizar(t: string): string {
+  return t
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function escaparRegex(t: string): string {
+  return t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function seguirPalabras(mensajes: LineaVoz[], palabras: string[]): PalabraSeguida[] {
+  const limpias = [...new Set(palabras.map((p) => p.trim()).filter(Boolean))].slice(0, 30);
+  return limpias.map((palabra) => {
+    // Palabra ENTERA (que "sol" no matchee "solución"), insensible a acentos
+    // y mayúsculas. \p{L}\p{N} y no \b: \b es sólo ASCII y rompería con la ñ.
+    const re = new RegExp(
+      `(?<![\\p{L}\\p{N}])${escaparRegex(normalizar(palabra))}(?![\\p{L}\\p{N}])`,
+      "gu"
+    );
+    let veces = 0;
+    const porPersona = new Map<string, number>();
+    const ejemplos: string[] = [];
+    for (const m of mensajes) {
+      if (m.kind !== "transcript" && m.kind !== "chat") continue;
+      const apariciones = normalizar(m.text).match(re)?.length ?? 0;
+      if (!apariciones) continue;
+      veces += apariciones;
+      porPersona.set(m.senderName, (porPersona.get(m.senderName) ?? 0) + apariciones);
+      if (ejemplos.length < 3) {
+        const frase = m.text.length > 140 ? `${m.text.slice(0, 140)}…` : m.text;
+        ejemplos.push(`${m.senderName}: ${frase}`);
+      }
+    }
+    return {
+      palabra,
+      veces,
+      porQuien: [...porPersona.entries()]
+        .map(([nombre, n]) => ({ nombre, veces: n }))
+        .sort((a, b) => b.veces - a.veces),
+      ejemplos,
+    };
+  });
+}

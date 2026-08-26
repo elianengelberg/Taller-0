@@ -78,6 +78,42 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
         `muletillas=${a.hablantes[0].muletillas}`));
   }
 
+  console.log("\n── 3. El seguimiento de palabras (palabras clave por reunión) ──");
+  {
+    const ahora = new Date("2026-08-26T15:00:00Z").toISOString();
+    const mensajes = [
+      { kind: "transcript", senderName: "Ana", sourceLang: "es-AR", createdAt: ahora,
+        text: "el Presupuesto del trimestre quedó corto, hay que revisar el presupuestó de nuevo" },
+      { kind: "transcript", senderName: "Beto", sourceLang: "es-AR", createdAt: ahora,
+        text: "para mí el presupuesto está bien, lo que falta es tiempo" },
+      { kind: "chat", senderName: "Caro", sourceLang: "es-AR", createdAt: ahora,
+        text: "presupuesto aprobado 👍" },
+      { kind: "transcript", senderName: "Ana", sourceLang: "es-AR", createdAt: ahora,
+        text: "la solución no es un sol de verano" },
+    ];
+    const salida = execFileSync("npx", ["tsx", "-e", `
+      import { seguirPalabras } from "/home/user/Taller-0/client/src/lib/meetingAnalytics";
+      const m = ${JSON.stringify(mensajes)};
+      console.log("R:" + JSON.stringify(seguirPalabras(m, ["Presupuestó", "sol", "deadline"])));
+    `], { encoding: "utf8", cwd: "/home/user/Taller-0/client" });
+    const r = JSON.parse(salida.split("R:")[1]);
+    const presupuesto = r.find((x) => x.palabra === "Presupuestó");
+    check("cuenta sin importar mayúsculas NI acentos (presupuesto ≈ Presupuestó)",
+      presupuesto?.veces === 4, `veces=${presupuesto?.veces}`);
+    check("dice QUIÉN la dijo, ordenado por veces",
+      presupuesto?.porQuien[0]?.nombre === "Ana" && presupuesto?.porQuien[0]?.veces === 2,
+      JSON.stringify(presupuesto?.porQuien));
+    check("el chat también cuenta (Caro la escribió)",
+      presupuesto?.porQuien.some((q) => q.nombre === "Caro"), JSON.stringify(presupuesto?.porQuien));
+    check("trae frases de ejemplo con el nombre de quien habló",
+      presupuesto?.ejemplos.length >= 2 && /Ana: /.test(presupuesto?.ejemplos[0] ?? ""),
+      presupuesto?.ejemplos[0]);
+    const sol = r.find((x) => x.palabra === "sol");
+    check("palabra ENTERA: «sol» no matchea «solución»", sol?.veces === 1, `veces=${sol?.veces}`);
+    const deadline = r.find((x) => x.palabra === "deadline");
+    check("una palabra no dicha da cero (no desaparece de la lista)", deadline?.veces === 0);
+  }
+
   const failed = results.filter((r) => !r).length;
   console.log(`\n${results.length - failed}/${results.length} OK`);
   process.exit(failed ? 1 : 0);

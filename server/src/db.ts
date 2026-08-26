@@ -196,6 +196,9 @@ function migrate(): Promise<void> {
       // dirección iCal secreta de Google Calendar).
       .then(() => pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bot_auto BOOLEAN NOT NULL DEFAULT FALSE;`))
       .then(() => pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS calendar_ics_url TEXT;`))
+      // Seguimiento de palabras: las palabras clave que la persona quiere
+      // rastrear en sus reuniones (JSON de strings).
+      .then(() => pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS tracked_words TEXT;`))
       // Qué eventos ya recibieron su bot, para no mandarlo dos veces a la
       // misma reunión (el poller repasa la agenda una y otra vez).
       .then(() =>
@@ -916,6 +919,29 @@ export function listBotAgendaUsers(): Promise<{ id: string; icsUrl: string | nul
       msConnected: Boolean(r.ms),
     }));
   }, []);
+}
+
+// --- Seguimiento de palabras ------------------------------------------------
+
+export function getTrackedWords(userId: string): Promise<string[]> {
+  return safe(async () => {
+    const { rows } = await pool!.query(`SELECT tracked_words FROM users WHERE id = $1`, [userId]);
+    try {
+      const lista = JSON.parse((rows[0]?.tracked_words as string | null) ?? "[]");
+      return Array.isArray(lista) ? lista.filter((p): p is string => typeof p === "string") : [];
+    } catch {
+      return [];
+    }
+  }, []);
+}
+
+export function setTrackedWords(userId: string, palabras: string[]): Promise<void> {
+  return safe(async () => {
+    await pool!.query(`UPDATE users SET tracked_words = $2 WHERE id = $1`, [
+      userId,
+      JSON.stringify(palabras.slice(0, 30)),
+    ]);
+  }, undefined);
 }
 
 /**

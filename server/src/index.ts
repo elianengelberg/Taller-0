@@ -66,6 +66,8 @@ import {
   updateUserPasswordHash,
   getBotAgenda,
   setBotAgenda,
+  getTrackedWords,
+  setTrackedWords,
 } from "./db";
 import { arrancarAgenda } from "./botAgenda";
 import {
@@ -1824,6 +1826,28 @@ app.post("/api/bot/dispatch", requireAuth, async (req, res) => {
 app.get("/api/bot/agenda", requireAuth, async (req, res) => {
   const cfg = await getBotAgenda((req as AuthedRequest).userId!);
   res.json({ ...cfg, botEnabled: BOT_ENABLED });
+});
+
+// Seguimiento de palabras: la lista de palabras clave que la persona quiere
+// rastrear en sus reuniones. El conteo en sí lo hace el cliente sobre el
+// transcripto (seguirPalabras, función pura) -- acá sólo vive la lista.
+app.get("/api/palabras-seguidas", requireAuth, async (req, res) => {
+  res.json({ palabras: await getTrackedWords((req as AuthedRequest).userId!) });
+});
+
+app.post("/api/palabras-seguidas", requireAuth, async (req, res) => {
+  const crudas = Array.isArray(req.body?.palabras) ? req.body.palabras : null;
+  if (!crudas) {
+    res.status(400).json({ error: "Mandá palabras como una lista." });
+    return;
+  }
+  const limpias: string[] = crudas
+    .filter((p: unknown): p is string => typeof p === "string")
+    .map((p: string) => p.trim().slice(0, 40))
+    .filter((p: string) => p.length > 0);
+  const palabras = [...new Set(limpias)].slice(0, 30);
+  await setTrackedWords((req as AuthedRequest).userId!, palabras);
+  res.json({ ok: true, palabras });
 });
 
 app.post("/api/bot/agenda", requireAuth, async (req, res) => {

@@ -19,7 +19,8 @@ import {
 } from "../lib/api";
 import { isExternalMeeting, meetingSourceLabel } from "../lib/meetingPlatforms";
 import { groupConsecutive } from "../lib/transcriptGroups";
-import { analizarReunion } from "../lib/meetingAnalytics";
+import { analizarReunion, seguirPalabras } from "../lib/meetingAnalytics";
+import { fetchTrackedWords } from "../lib/api";
 import { cardClass } from "../lib/ui";
 
 export default function MeetingDetail() {
@@ -319,6 +320,8 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
         />
 
         <ParticipacionPanel messages={meeting.messages} />
+
+        <SeguimientoPanel messages={meeting.messages} />
 
         <div className={`${cardClass} mt-6`}>
           <h2 className="mb-3 flex items-center justify-between gap-2 text-lg font-semibold text-strong">
@@ -694,6 +697,68 @@ function StatusMessage({ text, children }: { text: string; children?: ReactNode 
       <Link to="/historial" className="text-sm font-medium text-brand-300 hover:text-brand-200">
         Volver al historial
       </Link>
+    </div>
+  );
+}
+
+// El seguimiento de palabras: cuántas veces se dijeron TUS palabras clave en
+// ESTA reunión, quién las dijo y en qué frases. La lista se administra en el
+// Historial (tarjeta "Seguimiento de palabras"); el conteo es la función pura
+// seguirPalabras sobre el transcripto ya guardado.
+function SeguimientoPanel({ messages }: { messages: MeetingHistoryMessage[] }) {
+  const [palabras, setPalabras] = useState<string[]>([]);
+  useEffect(() => {
+    fetchTrackedWords().then(setPalabras);
+  }, []);
+  const resultados = useMemo(() => seguirPalabras(messages, palabras), [messages, palabras]);
+  if (!palabras.length) return null;
+
+  const dichas = resultados.filter((r) => r.veces > 0);
+  const noDichas = resultados.filter((r) => r.veces === 0);
+
+  return (
+    <div className={`${cardClass} mt-6`}>
+      <h2 className="text-lg font-semibold text-strong">Seguimiento de palabras</h2>
+      <p className="mt-1 text-sm text-ink-400">
+        Tus palabras clave en esta reunión. La lista se cambia desde el Historial.
+      </p>
+
+      {dichas.length === 0 && (
+        <p className="mt-3 text-sm text-ink-400">
+          Ninguna de tus palabras seguidas apareció en esta reunión.
+        </p>
+      )}
+
+      <div className="mt-4 space-y-4">
+        {dichas.map((r) => (
+          <div key={r.palabra}>
+            <div className="flex items-baseline justify-between gap-2 text-sm">
+              <span className="font-medium text-strong">«{r.palabra}»</span>
+              <span className="shrink-0 tabular-nums text-ink-300">
+                {r.veces} {r.veces === 1 ? "vez" : "veces"}
+              </span>
+            </div>
+            <p className="mt-0.5 text-xs text-ink-400">
+              {r.porQuien.map((q) => `${q.nombre} (${q.veces})`).join(" · ")}
+            </p>
+            {r.ejemplos.length > 0 && (
+              <ul className="mt-1.5 space-y-1">
+                {r.ejemplos.map((e, i) => (
+                  <li key={i} className="rounded-lg bg-ink-800/60 px-3 py-1.5 text-xs leading-relaxed text-ink-300">
+                    {e}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {noDichas.length > 0 && dichas.length > 0 && (
+        <p className="mt-4 text-xs text-ink-500">
+          Sin menciones: {noDichas.map((r) => `«${r.palabra}»`).join(", ")}
+        </p>
+      )}
     </div>
   );
 }
