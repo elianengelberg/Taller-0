@@ -4,7 +4,7 @@ import { createServer } from "http";
 import { spawn } from "child_process";
 import { resolve as resolvePath } from "path";
 import { Server } from "socket.io";
-import { answerFromMeeting, generateMeetingReport , autoReportOnFinalize } from "./ai";
+import { answerFromMeeting, generateMeetingReport, autoReportOnFinalize } from "./ai";
 import {
   createNumericCode,
   createSecretToken,

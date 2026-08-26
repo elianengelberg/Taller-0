@@ -272,6 +272,10 @@ Qué se decidió. Si no se tomaron decisiones, decilo.
 ## Tareas y pendientes
 Quién quedó a cargo de qué (si se mencionó). Formato: - **Responsable**: tarea.
 
+## Preguntas clave
+Las preguntas importantes que surgieron y, si se respondieron, su respuesta.
+Formato: - **Pregunta** → respuesta (o "sin responder" si quedó abierta).
+
 ## Participación
 Un renglón por persona con su aporte principal, usando las estadísticas ya calculadas.
 
@@ -343,17 +347,21 @@ export async function autoReportOnFinalize(
     const response = await anthropicClient.messages.create(
       {
         model: MODEL,
-        max_tokens: 1024,
+        max_tokens: 4096,
+        // El resumen automático es el MISMO informe estructurado que se pide a
+        // mano (Read AI genera sus notas solo al terminar): resumen, temas,
+        // decisiones, tareas con responsable y preguntas clave. Nadie tiene
+        // que acordarse de pedirlo. Si fue una charla trivial, lo dice y ya.
         system:
           "Sos el asistente de reuniones de Unify. La reunión acaba de terminar; te paso su " +
-          "transcripción. Escribí un resumen BREVE y accionable en el idioma predominante de la " +
-          "conversación: dos o tres líneas de contexto y después viñetas con las decisiones " +
-          "tomadas y las tareas pendientes (con responsable si se nombró). No inventes nada que " +
-          "no esté en la transcripción; si fue una conversación trivial o de prueba, decilo en " +
-          "una línea y nada más.",
+          "transcripción (cada línea es «Hablante: lo que dijo»). Escribí las notas de la reunión " +
+          "en el idioma predominante de la conversación.\n\n" +
+          REPORT_REQUEST +
+          "\n\nSi la conversación fue trivial o claramente una prueba, no fuerces las secciones: " +
+          "escribí una sola línea diciéndolo y nada más.",
         messages: [{ role: "user", content: texto }],
       },
-      { timeout: 30_000 }
+      { timeout: 60_000 }
     );
     const resumen = firstText(response.content).trim();
     if (resumen) await saveMeetingReport(meetingId, resumen.slice(0, 12_000));
