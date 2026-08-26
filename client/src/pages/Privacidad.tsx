@@ -24,7 +24,7 @@ export default function Privacidad() {
 
         <h1 className="text-3xl font-bold text-strong">Política de privacidad y seguridad</h1>
         <p className="mt-2 text-sm text-ink-400">
-          Vale para la web/app (unify-meet.com) y la extensión de Chrome/Edge. Última actualización: 21 de
+          Vale para la web/app (unify-meet.com) y la extensión de Chrome/Edge. Última actualización: 26 de
           agosto de 2026.
         </p>
 
@@ -60,6 +60,14 @@ export default function Privacidad() {
               <li>
                 <span className="font-medium text-strong">Preferencias:</span> idioma de los subtítulos, roles
                 asignados en la reunión y tu sesión iniciada (un token en tu navegador/extensión).
+              </li>
+              <li>
+                <span className="font-medium text-strong">El portapapeles, sólo para detectar reuniones:</span>{" "}
+                si le das permiso, la app mira tu portapapeles al abrirla para ver si copiaste un enlace de
+                reunión y ofrecerte entrar con un toque. La lectura ocurre <span className="font-semibold">en
+                tu propio dispositivo</span>: si no es un enlace de reunión, se descarta al instante y nunca se
+                guarda ni se envía a ningún lado. Podés no dar el permiso (o quitarlo cuando quieras) y todo lo
+                demás sigue funcionando igual.
               </li>
               <li>
                 <span className="font-medium text-strong">Lo que NO recolectamos:</span> historial de
@@ -159,7 +167,14 @@ export default function Privacidad() {
             <ul className="mt-1.5 list-disc space-y-1 pl-5">
               <li>
                 Corre únicamente en páginas de reuniones (Google Meet, Zoom, Teams, Jitsi, Webex, Whereby,
-                GoTo) y en unify-meet.com. No lee tu navegación en ningún otro sitio.
+                GoTo y las demás plataformas que reconoce) y en unify-meet.com. No lee tu navegación en ningún
+                otro sitio.
+              </li>
+              <li>
+                Trabaja de fondo mientras tu navegador está abierto —no necesita que la app de Unify esté
+                abierta— pero SÓLO se activa cuando entrás a una de esas páginas de reunión. No vigila lo que
+                hacés en el resto de tus pestañas ni en otras aplicaciones: los navegadores lo prohíben por
+                diseño, y nosotros no lo intentamos.
               </li>
               <li>
                 No graba ni transcribe nada sin decírtelo: siempre hay un aviso visible, y la captura de la

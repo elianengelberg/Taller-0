@@ -480,6 +480,19 @@ export default function Instalar() {
                 La pieza de la magia automática: detecta que entrás a una reunión de Zoom, Meet, Teams, Jitsi,
                 Webex, Whereby o GoTo y te ofrece subtítulos traducidos, transcripción y grabación ahí mismo.
               </p>
+              <div className="mt-3 rounded-xl border border-brand-500/40 bg-brand-500/10 p-3.5 text-sm leading-relaxed text-ink-200">
+                <p className="font-semibold text-strong">Instalás una vez y se olvida el tema: funciona sola.</p>
+                <p className="mt-1">
+                  Con la extensión <span className="font-semibold">no hace falta abrir Unify</span>: trabaja de
+                  fondo cada vez que tu navegador está abierto. Te mandan un enlace de reunión por WhatsApp,
+                  mail o donde sea, lo abrís, y el cartel aparece solo — sin la app a la vista, sin tocar nada.
+                </p>
+                <p className="mt-2 text-xs text-ink-400">
+                  ¿Lo querés desde que prendés la computadora? Poné tu navegador para que arranque con
+                  Windows (Configuración → Aplicaciones → Inicio) y la extensión queda lista 24/7, sin que
+                  abras nada.
+                </p>
+              </div>
 
               {CHROME_WEB_STORE_URL ? (
                 <>
