@@ -19,16 +19,18 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 node --version
 
-echo "== 3/5  Dependencias del proyecto =="
+echo "== 3/5  Dependencias del bot (Playwright) =="
 # Corré este script DESDE la carpeta del repo ya clonado (git clone ...).
 if [ ! -f "bot/joinbot.mjs" ]; then
   echo "Ejecutá esto desde la raíz del repo de Unify (donde está la carpeta bot/)." >&2
   exit 1
 fi
-npm --prefix client install --no-audit --no-fund >/dev/null 2>&1 || true
+npm --prefix bot install --no-audit --no-fund
 
 echo "== 4/5  Navegador de Playwright =="
-npx --yes playwright install --with-deps chromium
+# Se instala con el MISMO playwright-core del bot, así la versión de la
+# librería y la del navegador siempre coinciden.
+"$(pwd)/bot/node_modules/.bin/playwright-core" install --with-deps chromium
 
 echo "== 5/5  Audio virtual (para que el bot oiga la reunión) =="
 # Un "parlante" virtual: lo que la reunión reproduce cae acá y el

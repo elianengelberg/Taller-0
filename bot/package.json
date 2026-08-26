@@ -1,0 +1,8 @@
+{
+  "name": "unify-bot",
+  "private": true,
+  "description": "El Notetaker de Unify: entra a la reunión, escucha y manda todo al bridge.",
+  "dependencies": {
+    "playwright-core": "^1.50.0"
+  }
+}

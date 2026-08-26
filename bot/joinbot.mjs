@@ -34,7 +34,28 @@
 //   MAX_MIN       corte de seguridad en minutos (default 180)
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
-const { chromium } = require("/opt/node22/lib/node_modules/playwright/node_modules/playwright-core");
+
+// Playwright puede vivir en distintos lugares según el host:
+//  - bot/node_modules (lo que instala bot/instalar-host.sh en el droplet),
+//  - el node_modules del proyecto,
+//  - la instalación global del entorno de desarrollo.
+// Probamos en orden y el primero que aparezca gana.
+function cargarChromium() {
+  const candidatos = [
+    "playwright-core",
+    "playwright",
+    "/opt/node22/lib/node_modules/playwright/node_modules/playwright-core",
+  ];
+  for (const c of candidatos) {
+    try { return require(c).chromium; } catch { /* siguiente */ }
+  }
+  console.error(
+    "[bot] no encuentro Playwright. Corré primero, desde la raíz del repo:\n" +
+    "        bash bot/instalar-host.sh"
+  );
+  process.exit(2);
+}
+const chromium = cargarChromium();
 
 const MEETING_URL = process.env.MEETING_URL;
 const ROOM_KEY = process.env.ROOM_KEY;
