@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import CalendarRecordWatcher from "./components/CalendarRecordWatcher";
+import EnlaceCopiado from "./components/EnlaceCopiado";
 import RequireAuth from "./components/RequireAuth";
 import ToastViewport from "./components/ToastViewport";
 import { AuthProvider } from "./context/AuthContext";
@@ -31,6 +32,9 @@ export default function App() {
         {/* Global: watches the connected Outlook calendar and offers to
             record meetings as they start, on any page while logged in. */}
         <CalendarRecordWatcher />
+        {/* Global: el cartel del enlace copiado, en cualquier pantalla de la
+            app (ver EnlaceCopiado.tsx). */}
+        <EnlaceCopiado />
         {/* Global: los avisos (actualización de la PWA, pedidos del anfitrión)
             se ven en cualquier página, no sólo dentro de la reunión. */}
         <ToastViewport />

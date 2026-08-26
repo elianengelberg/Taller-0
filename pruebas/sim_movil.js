@@ -18,7 +18,7 @@ function watch(page, bag) {
   page.on("console", (m) => {
     if (m.type() !== "error") return;
     const t = `${m.text()} ${m.location?.().url || ""}`;
-    if (!IGNORABLE.test(t)) bag.push(`consola: ${m.text().slice(0, 110)}`);
+    if (!IGNORABLE.test(t)) bag.push(`consola: ${m.text().slice(0, 80)} @ ${(m.location?.().url || "").slice(-60)}`);
   });
 }
 
@@ -183,6 +183,17 @@ async function botonesChicos(p, minimo = 40) {
     await p.getByRole("button", { name: /Entrar con subtítulos/i }).first().tap();
     await p.waitForTimeout(1500);
     check("«Entrar» lleva directo a la detección", p.url().includes("/externa"), p.url());
+
+    // El cartel es GLOBAL: vive en cualquier pantalla de la app, y con la app
+    // A LA VISTA (Split View del iPad, media pantalla en la compu) el sondeo
+    // lo hace saltar al instante, sin navegar ni tocar nada.
+    await p.goto(`${B}/soporte`, { waitUntil: "networkidle" });
+    await p.waitForTimeout(600);
+    await p.evaluate(() => navigator.clipboard.writeText("https://meet.google.com/abc-defg-hij"));
+    await p.waitForTimeout(4500);
+    check("copiar con la app a la vista hace saltar el cartel SOLO (en /soporte)",
+      /enlace de Google Meet/i.test((await p.locator("body").textContent()) || "") && p.url().includes("/soporte"));
+    await p.getByRole("button", { name: /Ahora no/i }).first().tap();
 
     // ── 3. Un enlace externo compartido AL teléfono ──
     await p.goto(`${B}/externa?url=${encodeURIComponent("https://us05web.zoom.us/j/91234567890")}`, { waitUntil: "networkidle" });
