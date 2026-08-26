@@ -22,6 +22,36 @@ const COUNTDOWN_S = 8;
 // Don't prompt for the same event twice (persisted so a reload doesn't renag).
 const DISMISS_KEY = "unify_calendar_dismissed";
 
+// El aviso del SISTEMA (la jugada de Granola): si Unify está minimizada o
+// detrás de otra ventana cuando la reunión empieza, el cartel de adentro no
+// se ve -- la notificación del sistema sí, y el clic trae la app al frente,
+// donde la cuenta regresiva ya está corriendo.
+function avisarPorSistema(ev: CalendarEvent): void {
+  try {
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    if (document.visibilityState === "visible" && document.hasFocus()) return;
+    const n = new Notification("Tenés una reunión ahora", {
+      body: `${ev.subject} — Unify puede entrar con subtítulos, transcripción y grabación.`,
+      tag: `unify-cal-${ev.id}`,
+      icon: "/icons/icon-192.png",
+    });
+    n.onclick = () => {
+      try { window.focus(); n.close(); } catch { /* nada que hacer */ }
+    };
+  } catch { /* notificaciones bloqueadas: el cartel de adentro sigue */ }
+}
+
+// El permiso se pide UNA vez, recién cuando sabemos que hay calendario
+// conectado (pedirlo antes sería ruido para quien nunca lo conectó).
+function pedirPermisoDeAvisos(): void {
+  try {
+    if (typeof Notification === "undefined" || Notification.permission !== "default") return;
+    if (localStorage.getItem("unify_avisos_pedidos")) return;
+    localStorage.setItem("unify_avisos_pedidos", "1");
+    void Notification.requestPermission();
+  } catch { /* sin permiso, el cartel de adentro alcanza */ }
+}
+
 function loadDismissed(): Set<string> {
   try {
     return new Set(JSON.parse(sessionStorage.getItem(DISMISS_KEY) || "[]"));
@@ -70,6 +100,7 @@ export default function CalendarRecordWatcher() {
       if (cancelled) return;
       connectedRef.current = res.connected;
       if (!res.connected) return;
+      pedirPermisoDeAvisos();
       const now = Date.now();
       const imminent = res.events.find((ev) => {
         if (!ev.joinUrl) return false; // nothing to record without a link
@@ -80,7 +111,11 @@ export default function CalendarRecordWatcher() {
         return startMs - now <= LEAD_MS && now - startMs <= 5 * 60_000;
       });
       if (imminent) {
-        setPrompt((current) => current ?? imminent);
+        setPrompt((current) => {
+          if (current) return current;
+          avisarPorSistema(imminent);
+          return imminent;
+        });
       }
     };
 

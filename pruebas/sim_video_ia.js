@@ -63,6 +63,9 @@ const json = (b, extra = {}) => ({
       CLIENT_ORIGIN: "http://localhost:4174",
       ANTHROPIC_API_KEY: "clave-stub",
       ANTHROPIC_BASE_URL: `http://localhost:${ANTHROPIC_PORT}`,
+      // La gracia real es de 3 minutos; para probar el resumen automático al
+      // quedar la sala vacía, acá se acorta (ver meetingStore).
+      GRACIA_LIMPIEZA_MS: "2500",
     },
     stdio: "ignore",
     // Grupo propio para poder matar npx Y tsx juntos al final (matar sólo
@@ -296,6 +299,48 @@ const json = (b, extra = {}) => ({
   check("sin errores de JavaScript en la página", errs.length === 0, errs.slice(0, 2).join(" | "));
 
   await browser.close();
+  // ═══════ Resumen automático al quedar la sala vacía (estilo Granola) ═══════
+  console.log("\n── Resumen automático al terminar ──");
+  {
+    const { io } = require("/home/user/Taller-0/client/node_modules/socket.io-client");
+    const conectar = () => io(API, { transports: ["websocket"], forceNew: true, reconnection: false });
+
+    // Una reunión CON conversación de verdad: al vaciarse, informe solo.
+    const ana = conectar();
+    await new Promise((r, x) => { ana.on("connect", r); ana.on("connect_error", x); });
+    const creada = await new Promise((res) => ana.timeout(8000).emit("create-meeting",
+      { hostName: "Ana", hostLanguage: "es-AR", roles: [] }, (e, r) => res(e ? null : r)));
+    const dbId = creada?.meeting?.dbId;
+    check("hay reunión para el resumen", Boolean(dbId), String(dbId));
+    for (let i = 0; i < 6; i++) {
+      ana.emit("transcript-line", { alternatives: [`punto ${i}: decidimos avanzar con la etapa ${i}`], lang: "es-AR" });
+      await sleep(250);
+    }
+    await sleep(2500);
+    ana.disconnect(); // sala vacía -> gracia 2,5 s -> finalize -> resumen
+    await sleep(9000);
+    const fila = await pg.query(`SELECT report, ended_at FROM meetings WHERE id = $1`, [dbId]);
+    check("al quedar vacía, la reunión queda cerrada (ended_at)", fila.rows[0]?.ended_at != null);
+    check("y el informe se generó SOLO, sin que nadie lo pida",
+      /RESPUESTA-STUB/.test(fila.rows[0]?.report ?? ""), (fila.rows[0]?.report ?? "(vacío)").slice(0, 50));
+
+    // Una reunión trivial (2 frases) NO gasta IA ni genera informe.
+    const beto = conectar();
+    await new Promise((r, x) => { beto.on("connect", r); beto.on("connect_error", x); });
+    const trivial = await new Promise((res) => beto.timeout(8000).emit("create-meeting",
+      { hostName: "Beto", hostLanguage: "es-AR", roles: [] }, (e, r) => res(e ? null : r)));
+    const dbId2 = trivial?.meeting?.dbId;
+    beto.emit("transcript-line", { alternatives: ["hola"], lang: "es-AR" });
+    beto.emit("transcript-line", { alternatives: ["probando"], lang: "es-AR" });
+    await sleep(2000);
+    beto.disconnect();
+    await sleep(7000);
+    const fila2 = await pg.query(`SELECT report FROM meetings WHERE id = $1`, [dbId2]);
+    check("una charla trivial de dos frases NO genera informe (ni gasta IA)",
+      (fila2.rows[0]?.report ?? null) === null, String(fila2.rows[0]?.report ?? "null").slice(0, 40));
+  }
+
+
   await pg.end();
   try { process.kill(-server.pid); } catch { server.kill(); }
   anthropicStub.close();

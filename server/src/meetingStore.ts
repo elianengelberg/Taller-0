@@ -125,7 +125,19 @@ export function getOrCreateCompanionMeeting(externalKey: string): {
 // seconds and we don't want the meeting code to go stale (and become
 // impossible for late joiners to use) just because of that. We only
 // actually delete it if it's *still* empty after this grace period.
-const CLEANUP_GRACE_MS = 3 * 60 * 1000;
+// Ajustable por entorno SOLO para las pruebas (esperar 3 minutos reales en
+// una suite sería absurdo); en producción no se define y quedan los 3 min.
+const CLEANUP_GRACE_MS =
+  Number(process.env.GRACIA_LIMPIEZA_MS) > 0 ? Number(process.env.GRACIA_LIMPIEZA_MS) : 3 * 60 * 1000;
+
+// Aviso de "la reunión terminó de verdad" (quedó vacía y pasó la gracia).
+// index.ts registra acá el resumen automático. Un callback y no un import de
+// la IA: este módulo no tiene por qué conocer a Anthropic.
+type FinalizadaCb = (dbId: string, transcript: TranscriptLine[]) => void;
+let alFinalizarReunion: FinalizadaCb | null = null;
+export function onMeetingFinalized(cb: FinalizadaCb): void {
+  alFinalizarReunion = cb;
+}
 const pendingCleanups = new Map<string, NodeJS.Timeout>();
 
 export function cancelMeetingCleanup(meetingId: string): void {
@@ -146,6 +158,9 @@ export function scheduleMeetingCleanupIfEmpty(meetingId: string): void {
     const current = meetings.get(meetingId);
     if (current && current.participants.size === 0) {
       void db.finalizeMeeting(current.dbId);
+      try {
+        alFinalizarReunion?.(current.dbId, current.transcript.slice());
+      } catch { /* el resumen jamás puede voltear la limpieza */ }
       meetings.delete(meetingId);
     }
   }, CLEANUP_GRACE_MS);

@@ -2,7 +2,7 @@ import cors from "cors";
 import express, { NextFunction, Request, Response } from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
-import { answerFromMeeting, generateMeetingReport } from "./ai";
+import { answerFromMeeting, generateMeetingReport , autoReportOnFinalize } from "./ai";
 import {
   createNumericCode,
   createSecretToken,
@@ -80,7 +80,7 @@ import {
   microsoftEnabled,
   refreshAccessToken,
 } from "./microsoftAuth";
-import { addNamedTranscriptLine, getOrCreateCompanionMeeting, isLiveParticipant } from "./meetingStore";
+import { addNamedTranscriptLine, getOrCreateCompanionMeeting, isLiveParticipant, onMeetingFinalized } from "./meetingStore";
 import { cleanTranscriptFragment, translateFragmentToAll } from "./transcriptCleanup";
 import { mailerEnabled } from "./mailer";
 import { rateLimit, userOrIp } from "./rateLimit";
@@ -265,6 +265,15 @@ const aiLimit = rateLimit({
   keyBy: userOrIp,
   message: "Hiciste muchas consultas a la IA seguidas. Esperá un momento y probá de nuevo.",
 });
+// La reunión quedó vacía y pasó la gracia: resumen automático estilo Granola
+// (ver autoReportOnFinalize). Fire-and-forget: jamás frena la limpieza.
+onMeetingFinalized((dbId, transcript) => {
+  void autoReportOnFinalize(
+    dbId,
+    transcript.map((l) => ({ speakerName: l.speakerName, text: l.text }))
+  );
+});
+
 const translateLimit = rateLimit({ max: tope("LIMITE_TRADUCCIONES", 1200), windowMs: 60_000, keyBy: userOrIp });
 const explainLimit = rateLimit({ max: 60, windowMs: 60_000 });
 // Emiten credenciales de Zoom/Azure contra NUESTRA cuenta: sin límite, este

@@ -315,3 +315,50 @@ export async function generateMeetingReport(
     return { ok: false, error: "No se pudo generar el informe en este momento." };
   }
 }
+
+// El resumen automático al quedar la sala vacía (lo que Granola hace bien):
+// nadie tiene que acordarse de pedir el informe. Si la reunión tuvo
+// conversación de verdad y todavía no tiene informe guardado, se genera uno
+// corto y accionable en el MISMO lugar que el informe a pedido
+// (meetings.report): el historial lo muestra sin ninguna pieza nueva, y un
+// informe pedido a mano nunca se pisa.
+export async function autoReportOnFinalize(
+  meetingId: string,
+  lines: { speakerName: string; text: string }[]
+): Promise<void> {
+  if (!anthropicClient) return;
+  const conTexto = lines.filter((l) => l.text?.trim());
+  // El umbral es de CONTENIDO, no de cantidad de líneas: el flujo nativo
+  // fusiona fragmentos seguidos del mismo hablante en una sola línea larga
+  // (anti-entrecortado), así que "pocas líneas" no significa "poca reunión".
+  const totalChars = conTexto.reduce((a, l) => a + l.text.length, 0);
+  if (conTexto.length === 0 || totalChars < 150) return; // un "hola, probando" no merece informe
+  const existente = await getMeetingDetailRaw(meetingId);
+  if (!existente || existente.report) return;
+  const texto = conTexto
+    .map((l) => `${l.speakerName}: ${l.text}`)
+    .join("\n")
+    .slice(0, MAX_TRANSCRIPT_CHARS);
+  try {
+    const response = await anthropicClient.messages.create(
+      {
+        model: MODEL,
+        max_tokens: 1024,
+        system:
+          "Sos el asistente de reuniones de Unify. La reunión acaba de terminar; te paso su " +
+          "transcripción. Escribí un resumen BREVE y accionable en el idioma predominante de la " +
+          "conversación: dos o tres líneas de contexto y después viñetas con las decisiones " +
+          "tomadas y las tareas pendientes (con responsable si se nombró). No inventes nada que " +
+          "no esté en la transcripción; si fue una conversación trivial o de prueba, decilo en " +
+          "una línea y nada más.",
+        messages: [{ role: "user", content: texto }],
+      },
+      { timeout: 30_000 }
+    );
+    const resumen = firstText(response.content).trim();
+    if (resumen) await saveMeetingReport(meetingId, resumen.slice(0, 12_000));
+  } catch (err) {
+    // Sin resumen no pasa nada: la transcripción completa queda igual.
+    console.error("No se pudo generar el resumen automático:", (err as Error).message);
+  }
+}
