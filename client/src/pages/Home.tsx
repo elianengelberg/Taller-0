@@ -6,6 +6,7 @@ import Button from "../components/Button";
 import GradientBackdrop from "../components/GradientBackdrop";
 import Logo from "../components/Logo";
 import { CaptionsIcon, GlobeIcon, PeopleIcon, SparklesIcon } from "../components/icons";
+import { AppMockupDesktop } from "../components/AppMockup";
 import { useAuth } from "../context/AuthContext";
 import { getUnsavedMeeting } from "../lib/unsavedMeeting";
 import { isStandalone } from "../pwa";
@@ -194,21 +195,29 @@ export default function Home() {
               description="Llevá los subtítulos, la traducción y la IA a tus reuniones de Zoom, Teams o Jitsi."
             />
           </ul>
+
+          {/* Mostrar el producto (estilo Discord): título display grande a un
+              lado, la maqueta de Unify sobre un blob de color al otro. */}
+          <div className="mx-auto mt-24 grid max-w-5xl items-center gap-10 text-left lg:grid-cols-2">
+            <div>
+              <h2 className="font-display text-4xl font-extrabold uppercase leading-[0.95] tracking-tight text-strong sm:text-5xl">
+                Todo lo que se dijo,<br />ordenado y buscable
+              </h2>
+              <p className="mt-5 max-w-md text-lg leading-relaxed text-ink-300">
+                El video con la transcripción que corre palabra por palabra, el resumen automático,
+                y una IA que responde sobre cualquier reunión. Sin tomar una sola nota.
+              </p>
+              <Button className="mt-7" onClick={() => navigate("/instalar")}>
+                Instalar Unify
+              </Button>
+            </div>
+            <AppMockupDesktop />
+          </div>
         </div>
       </main>
-
-      {/* Pie con la puerta de entrada al soporte: visible sin buscarla. */}
-      <footer className="relative mt-auto border-t border-ink-800 px-5 py-8 text-center">
-        <p className="text-sm text-ink-300">¿Algo no te funcionó o tenés una duda?</p>
-        <Link to="/soporte" className="mt-3 inline-block">
-          <Button variant="secondary">Centro de ayuda y contacto</Button>
-        </Link>
-        <p className="mt-4 text-xs text-ink-500">
-          <Link to="/privacidad" className="underline hover:text-ink-300">
-            Política de privacidad
-          </Link>
-        </p>
-      </footer>
+      {/* El pie de página global (Footer, montado por ConPie en App.tsx)
+          reemplaza al que vivía acá: una sola barra de soporte en todo el
+          sitio. */}
     </div>
   );
 }

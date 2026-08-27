@@ -318,3 +318,31 @@ export function SpeakerIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+// --- Logos de plataforma (para los botones de descarga estilo Discord) ------
+// Son marcas: se dibujan RELLENAS (fill) con currentColor, no como los íconos
+// de línea de arriba. viewBox propio de cada glifo.
+
+export function AppleIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden>
+      <path d="M16.365 1.43c0 1.14-.42 2.2-1.13 2.99-.85.94-2.23 1.66-3.36 1.57-.14-1.13.42-2.31 1.1-3.05.77-.83 2.14-1.46 3.24-1.51.02.05.15.11.15 0zM20.9 17.02c-.32.74-.47 1.07-.88 1.72-.57.91-1.38 2.05-2.38 2.06-.89.01-1.12-.58-2.33-.57-1.21.01-1.46.58-2.35.57-1-.01-1.77-1.03-2.34-1.94-1.6-2.56-1.77-5.56-.78-7.16.7-1.14 1.8-1.8 2.84-1.8 1.05 0 1.72.58 2.59.58.85 0 1.36-.58 2.59-.58.92 0 1.9.5 2.59 1.37-2.28 1.25-1.91 4.5.86 5.75z" />
+    </svg>
+  );
+}
+
+export function WindowsIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden>
+      <path d="M3 5.1 10.4 4v7.2H3V5.1zm0 13.8L10.4 20v-7.1H3v6zm8.3 1.2L21 21.4V12.9h-9.7v7.2zM11.3 3.6v7.6H21V2.6l-9.7 1z" />
+    </svg>
+  );
+}
+
+export function AndroidIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden>
+      <path d="M6 9v7a1.5 1.5 0 0 0 1.5 1.5H8.5V20a1.2 1.2 0 0 0 2.4 0v-2.5h2.2V20a1.2 1.2 0 0 0 2.4 0v-2.5h1A1.5 1.5 0 0 0 18 16V9H6zM3.2 9A1.2 1.2 0 0 0 2 10.2v4.6a1.2 1.2 0 0 0 2.4 0v-4.6A1.2 1.2 0 0 0 3.2 9zm17.6 0a1.2 1.2 0 0 0-1.2 1.2v4.6a1.2 1.2 0 0 0 2.4 0v-4.6A1.2 1.2 0 0 0 20.8 9zM15.5 3.6l1-1.5a.3.3 0 0 0-.5-.35l-1.1 1.6A5.6 5.6 0 0 0 12 3c-1 0-1.95.14-2.9.55l-1.1-1.6a.3.3 0 0 0-.5.34l1 1.5A5.3 5.3 0 0 0 6 8h12a5.3 5.3 0 0 0-2.5-4.4zM9.5 6.2a.7.7 0 1 1 0-1.4.7.7 0 0 1 0 1.4zm5 0a.7.7 0 1 1 0-1.4.7.7 0 0 1 0 1.4z" />
+    </svg>
+  );
+}

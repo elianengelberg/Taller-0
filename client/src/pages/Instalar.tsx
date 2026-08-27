@@ -4,6 +4,8 @@ import { Link, useSearchParams } from "react-router-dom";
 import Button from "../components/Button";
 import GradientBackdrop from "../components/GradientBackdrop";
 import Logo from "../components/Logo";
+import { AppMockupDesktop, AppMockupPhone } from "../components/AppMockup";
+import { AppleIcon, WindowsIcon, AndroidIcon } from "../components/icons";
 import {
   canPromptInstall,
   extensionInstalada,
@@ -201,8 +203,8 @@ export default function Instalar() {
   return (
     <div className="relative min-h-screen bg-ink-950 px-4 py-10 sm:px-6">
       <GradientBackdrop />
-      <div className="relative mx-auto max-w-2xl">
-        <div className="mb-8 flex items-center justify-between gap-3">
+      <div className="relative mx-auto max-w-5xl">
+        <div className="mb-10 flex items-center justify-between gap-3">
           <Link to="/" aria-label="Ir al inicio">
             <Logo />
           </Link>
@@ -211,58 +213,76 @@ export default function Instalar() {
           </Link>
         </div>
 
-        {/* El héroe, como una página de descarga de producto (PWABuilder /
-            Epic): título grande, UNA línea, y el botón gigante que hace lo
-            correcto para el dispositivo detectado. El detalle vive abajo. */}
-        <div className="text-center">
-          <h1 className="text-4xl font-bold tracking-tight text-strong sm:text-5xl">
-            Instalar Unify
-          </h1>
-          <p className="mx-auto mt-3 max-w-xl text-base text-ink-300">
-            Dos piezas, un par de toques: <span className="font-semibold text-strong">la app</span> y{" "}
-            <span className="font-semibold text-strong">la extensión</span> que te avisa en cada
-            reunión.
-          </p>
-          {!instalada && (
-            <div className="mt-7 flex flex-col items-center gap-2.5">
-              {instalable ? (
-                <Button className="px-8 py-3.5 text-base shadow-soft" onClick={handleInstalar}>
-                  Instalar Unify en este dispositivo
-                </Button>
-              ) : (
-                <a href="#app">
-                  <Button className="px-8 py-3.5 text-base shadow-soft">Instalar la app</Button>
-                </a>
-              )}
-              <a
-                href="#ext"
-                className="flex min-h-[40px] items-center px-2 text-sm font-medium text-brand-300 hover:underline"
+        {/* El héroe estilo Discord: título ENORME a un lado, el mockup del
+            producto al otro sobre un blob de color. Los botones grandes con
+            ícono de plataforma reemplazan a los chips (el detectado queda
+            marcado y arranca su sección). */}
+        <div className="grid items-center gap-10 lg:grid-cols-2">
+          <div>
+            <h1 className="font-display text-5xl font-extrabold uppercase leading-[0.95] tracking-tight text-strong sm:text-6xl">
+              Instalá<br />Unify
+            </h1>
+            <p className="mt-5 max-w-md text-lg leading-relaxed text-ink-300">
+              La app para abrir tus reuniones, y la extensión que te avisa apenas entrás a un Zoom o
+              Meet. Un par de toques y listo.
+            </p>
+
+            {!instalada && instalable && (
+              <Button className="mt-7 px-8 py-3.5 text-base shadow-soft" onClick={handleInstalar}>
+                Instalar Unify en este dispositivo
+              </Button>
+            )}
+
+            <div className="mt-7">
+              <p className="text-xs font-semibold uppercase tracking-wider text-ink-400">
+                Elegí tu sistema
+              </p>
+              <div
+                className="mt-3 flex flex-wrap gap-3"
+                role="group"
+                aria-label="Elegí el sistema"
               >
-                También quiero la extensión ↓
-              </a>
+                {(
+                  [
+                    ["windows", WindowsIcon],
+                    ["mac", AppleIcon],
+                    ["ios", AppleIcon],
+                    ["android", AndroidIcon],
+                  ] as [Plataforma, typeof AppleIcon][]
+                ).map(([sys, Icono]) => (
+                  <button
+                    key={sys}
+                    type="button"
+                    onClick={() => {
+                      setPlataforma(sys);
+                      document.getElementById("app")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }}
+                    aria-pressed={plataforma === sys}
+                    className={`flex min-h-[52px] items-center gap-2.5 rounded-2xl px-5 py-3 text-sm font-semibold shadow-soft transition ${
+                      plataforma === sys
+                        ? "bg-brand-500 text-on-accent"
+                        : "bg-ink-800 text-strong ring-1 ring-ink-700 hover:ring-brand-400"
+                    }`}
+                  >
+                    <Icono className="h-5 w-5" />
+                    <span>
+                      {NOMBRE[sys]}
+                      {autodetectada === sys && (
+                        <span className="text-xs font-normal opacity-80">{" · el tuyo"}</span>
+                      )}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
-          )}
+          </div>
+
+          <AppMockupDesktop className="hidden lg:block" />
         </div>
 
-        {/* Selector de sistema: una sección por cada uno, para elegir a mano.
-            El detectado arranca marcado; los demás están a un toque. */}
-        <div className="mt-9 flex flex-wrap justify-center gap-2" role="group" aria-label="Elegí el sistema">
-          {(["windows", "mac", "ios", "android"] as Plataforma[]).map((sys) => (
-            <button
-              key={sys}
-              type="button"
-              onClick={() => setPlataforma(sys)}
-              aria-pressed={plataforma === sys}
-              className={`min-h-[40px] rounded-full px-4 py-2 text-sm font-semibold transition ${
-                plataforma === sys
-                  ? "bg-brand-500 text-on-accent"
-                  : "border border-ink-600 text-ink-200 hover:border-brand-400 hover:text-strong"
-              }`}
-            >
-              {NOMBRE[sys]}
-              {autodetectada === sys ? " ·  el tuyo" : ""}
-            </button>
-          ))}
+        {/* En pantallas chicas, un mockup de teléfono bajo el héroe. */}
+        <div className="mt-12 flex justify-center lg:hidden">
+          <AppMockupPhone />
         </div>
         {bajarSolo && !movil && (
           <p className="mt-3 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm text-brand-200">

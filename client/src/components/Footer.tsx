@@ -33,7 +33,7 @@ export default function Footer() {
         <div>
           <h3 className="text-xs font-semibold uppercase tracking-wider text-ink-400">Soporte</h3>
           <ul className="mt-3 space-y-2 text-sm">
-            <li><Link to="/soporte" className="text-ink-300 hover:text-strong">Centro de ayuda</Link></li>
+            <li><Link to="/soporte" className="text-ink-300 hover:text-strong">Centro de ayuda y contacto</Link></li>
             <li><Link to="/privacidad" className="text-ink-300 hover:text-strong">Privacidad</Link></li>
             <li>
               <a
