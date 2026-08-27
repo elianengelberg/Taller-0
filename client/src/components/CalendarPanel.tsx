@@ -83,8 +83,7 @@ export default function CalendarPanel() {
       {!state.connected ? (
         <div className="mt-2">
           <p className="text-sm text-ink-400">
-            Conectá tu calendario y acá vas a ver tus próximas reuniones. Cuando una esté por
-            empezar, te avisamos y te ofrecemos grabarla con un toque.
+            Conectalo y acá ves tus próximas reuniones, listas para grabar con un toque.
           </p>
           <button
             type="button"

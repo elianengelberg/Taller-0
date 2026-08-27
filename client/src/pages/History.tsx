@@ -160,10 +160,7 @@ export default function History() {
         </div>
 
         <h1 className="text-2xl font-bold text-strong">Historial de reuniones</h1>
-        <p className="mt-1 text-sm text-ink-400">
-          Reuniones guardadas con su chat, transcripción, grabación e informe. Organizalas en
-          carpetas y compartilas.
-        </p>
+        <p className="mt-1 text-sm text-ink-400">Tus reuniones, con su grabación y su resumen.</p>
 
         {/* Mientras el email no esté confirmado, la cuenta no se puede
             recuperar. Va acá arriba porque el historial es justamente lo que
@@ -189,8 +186,8 @@ export default function History() {
         {!error && meetings !== null && meetings.length > 0 && (
           <AiChatBox
             className="mt-6"
-            title="Preguntale a la IA sobre tus reuniones"
-            description="Busca en todo tu historial, no solo en una reunión puntual — preguntale por fecha, por quién participó o por lo que se habló."
+            title="Preguntale a la IA"
+            description="Sobre cualquier reunión: qué se dijo, cuándo, con quién."
             placeholder='Ej: "¿qué se habló en mi última reunión?" o "¿tuve una reunión el 17 de junio?"'
             emptyHint="Esta IA busca en todas tus reuniones guardadas a la vez."
             onAsk={askAllMeetingsAI}

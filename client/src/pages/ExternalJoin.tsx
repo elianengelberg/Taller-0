@@ -244,8 +244,7 @@ export default function ExternalJoin() {
         <div className={cardClass}>
           <h1 className="text-2xl font-bold text-strong">Unirme a una reunión externa</h1>
           <p className="mt-1 text-sm text-ink-300">
-            ¿Te mandaron un link de reunión? Pegalo acá abajo. Nos damos cuenta solos de qué
-            plataforma es (Zoom, Google Meet, Jitsi o la que sea).
+            ¿Te mandaron un link? Pegalo acá. La plataforma la reconocemos solos.
           </p>
 
           <form className="mt-6 space-y-5" onSubmit={handleSubmit}>
@@ -565,10 +564,9 @@ function BotButton({ url, roomKey, platform }: { url: string; roomKey: string; p
 
   return (
     <div className="mt-4 rounded-xl border border-ink-700 bg-ink-800/40 p-3">
-      <p className="text-sm font-medium text-strong">¿Preferís no entrar vos?</p>
+      <p className="text-sm font-medium text-strong">¿No podés estar?</p>
       <p className="mt-1 text-xs leading-relaxed text-ink-400">
-        Mandá el bot de Unify: entra a la reunión como un participante más, la graba y la transcribe, y
-        te deja las notas en el historial. Ideal si no vas a poder estar.
+        El bot entra por vos, graba, y te deja todo en el historial.
       </p>
       <button
         type="button"

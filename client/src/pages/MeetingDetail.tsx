@@ -323,8 +323,7 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
             <div className={`${cardClass} mt-6 lg:col-span-2 lg:mt-0`}>
               <h2 className="text-lg font-semibold text-strong">Palabra por palabra</h2>
               <p className="mt-1 text-xs leading-relaxed text-ink-400">
-                Lo que se está diciendo se ilumina mientras el video corre. Tocá cualquier frase
-                para saltar a ese momento.
+                Sigue al video. Tocá una frase para saltar ahí.
               </p>
               {meeting.messages.length === 0 ? (
                 <p className="mt-3 text-sm text-ink-400">No se guardó nada en esta reunión.</p>
@@ -346,11 +345,11 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
 
         <AiChatBox
           className="mt-6"
-          title="Preguntale a la IA sobre esta reunión"
+          title="Preguntale a la IA"
           description={
             meeting.recordingUrl && !audioOnlyRecording
-              ? "Responde con lo que se dijo (chat y transcripción) y además MIRA el video grabado: podés preguntarle por algo que se mostró en pantalla."
-              : "Responde solo con lo que se dijo en esta reunión (chat y transcripción de voz) — no inventa información."
+              ? "Sabe lo que se dijo y también MIRA el video."
+              : "Sabe todo lo que se dijo en esta reunión."
           }
           placeholder="Ej: ¿Qué dijo Germán? ¿Qué se mostró en pantalla?"
           onAsk={askWithVideo}

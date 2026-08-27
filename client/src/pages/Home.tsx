@@ -124,9 +124,7 @@ export default function Home() {
             </span>
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-lg text-ink-300">
-            Entrá a cualquier reunión —de Zoom, Meet, Teams o acá mismo— y nosotros hacemos el
-            resto: subtítulos mientras hablan, traducción a tu idioma y un resumen con lo
-            importante cuando termina.
+            Entrá a cualquier reunión y listo: subtítulos, traducción y un resumen al final.
           </p>
 
           <div className="mx-auto mt-10 grid max-w-4xl gap-4 sm:grid-cols-3">

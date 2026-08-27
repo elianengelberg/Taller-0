@@ -45,9 +45,8 @@ export default function BotAgendaPanel() {
         <div>
           <h3 className="text-sm font-semibold text-strong">Grabá tus reuniones sin mover un dedo</h3>
           <p className="mt-1 text-xs leading-relaxed text-ink-400">
-            Conectá tu calendario una sola vez. Cada vez que tengas una reunión agendada, nuestro
-            asistente entra solo, la graba, y te deja acá el video con todo lo que se dijo y un
-            resumen. Vos no tenés que hacer nada.
+            Conectá tu calendario y el asistente entra solo a cada reunión. El video y el resumen
+            quedan acá.
           </p>
         </div>
         <button
@@ -111,9 +110,7 @@ export default function BotAgendaPanel() {
             <li>Volvé acá, pegá el link arriba y tocá <strong>Guardar</strong>. Listo, eso es todo.</li>
           </ol>
         )}
-        <p className="mt-2 text-xs text-ink-500">
-          ¿Tu calendario es de Outlook? Usá el botón de conectar Outlook, más arriba, y ya queda.
-        </p>
+        <p className="mt-2 text-xs text-ink-500">¿Usás Outlook? Conectalo arriba y ya queda.</p>
       </div>
 
       {aviso && <p className="mt-3 text-xs text-ink-300">{aviso}</p>}
