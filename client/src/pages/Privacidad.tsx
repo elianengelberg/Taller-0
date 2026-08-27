@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import GradientBackdrop from "../components/GradientBackdrop";
 import Logo from "../components/Logo";
 import { cardClass } from "../lib/ui";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 // Política de privacidad y seguridad de Unify (web + extensión). La Chrome
 // Web Store exige una URL pública de privacidad: es ésta. Escrita para que
@@ -9,6 +10,7 @@ import { cardClass } from "../lib/ui";
 // afirmación de acá tiene su contraparte en el servidor (scrypt, tokens
 // hasheados de un solo uso, revocación de sesiones, límites de intentos).
 export default function Privacidad() {
+  useDocumentTitle("Privacidad");
   return (
     <div className="relative min-h-screen bg-ink-950 px-4 py-10 sm:px-6">
       <GradientBackdrop />

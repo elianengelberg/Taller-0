@@ -2,12 +2,14 @@ import { Link } from "react-router-dom";
 import GradientBackdrop from "../components/GradientBackdrop";
 import Logo from "../components/Logo";
 import { cardClass } from "../lib/ui";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 // Centro de ayuda de Unify. Es la "URL de asistencia" que pide la ficha de la
 // Chrome Web Store: las respuestas a lo que la gente pregunta de verdad,
 // escritas con las mismas reglas del producto (decir la verdad, incluso
 // cuando la respuesta es "eso Chrome no lo deja hacer").
 export default function Soporte() {
+  useDocumentTitle("Ayuda");
   return (
     <div className="relative min-h-screen bg-ink-950 px-4 py-10 sm:px-6">
       <GradientBackdrop />

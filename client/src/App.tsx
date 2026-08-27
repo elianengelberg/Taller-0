@@ -1,6 +1,8 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import { ReactNode } from "react";
 import CalendarRecordWatcher from "./components/CalendarRecordWatcher";
 import EnlaceCopiado from "./components/EnlaceCopiado";
+import Footer from "./components/Footer";
 import RequireAuth from "./components/RequireAuth";
 import ToastViewport from "./components/ToastViewport";
 import { AuthProvider } from "./context/AuthContext";
@@ -24,6 +26,17 @@ import ResetPassword from "./pages/ResetPassword";
 import Soporte from "./pages/Soporte";
 import VerifyEmail from "./pages/VerifyEmail";
 
+// El pie de página va en las pantallas de CONTENIDO, no en las de reunión a
+// pantalla completa (Meeting/ExternalMeeting) ni en el redirect de Google.
+function ConPie({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex min-h-screen flex-col">
+      <div className="flex-1">{children}</div>
+      <Footer />
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <ThemeProvider>
@@ -39,12 +52,12 @@ export default function App() {
             se ven en cualquier página, no sólo dentro de la reunión. */}
         <ToastViewport />
         <Routes>
-          <Route path="/" element={<Home />} />
+          <Route path="/" element={<ConPie><Home /></ConPie>} />
           {/* El centro de instalación: la app (PWA) y la extensión. */}
-          <Route path="/instalar" element={<Instalar />} />
-          <Route path="/privacidad" element={<Privacidad />} />
+          <Route path="/instalar" element={<ConPie><Instalar /></ConPie>} />
+          <Route path="/privacidad" element={<ConPie><Privacidad /></ConPie>} />
           {/* La URL de asistencia de la ficha de la Chrome Web Store. */}
-          <Route path="/soporte" element={<Soporte />} />
+          <Route path="/soporte" element={<ConPie><Soporte /></ConPie>} />
           <Route path="/ingresar" element={<Login />} />
           <Route path="/registrarse" element={<Register />} />
           {/* Landing spot for the Google OAuth redirect (see googleAuth.ts). */}
@@ -55,13 +68,13 @@ export default function App() {
           <Route path="/verificar-email" element={<VerifyEmail />} />
           <Route path="/recuperar" element={<ForgotPassword />} />
           <Route path="/restablecer" element={<ResetPassword />} />
-          <Route path="/crear" element={<HostSetup />} />
-          <Route path="/unirse" element={<JoinForm />} />
+          <Route path="/crear" element={<ConPie><HostSetup /></ConPie>} />
+          <Route path="/unirse" element={<ConPie><JoinForm /></ConPie>} />
           {/* Zoom-style direct-join link (see ShareMenu) -- same form, minus
               the code field, since it's already in the URL. */}
-          <Route path="/unirse/:code" element={<JoinForm />} />
+          <Route path="/unirse/:code" element={<ConPie><JoinForm /></ConPie>} />
           {/* Join a meeting hosted on another platform (paste a Zoom/Meet/Jitsi link). */}
-          <Route path="/externa" element={<ExternalJoin />} />
+          <Route path="/externa" element={<ConPie><ExternalJoin /></ConPie>} />
           {/* The embedded external meeting + Unify's transcript/AI overlay. */}
           <Route path="/externa/reunion" element={<ExternalMeeting />} />
           <Route path="/reunion" element={<Meeting />} />
@@ -70,7 +83,7 @@ export default function App() {
             path="/historial"
             element={
               <RequireAuth>
-                <History />
+                <ConPie><History /></ConPie>
               </RequireAuth>
             }
           />
@@ -78,7 +91,7 @@ export default function App() {
             path="/historial/:id"
             element={
               <RequireAuth>
-                <MeetingDetail />
+                <ConPie><MeetingDetail /></ConPie>
               </RequireAuth>
             }
           />

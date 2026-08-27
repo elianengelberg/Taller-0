@@ -7,8 +7,10 @@ import { useMeeting } from "../context/MeetingContext";
 import { roleColorStyle } from "../lib/roleColors";
 import { LANGUAGES } from "../lib/languages";
 import { cardClass, inputClass, labelClass, nameInputProps, sentenceInputProps } from "../lib/ui";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 export default function HostSetup() {
+  useDocumentTitle("Nueva reunión");
   const navigate = useNavigate();
   const { startHostDraft, prewarm } = useMeeting();
   const { user } = useAuth();

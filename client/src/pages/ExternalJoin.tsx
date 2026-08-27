@@ -21,6 +21,7 @@ import {
 } from "../lib/meetingPlatforms";
 import { cardClass, inputClass, labelClass, nameInputProps, urlInputProps } from "../lib/ui";
 import { CompanionEmbed } from "../types";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 // Entry point for joining a meeting hosted on ANOTHER platform (Zoom, Meet,
 // Jitsi...). Paste a link -> we detect the platform and route it: Zoom and
@@ -116,6 +117,7 @@ function companionEmbedFor(
 }
 
 export default function ExternalJoin() {
+  useDocumentTitle("Unirme a una reunión");
   const navigate = useNavigate();
   const { startCompanionDraft, prewarm } = useMeeting();
   // Warm the backend/socket while they paste the link, so joining is instant.

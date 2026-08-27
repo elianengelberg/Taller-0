@@ -8,8 +8,10 @@ import { useAuth } from "../context/AuthContext";
 import { claimMeeting } from "../lib/api";
 import { clearUnsavedMeeting } from "../lib/unsavedMeeting";
 import { cardClass, inputClass, labelClass } from "../lib/ui";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 export default function Register() {
+  useDocumentTitle("Crear cuenta");
   const navigate = useNavigate();
   const location = useLocation();
   const { register } = useAuth();

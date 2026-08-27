@@ -1,3 +1,4 @@
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import Button from "../components/Button";
@@ -73,6 +74,7 @@ const NOMBRE: Record<Plataforma, string> = {
 };
 
 export default function Instalar() {
+  useDocumentTitle("Instalar");
   const [instalable, setInstalable] = useState(canPromptInstall());
   const [instalada, setInstalada] = useState(isStandalone());
   const [estado, setEstado] = useState<string | null>(null);

@@ -277,9 +277,11 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
             grandes. La transcripción corre en su propio panel con scroll: la
             frase que se está diciendo se ilumina y el panel la sigue solo,
             mientras el video queda fijo a la vista. */}
+        {/* Estilo Read AI: el video arriba (ancho), y DEBAJO la transcripción
+            completa que corre palabra por palabra siguiendo el video. */}
         {meeting.recordingUrl && (
-          <div className="mt-6 items-start gap-4 lg:grid lg:grid-cols-5">
-            <div className={`${cardClass} lg:sticky lg:top-4 lg:col-span-3`}>
+          <div className="mt-6">
+            <div className={cardClass}>
               {/* Una grabación automática puede ser sólo audio (capturar la
                   pantalla exige un gesto del usuario que no existe al entrar).
                   Un <video> con audio suelto se ve como un rectángulo negro
@@ -294,7 +296,7 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
                   className="w-full"
                 />
               ) : (
-                <div className="relative overflow-hidden rounded-lg">
+                <div className="relative mx-auto max-w-3xl overflow-hidden rounded-lg">
                   <video
                     ref={videoRef}
                     controls
@@ -320,15 +322,15 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
               </a>
             </div>
 
-            <div className={`${cardClass} mt-6 lg:col-span-2 lg:mt-0`}>
-              <h2 className="text-lg font-semibold text-strong">Palabra por palabra</h2>
+            <div className={`${cardClass} mt-4`}>
+              <h2 className="text-lg font-semibold text-strong">Transcripción</h2>
               <p className="mt-1 text-xs leading-relaxed text-ink-400">
-                Sigue al video. Tocá una frase para saltar ahí.
+                Dale play: se resalta lo que se va diciendo. Tocá una frase para saltar ahí.
               </p>
               {meeting.messages.length === 0 ? (
                 <p className="mt-3 text-sm text-ink-400">No se guardó nada en esta reunión.</p>
               ) : (
-                <div className="mt-3 max-h-[70vh] overflow-y-auto pr-1 lg:max-h-[34rem]">
+                <div className="mt-3 max-h-[36rem] overflow-y-auto pr-1">
                   <SyncedTranscript
                     messages={meeting.messages}
                     baseMs={baseMs}
@@ -712,7 +714,7 @@ function SyncedTranscript({
   }, [active.id]);
 
   return (
-    <ul className="max-h-[26rem] space-y-2 overflow-y-auto pr-1">
+    <ul className="space-y-2">
       {entries.map((e) => {
         const isActive = e.kind === "transcript" && e.id === active.id;
         return (

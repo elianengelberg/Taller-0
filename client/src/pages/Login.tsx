@@ -8,8 +8,10 @@ import { useAuth } from "../context/AuthContext";
 import { claimMeeting, fetchAuthConfig, requestEmailVerification } from "../lib/api";
 import { clearUnsavedMeeting } from "../lib/unsavedMeeting";
 import { cardClass, inputClass, labelClass } from "../lib/ui";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 export default function Login() {
+  useDocumentTitle("Iniciar sesión");
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();

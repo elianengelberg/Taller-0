@@ -24,6 +24,7 @@ import {
 import { isExternalMeeting, meetingSourceLabel } from "../lib/meetingPlatforms";
 import { MoreIcon, ShareIcon } from "../components/icons";
 import { cardClass } from "../lib/ui";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
 // null = all; { kind:"none" } = loose (no folder); owned/shared folder id.
 type Selection =
@@ -33,6 +34,7 @@ type Selection =
   | { kind: "shared"; folder: FolderSummary };
 
 export default function History() {
+  useDocumentTitle("Historial");
   // Set when we got here from a login/registration whose guest-meeting claim
   // was rejected (see the notice below).
   const claimFailed = Boolean((useLocation().state as { claimFailed?: boolean } | null)?.claimFailed);
