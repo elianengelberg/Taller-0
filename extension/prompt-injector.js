@@ -220,22 +220,36 @@
     :host { all: initial; }
     .caja { position: fixed; right: 16px; bottom: 16px; z-index: 2147483647;
       width: 368px; max-width: calc(100vw - 32px); box-sizing: border-box;
-      background: #0f172a; color: #f5f6fb; border: 1px solid #334155;
-      border-radius: 14px; padding: 14px 16px;
+      background: linear-gradient(165deg, #0e1630 0%, #131d3d 55%, #16224a 100%);
+      color: #f5f6fb; border: 1px solid rgba(147, 176, 255, .22);
+      border-radius: 18px; padding: 16px 18px;
       font: 15px/1.5 system-ui, -apple-system, sans-serif;
-      box-shadow: 0 8px 30px rgba(0,0,0,.45); }
+      box-shadow: 0 18px 50px rgba(4, 10, 35, .55), 0 2px 10px rgba(4, 10, 35, .35);
+      animation: entrar .28s cubic-bezier(.2, .9, .3, 1.15); }
+    @keyframes entrar { from { opacity: 0; transform: translateY(14px) scale(.97); }
+      to { opacity: 1; transform: none; } }
+    /* La firma de la marca arriba del mensaje: el punto azul de Unify. */
+    .marca { display: flex; align-items: center; gap: 7px; margin-bottom: 8px;
+      font-size: 12.5px; font-weight: 800; letter-spacing: .04em;
+      text-transform: uppercase; color: #9db9ff; }
+    .marcaPunto { width: 10px; height: 10px; border-radius: 50%; flex: none;
+      background: radial-gradient(circle at 35% 30%, #7fb0ff, #2563EB);
+      box-shadow: 0 0 8px rgba(59, 130, 246, .8); }
     .fila { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
     /* Botones grandes y con foco visible: esto lo usa gente de todas las
        edades, y un botón de 40px de alto con contraste real es la
        diferencia entre "lo toco" y "ni lo vi". */
-    button { border: 0; border-radius: 10px; padding: 10px 16px; font: inherit;
-      font-weight: 600; cursor: pointer; min-height: 40px; }
+    button { border: 0; border-radius: 999px; padding: 10px 18px; font: inherit;
+      font-weight: 700; cursor: pointer; min-height: 40px;
+      transition: transform .15s ease, box-shadow .15s ease, background .15s ease; }
     button:focus-visible, .sel:focus-visible, .iain:focus-visible {
       outline: 2px solid #a5b4fc; outline-offset: 2px; }
-    .si { background: #6366f1; color: #fff; }
-    .si:hover { background: #4f46e5; }
-    .no { background: transparent; color: #e2e8f0; border: 1px solid #475569; }
-    .no:hover { background: #1e293b; }
+    .si { background: linear-gradient(180deg, #3B82F6, #2563EB); color: #fff;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, .35); }
+    .si:hover { transform: translateY(-1px); box-shadow: 0 7px 18px rgba(37, 99, 235, .45); }
+    .no { background: rgba(255,255,255,.07); color: #e2e8f0;
+      border: 1px solid rgba(148, 163, 184, .45); }
+    .no:hover { background: rgba(255,255,255,.14); }
     .pie { margin-top: 8px; font-size: 12.5px; color: #94a3b8; }
     .rec { display: flex; align-items: center; gap: 8px; font-weight: 600; }
     .punto { width: 9px; height: 9px; border-radius: 50%; background: #dc2626;
@@ -250,10 +264,12 @@
     .quien { font-size: 12px; color: #94a3b8; }
     .dijo { font-size: 15px; line-height: 1.4; color: #f1f5f9; overflow-wrap: anywhere; }
     .vacio { font-size: 13px; color: #64748b; }
-    .sel { margin-top: 8px; width: 100%; background: #1e293b; color: #e2e8f0;
-      border: 1px solid #334155; border-radius: 8px; padding: 7px 9px;
+    .sel { margin-top: 8px; width: 100%; background: rgba(255,255,255,.06);
+      color: #e2e8f0; border: 1px solid rgba(148, 163, 184, .4);
+      border-radius: 10px; padding: 7px 9px;
       font: 13px system-ui, sans-serif; cursor: pointer; }
-    .trad { font-size: 14px; line-height: 1.4; color: #a5b4fc; margin-top: 1px;
+    .sel:hover { border-color: #7fa5ff; }
+    .trad { font-size: 14px; line-height: 1.4; color: #9db9ff; margin-top: 1px;
       overflow-wrap: anywhere; }
     .interina { font-size: 14px; line-height: 1.4; color: #94a3b8; font-style: italic;
       overflow-wrap: anywhere; margin-top: 4px; }
@@ -446,6 +462,15 @@
     // Para lectores de pantalla: es un diálogo con nombre, no un div mudo.
     caja.setAttribute("role", "dialog");
     caja.setAttribute("aria-label", "Aviso de Unify");
+
+    // La firma visual: el punto azul + "Unify" arriba del mensaje, para que
+    // se sepa al primer vistazo de quién es el cartel.
+    const marca = document.createElement("div");
+    marca.className = "marca";
+    const marcaPunto = document.createElement("span");
+    marcaPunto.className = "marcaPunto";
+    marca.append(marcaPunto, document.createTextNode("Unify"));
+    caja.appendChild(marca);
 
     const texto = document.createElement("div");
     texto.textContent = `Uy, veo que te estás uniendo a una reunión de ${det.nombre}. ¿Querés grabarla? Los subtítulos con traducción y la transcripción van incluidos.`;

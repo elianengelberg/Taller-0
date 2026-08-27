@@ -1,7 +1,7 @@
 {
   "name": "unify-escritorio",
   "productName": "Unify",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Unify para Windows: detecta tus reuniones de Zoom y las graba con subtítulos, traducción e IA.",
   "main": "main.js",
   "author": "Unify",

@@ -15,29 +15,46 @@
     -webkit-user-select: none; user-select: none;
   }
   .caja {
-    width: 420px; padding: 26px 28px;
-    background: linear-gradient(160deg, #141d33, #1d2b55);
-    border: 1px solid rgba(255,255,255,.14);
+    width: 420px; padding: 22px 28px 24px;
+    background: linear-gradient(165deg, #0e1630 0%, #16224a 70%, #1b2a5e 100%);
+    border: 1px solid rgba(147, 176, 255, .25);
     border-radius: 22px; color: #fff;
-    box-shadow: 0 18px 60px rgba(10, 20, 60, .55);
+    box-shadow: 0 22px 70px rgba(4, 10, 35, .6), 0 0 0 1px rgba(59, 130, 246, .12);
     text-align: center;
     -webkit-app-region: drag; /* se puede arrastrar el cartel entero */
+    animation: entrar .3s cubic-bezier(.2, .9, .3, 1.2);
+  }
+  @keyframes entrar { from { opacity: 0; transform: translateY(16px) scale(.96); } to { opacity: 1; transform: none; } }
+  .marca {
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+    margin-bottom: 12px; font-size: 12px; font-weight: 800;
+    letter-spacing: .06em; text-transform: uppercase; color: #9db9ff;
+  }
+  .marcaPunto {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #7fb0ff, #2563EB);
+    box-shadow: 0 0 10px rgba(59, 130, 246, .85);
   }
   .titulo { font-size: 17px; font-weight: 700; line-height: 1.35; }
-  .detalle { margin-top: 6px; font-size: 13px; color: rgba(255,255,255,.65); }
+  .detalle { margin-top: 7px; font-size: 13px; color: rgba(255,255,255,.65); }
   .botones { margin-top: 18px; display: flex; gap: 10px; justify-content: center; -webkit-app-region: no-drag; }
   button {
     border: 0; border-radius: 999px; padding: 11px 22px;
     font-size: 14px; font-weight: 700; cursor: pointer;
+    transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
   }
-  #si { background: linear-gradient(180deg, #3B82F6, #2563EB); color: #fff; }
-  #si:hover { filter: brightness(1.08); }
-  #no { background: rgba(255,255,255,.12); color: rgba(255,255,255,.85); }
-  #no:hover { background: rgba(255,255,255,.2); }
+  #si {
+    background: linear-gradient(180deg, #3B82F6, #2563EB); color: #fff;
+    box-shadow: 0 5px 16px rgba(37, 99, 235, .4);
+  }
+  #si:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(37, 99, 235, .5); }
+  #no { background: rgba(255,255,255,.1); color: rgba(255,255,255,.85); border: 1px solid rgba(255,255,255,.18); }
+  #no:hover { background: rgba(255,255,255,.18); }
 </style>
 </head>
 <body>
   <div class="caja">
+    <div class="marca"><span class="marcaPunto"></span>Unify</div>
     <p class="titulo">Uy, veo que te estás uniendo a una reunión. ¿Querés grabarla?</p>
     <p class="detalle">Subtítulos, traducción y resumen incluidos. Si no elegís nada, la grabo igual.</p>
     <div class="botones">
