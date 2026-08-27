@@ -281,23 +281,27 @@ const UA = {
     // nada" -- reporte real. En iPhone NO aparece.
     check("en iPhone NO aparece el perfil de iPad",
       (await page.locator('a[href="/unify-ipad.mobileconfig"]').count()) === 0 && !/perfil para iPad/.test(t));
-    check("dice sin vueltas que un ZIP no instala nada en un iPad", /un ZIP no instala nada en un iPad/.test(t));
-    check("dice que en el teléfono no hay extensiones (y de quién es la regla)",
-      /las extensiones de navegador no\s+existen/.test(t.replace(/\s+/g, " ")) || /no existen/.test(t));
-    // Y lo más importante: que en vez de dejarte sin nada, te dé el camino
-    // que SÍ funciona en el teléfono -- pegar el enlace que te mandaron.
-    check("pero ofrece el camino real del teléfono: abrir la reunión por enlace",
-      (await page.locator('a[href="/externa"]').count()) >= 1 &&
-      /Abrir una reunión con un enlace/.test(t));
-    check("con los pasos de copiar el enlace desde WhatsApp", /WhatsApp/.test(t) && /Copiar/.test(t));
-    check("y ofrece el enlace para mandarse a la computadora", /instalar\?bajar=1/.test(t));
-    check("sin botón de descarga del ZIP en el teléfono", !/Descargar la extensión/.test(t));
-    // En el teléfono, abrir ?bajar=1 NO debe disparar ninguna descarga.
-    let bajo = false;
-    page.on("download", () => { bajo = true; });
-    await page.goto(`${B}/instalar?bajar=1`, { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(1500);
-    check("?bajar=1 en el teléfono no descarga nada", !bajo);
+    // El pedido de la casa: NADA de vueltas en el teléfono. Un botón de
+    // descarga de verdad, que baja el ZIP directo con un toque.
+    check("en el teléfono hay un botón directo de Descargar la extensión",
+      (await page.getByRole("button", { name: /Descargar la extensión/i }).count()) === 1);
+    {
+      let bajo = null;
+      page.on("download", (d) => { bajo = d.suggestedFilename(); });
+      await page.getByRole("button", { name: /Descargar la extensión/i }).click();
+      await page.waitForTimeout(1500);
+      check("y tocarlo DESCARGA el ZIP de una", bajo === "unify-extension.zip", `descarga=${bajo}`);
+    }
+    // ?bajar=1 también descarga en el teléfono (mismo criterio: directo).
+    {
+      let bajo2 = false;
+      const p2 = await ctx.newPage();
+      p2.on("download", () => { bajo2 = true; });
+      await p2.goto(`${B}/instalar?bajar=1`, { waitUntil: "domcontentloaded" });
+      await p2.waitForTimeout(1500);
+      check("?bajar=1 descarga también en el teléfono", bajo2);
+      await p2.close();
+    }
     await ctx.close();
 
     // El iPad SÍ ofrece el perfil (ahí tiene sentido: flotas administradas).

@@ -120,13 +120,17 @@ export default function Instalar() {
   }, []);
 
   // El enlace que se comparte: /instalar?bajar=1 arranca la descarga del ZIP
-  // solo, apenas se abre la página (sólo tiene sentido en escritorio: en el
-  // teléfono no hay extensiones de Chrome).
+  // solo, apenas se abre la página. En CUALQUIER dispositivo: si lo abrís en
+  // el teléfono, el ZIP baja igual y lo pasás a la compu como cualquier
+  // archivo.
   const [searchParams] = useSearchParams();
   const bajarSolo = searchParams.get("bajar") === "1";
   const yaBajo = useRef(false);
   useEffect(() => {
-    if (!bajarSolo || movil || yaBajo.current || CHROME_WEB_STORE_URL) return;
+    // Con la tienda publicada, en ESCRITORIO ?bajar=1 no baja el ZIP (la
+    // sección ofrece "Agregar a Chrome", que es mejor). En el TELÉFONO la
+    // tienda no instala nada, así que ahí el ZIP baja directo igual.
+    if (!bajarSolo || yaBajo.current || (CHROME_WEB_STORE_URL && !movil)) return;
     yaBajo.current = true;
     // Siempre el ZIP: un .zip baja sin escándalo en cualquier navegador. El
     // .bat que probamos antes disparaba la alarma de Edge y SmartScreen en
@@ -432,73 +436,18 @@ export default function Instalar() {
           {movil ? (
             <div className="mt-2 text-sm leading-relaxed text-ink-300">
               <p>
-                En {plataforma === "ios" ? "iPhone y iPad" : "el teléfono"} las extensiones de navegador no
-                existen — no es algo que podamos agregar, {plataforma === "ios" ? "Apple" : "Google"} no las
-                permite ahí. Pero Unify igual te sirve, con otro camino:
+                Tocá el botón y se descarga directo. Después la instalás en el Chrome o Edge de tu
+                computadora (ahí es donde vive una extensión).
               </p>
-
-              {/* El camino REAL en cada teléfono, sin promesas vacías. */}
-              <div className="mt-3 rounded-xl border border-ink-700 bg-ink-800/60 p-4 text-ink-200">
-                <p className="font-medium text-strong">
-                  {plataforma === "android"
-                    ? "Te llega un enlace de reunión por WhatsApp:"
-                    : "Te llega un enlace de reunión por WhatsApp:"}
-                </p>
-                <ol className="mt-1.5 list-decimal space-y-1 pl-5">
-                  {plataforma === "android" ? (
-                    <>
-                      <li>
-                        Mantené apretado el mensaje y tocá <span className="font-semibold">Compartir</span>.
-                      </li>
-                      <li>
-                        Elegí <span className="font-semibold">Unify</span> en la lista: la reunión se abre
-                        acá con subtítulos, traducción e IA.
-                      </li>
-                    </>
-                  ) : (
-                    <>
-                      <li>
-                        Mantené apretado el enlace y tocá <span className="font-semibold">Copiar</span>.
-                      </li>
-                      <li>
-                        Abrí Unify y tocá el botón de acá abajo: pegás el enlace y entrás con subtítulos,
-                        traducción e IA.
-                      </li>
-                    </>
-                  )}
-                </ol>
-                <Link to="/externa" className="mt-3 inline-block">
-                  <Button>Abrir una reunión con un enlace</Button>
-                </Link>
-                <p className="mt-3 text-xs text-ink-400">
-                  Lo único que el teléfono no puede hacer es transcribir a los DEMÁS mientras la reunión
-                  corre en otra app: para eso está la computadora con la extensión, o que cada quien abra
-                  Unify de su lado.
-                </p>
+              <div className="mt-3">
+                <Button onClick={bajarExtension}>Descargar la extensión</Button>
               </div>
-
-              {plataforma === "ios" && (
-                <p className="mt-3 text-xs text-ink-400">
-                  Y para que no pierdas tiempo: un ZIP no instala nada en un iPad — iPadOS no ejecuta
-                  archivos, es una regla de Apple. El único “archivo que instala” en iPad es el perfil de
-                  arriba, y es para la app.
-                </p>
-              )}
-              <p className="mt-3">
-                Para instalarla en tu computadora, mandate este enlace (la descarga arranca sola al abrirlo):
+              <p className="mt-3 text-xs text-ink-400">
+                Se baja un archivo ZIP. En la computadora: descomprimilo, abrí{" "}
+                <code className="rounded bg-ink-800 px-1">chrome://extensions</code>, prendé «Modo de
+                desarrollador» y tocá «Cargar descomprimida» eligiendo la carpeta. Los pasos con
+                detalle están en esta misma página abierta desde la compu.
               </p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <code className="rounded-lg bg-ink-800 px-3 py-2 text-xs text-brand-200">
-                  {window.location.origin}/instalar?bajar=1
-                </code>
-                <button
-                  type="button"
-                  onClick={() => copiar(`${window.location.origin}/instalar?bajar=1`, "enlace")}
-                  className="rounded-lg border border-ink-600 px-3 py-2 text-xs font-semibold text-ink-100 hover:bg-ink-800"
-                >
-                  {copiado === "enlace" ? "¡Copiado!" : "Copiar enlace"}
-                </button>
-              </div>
             </div>
           ) : (
             <>
