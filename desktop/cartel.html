@@ -16,10 +16,11 @@
   }
   .caja {
     width: 420px; padding: 22px 28px 24px;
-    background: linear-gradient(165deg, #0e1630 0%, #16224a 70%, #1b2a5e 100%);
-    border: 1px solid rgba(147, 176, 255, .25);
-    border-radius: 22px; color: #fff;
-    box-shadow: 0 22px 70px rgba(4, 10, 35, .6), 0 0 0 1px rgba(59, 130, 246, .12);
+    /* Blanco protagonista, como toda la marca; el azul es el acento. */
+    background: linear-gradient(170deg, #ffffff 0%, #f6f9ff 100%);
+    border: 1px solid #dbe7fb;
+    border-radius: 22px; color: #16224a;
+    box-shadow: 0 22px 60px rgba(30, 64, 175, .22), 0 3px 12px rgba(30, 64, 175, .12);
     text-align: center;
     -webkit-app-region: drag; /* se puede arrastrar el cartel entero */
     animation: entrar .3s cubic-bezier(.2, .9, .3, 1.2);
@@ -28,15 +29,15 @@
   .marca {
     display: flex; align-items: center; justify-content: center; gap: 7px;
     margin-bottom: 12px; font-size: 12px; font-weight: 800;
-    letter-spacing: .06em; text-transform: uppercase; color: #9db9ff;
+    letter-spacing: .06em; text-transform: uppercase; color: #2563EB;
   }
   .marcaPunto {
     width: 11px; height: 11px; border-radius: 50%;
     background: radial-gradient(circle at 35% 30%, #7fb0ff, #2563EB);
-    box-shadow: 0 0 10px rgba(59, 130, 246, .85);
+    box-shadow: 0 0 8px rgba(59, 130, 246, .55);
   }
-  .titulo { font-size: 17px; font-weight: 700; line-height: 1.35; }
-  .detalle { margin-top: 7px; font-size: 13px; color: rgba(255,255,255,.65); }
+  .titulo { font-size: 17px; font-weight: 700; line-height: 1.35; color: #101c40; }
+  .detalle { margin-top: 7px; font-size: 13px; color: #5b6b8f; }
   .botones { margin-top: 18px; display: flex; gap: 10px; justify-content: center; -webkit-app-region: no-drag; }
   button {
     border: 0; border-radius: 999px; padding: 11px 22px;
@@ -48,8 +49,8 @@
     box-shadow: 0 5px 16px rgba(37, 99, 235, .4);
   }
   #si:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(37, 99, 235, .5); }
-  #no { background: rgba(255,255,255,.1); color: rgba(255,255,255,.85); border: 1px solid rgba(255,255,255,.18); }
-  #no:hover { background: rgba(255,255,255,.18); }
+  #no { background: #ffffff; color: #3d4d73; border: 1px solid #cfdcf5; }
+  #no:hover { background: #eef4ff; border-color: #9db9ff; }
 </style>
 </head>
 <body>

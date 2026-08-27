@@ -220,21 +220,22 @@
     :host { all: initial; }
     .caja { position: fixed; right: 16px; bottom: 16px; z-index: 2147483647;
       width: 368px; max-width: calc(100vw - 32px); box-sizing: border-box;
-      background: linear-gradient(165deg, #0e1630 0%, #131d3d 55%, #16224a 100%);
-      color: #f5f6fb; border: 1px solid rgba(147, 176, 255, .22);
+      /* Blanco protagonista (la marca es blanco + azul); el azul, de acento. */
+      background: linear-gradient(170deg, #ffffff 0%, #f6f9ff 100%);
+      color: #1c2a4f; border: 1px solid #dbe7fb;
       border-radius: 18px; padding: 16px 18px;
       font: 15px/1.5 system-ui, -apple-system, sans-serif;
-      box-shadow: 0 18px 50px rgba(4, 10, 35, .55), 0 2px 10px rgba(4, 10, 35, .35);
+      box-shadow: 0 18px 46px rgba(30, 64, 175, .25), 0 3px 10px rgba(30, 64, 175, .12);
       animation: entrar .28s cubic-bezier(.2, .9, .3, 1.15); }
     @keyframes entrar { from { opacity: 0; transform: translateY(14px) scale(.97); }
       to { opacity: 1; transform: none; } }
     /* La firma de la marca arriba del mensaje: el punto azul de Unify. */
     .marca { display: flex; align-items: center; gap: 7px; margin-bottom: 8px;
       font-size: 12.5px; font-weight: 800; letter-spacing: .04em;
-      text-transform: uppercase; color: #9db9ff; }
+      text-transform: uppercase; color: #2563EB; }
     .marcaPunto { width: 10px; height: 10px; border-radius: 50%; flex: none;
       background: radial-gradient(circle at 35% 30%, #7fb0ff, #2563EB);
-      box-shadow: 0 0 8px rgba(59, 130, 246, .8); }
+      box-shadow: 0 0 7px rgba(59, 130, 246, .5); }
     .fila { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
     /* Botones grandes y con foco visible: esto lo usa gente de todas las
        edades, y un botón de 40px de alto con contraste real es la
@@ -243,14 +244,13 @@
       font-weight: 700; cursor: pointer; min-height: 40px;
       transition: transform .15s ease, box-shadow .15s ease, background .15s ease; }
     button:focus-visible, .sel:focus-visible, .iain:focus-visible {
-      outline: 2px solid #a5b4fc; outline-offset: 2px; }
+      outline: 2px solid #2563EB; outline-offset: 2px; }
     .si { background: linear-gradient(180deg, #3B82F6, #2563EB); color: #fff;
-      box-shadow: 0 4px 14px rgba(37, 99, 235, .35); }
-    .si:hover { transform: translateY(-1px); box-shadow: 0 7px 18px rgba(37, 99, 235, .45); }
-    .no { background: rgba(255,255,255,.07); color: #e2e8f0;
-      border: 1px solid rgba(148, 163, 184, .45); }
-    .no:hover { background: rgba(255,255,255,.14); }
-    .pie { margin-top: 8px; font-size: 12.5px; color: #94a3b8; }
+      box-shadow: 0 4px 14px rgba(37, 99, 235, .3); }
+    .si:hover { transform: translateY(-1px); box-shadow: 0 7px 18px rgba(37, 99, 235, .4); }
+    .no { background: #ffffff; color: #3d4d73; border: 1px solid #cfdcf5; }
+    .no:hover { background: #eef4ff; border-color: #9db9ff; }
+    .pie { margin-top: 8px; font-size: 12.5px; color: #5b6b8f; }
     .rec { display: flex; align-items: center; gap: 8px; font-weight: 600; }
     .punto { width: 9px; height: 9px; border-radius: 50%; background: #dc2626;
       animation: latir 1.2s infinite; flex: none; }
@@ -259,31 +259,31 @@
       overflow-y: auto; }
     .linea { display: flex; gap: 8px; align-items: flex-start; }
     .foto { width: 24px; height: 24px; border-radius: 50%; flex: none;
-      object-fit: cover; background: #334155; color: #fff; font-size: 11px;
+      object-fit: cover; background: #c7d6f2; color: #1c2a4f; font-size: 11px;
       font-weight: 700; display: flex; align-items: center; justify-content: center; }
-    .quien { font-size: 12px; color: #94a3b8; }
-    .dijo { font-size: 15px; line-height: 1.4; color: #f1f5f9; overflow-wrap: anywhere; }
-    .vacio { font-size: 13px; color: #64748b; }
-    .sel { margin-top: 8px; width: 100%; background: rgba(255,255,255,.06);
-      color: #e2e8f0; border: 1px solid rgba(148, 163, 184, .4);
+    .quien { font-size: 12px; color: #5b6b8f; }
+    .dijo { font-size: 15px; line-height: 1.4; color: #101c40; overflow-wrap: anywhere; }
+    .vacio { font-size: 13px; color: #7d8bae; }
+    .sel { margin-top: 8px; width: 100%; background: #ffffff;
+      color: #1c2a4f; border: 1px solid #cfdcf5;
       border-radius: 10px; padding: 7px 9px;
       font: 13px system-ui, sans-serif; cursor: pointer; }
-    .sel:hover { border-color: #7fa5ff; }
-    .trad { font-size: 14px; line-height: 1.4; color: #9db9ff; margin-top: 1px;
+    .sel:hover { border-color: #2563EB; }
+    .trad { font-size: 14px; line-height: 1.4; color: #1d4ed8; margin-top: 1px;
       overflow-wrap: anywhere; }
-    .interina { font-size: 14px; line-height: 1.4; color: #94a3b8; font-style: italic;
+    .interina { font-size: 14px; line-height: 1.4; color: #7d8bae; font-style: italic;
       overflow-wrap: anywhere; margin-top: 4px; }
-    .aviso { margin-top: 8px; font-size: 12px; color: #fca5a5; }
-    .ok { margin-top: 8px; font-size: 12px; color: #6ee7b7; }
+    .aviso { margin-top: 8px; font-size: 12px; color: #b91c1c; }
+    .ok { margin-top: 8px; font-size: 12px; color: #047857; }
     .iafila { display: flex; gap: 6px; margin-top: 10px; }
-    .iain { flex: 1; min-width: 0; background: #1e293b; color: #e2e8f0;
-      border: 1px solid #334155; border-radius: 8px; padding: 8px 10px;
+    .iain { flex: 1; min-width: 0; background: #ffffff; color: #1c2a4f;
+      border: 1px solid #cfdcf5; border-radius: 8px; padding: 8px 10px;
       font: 14px system-ui, sans-serif; }
-    .iain::placeholder { color: #64748b; }
-    .iabtn { background: #334155; color: #e2e8f0; padding: 7px 12px; }
-    .iabtn:hover { background: #475569; }
-    .iaresp { margin-top: 8px; font-size: 13px; line-height: 1.5; color: #e2e8f0;
-      background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+    .iain::placeholder { color: #7d8bae; }
+    .iabtn { background: #e7efff; color: #1d4ed8; padding: 7px 12px; }
+    .iabtn:hover { background: #d8e5ff; }
+    .iaresp { margin-top: 8px; font-size: 13px; line-height: 1.5; color: #1c2a4f;
+      background: #f4f8ff; border: 1px solid #dbe7fb; border-radius: 8px;
       padding: 8px 10px; max-height: 150px; overflow-y: auto;
       white-space: pre-wrap; overflow-wrap: anywhere; }
   `);
