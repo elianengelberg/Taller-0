@@ -272,11 +272,20 @@ export default function ExternalMeeting() {
   // mismo cartel donde se explican los problemas de subtítulos: la captura
   // vino sin audio (no tildaron "compartir audio"), o el navegador no sabe
   // transcribir una pista (Chrome viejo).
+  // Detección estática de un Chrome viejo (sin reconocimiento por pista):
+  // mejor avisarlo al ENTRAR que descubrirlo recién al grabar.
+  const [chromeSinPista] = useState(() => {
+    const Ctor =
+      window.SpeechRecognition ??
+      (window as unknown as { webkitSpeechRecognition?: typeof window.SpeechRecognition })
+        .webkitSpeechRecognition;
+    return !Ctor || typeof (Ctor as { available?: unknown }).available !== "function";
+  });
   const avisoReunion =
     recorder.status === "recording" && recorder.kind === "screen" && !recorder.remoteAudioTrack
       ? "La grabación no trae el audio de la reunión, así que los demás no salen en los subtítulos: paren y vuelvan a grabar tildando «Compartir audio» al elegir la pestaña o pantalla."
-      : recorder.remoteAudioTrack && !reunionSoportada
-        ? "Este navegador no puede transcribir el audio de la reunión (los demás no van a salir en los subtítulos). Con Chrome actualizado, sí."
+      : chromeSinPista || (recorder.remoteAudioTrack && !reunionSoportada)
+        ? "Para que los DEMÁS también salgan en los subtítulos, actualizá Chrome (este navegador no puede transcribir el audio de la reunión)."
         : null;
 
   // --- Grabación automática -------------------------------------------------

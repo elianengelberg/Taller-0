@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import Button from "../components/Button";
 import Logo from "../components/Logo";
+import { useAuth } from "../context/AuthContext";
 import { useMeeting } from "../context/MeetingContext";
 import { dispatchBot, fetchPlatformConfig, PlatformConfig } from "../lib/api";
 import {
@@ -119,6 +120,7 @@ function companionEmbedFor(
 export default function ExternalJoin() {
   useDocumentTitle("Unirme a una reunión");
   const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
   const { startCompanionDraft, prewarm } = useMeeting();
   // Warm the backend/socket while they paste the link, so joining is instant.
   useEffect(() => prewarm(), [prewarm]);
@@ -220,6 +222,10 @@ export default function ExternalJoin() {
     // la app (estable mientras dura esa reunión, por si esta pestaña se
     // recarga); si faltara, se inventa una acá.
     if (searchParams.get("origen") === "escritorio") {
+      // Con sesión iniciada, la persona entra con SU nombre de cuenta -- por
+      // eso se espera a que la autenticación resuelva (es un fetch corto)
+      // antes de armar el draft; el efecto se re-corre cuando termina.
+      if (authLoading) return;
       deepLinkRan.current = true;
       const cruda = searchParams.get("sala") ?? "";
       const sala =
@@ -231,7 +237,7 @@ export default function ExternalJoin() {
       sessionStorage.setItem("unify_escritorio", "1");
       const savedName = (localStorage.getItem("unify_external_name") ?? "").trim();
       startCompanionDraft({
-        name: savedName || "Invitado",
+        name: savedName || user?.name || "Invitado",
         language,
         externalKey: `escritorio-${sala}`,
         roomLabel: "Zoom (app de escritorio)",
@@ -264,7 +270,7 @@ export default function ExternalJoin() {
       joinDetected(result);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, authLoading]);
 
   return (
     <div className="flex min-h-[calc(100dvh-3.25rem)] flex-col items-center bg-ink-950 px-6 py-10">

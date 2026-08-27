@@ -317,6 +317,11 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
           // Saca esta misma pestaña del selector: es lo que evita el "túnel
           // infinito" de grabar la pantalla donde se ve la grabación.
           selfBrowserSurface: "exclude",
+          // Que el selector ofrezca el audio del SISTEMA al compartir la
+          // pantalla entera: ahí viven las voces de la reunión cuando está en
+          // otra app (Zoom de escritorio). Extensión de Chromium; los
+          // navegadores que no la conocen la ignoran.
+          systemAudio: "include",
         } as DisplayMediaStreamOptions));
       displayStreamRef.current = displayStream;
       setRemoteAudioTrack(displayStream.getAudioTracks()[0] ?? null);
