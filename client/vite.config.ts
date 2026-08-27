@@ -67,7 +67,15 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         // Regla 1: nada de la API pasa por el service worker.
         navigateFallback: "/index.html",
-        navigateFallbackDenylist: [/^\/api\//, /socket\.io/],
+        // Los ARCHIVOS también quedan fuera del fallback: en Android tocar
+        // "Descargar la extensión" navega a /unify-extension.zip, y sin esta
+        // excepción el service worker respondía con el index -- la persona
+        // "descargaba" y aparecía en el Inicio sin ningún archivo.
+        navigateFallbackDenylist: [
+          /^\/api\//,
+          /socket\.io/,
+          /\.(?:zip|json|mobileconfig|xml|txt|png|svg|webmanifest)$/i,
+        ],
         runtimeCaching: [
           {
             // Los bundles pesados excluidos del precache: primera visita los
