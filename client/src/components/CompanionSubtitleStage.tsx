@@ -114,11 +114,17 @@ export default function CompanionSubtitleStage({
         {empty ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <p className="text-base font-medium text-ink-200">Los subtítulos aparecen acá</p>
+            {/* En el teléfono, la instrucción del altavoz ES el modo de uso
+                (no un consejo al pie): primero y en la caja destacada. */}
+            <p className="max-w-sm rounded-xl border border-brand-500/40 bg-brand-500/10 px-3 py-2.5 text-sm leading-relaxed text-ink-200 sm:hidden">
+              Poné la reunión en <b>altavoz</b>, sin auriculares, y dejá esta pantalla al frente:
+              el micrófono capta a todos y los subtítulos corren acá, con su traducción.
+            </p>
             <p className="max-w-sm text-sm leading-relaxed text-ink-400">
               Hablá y vas a ver lo que decís, con su traducción. Para que también se transcriba a
               los demás, tienen que abrir Unify con este mismo enlace.
             </p>
-            <p className="max-w-sm rounded-xl border border-dashed border-ink-600 px-3 py-2 text-xs leading-relaxed text-ink-400">
+            <p className="hidden max-w-sm rounded-xl border border-dashed border-ink-600 px-3 py-2 text-xs leading-relaxed text-ink-400 sm:block">
               En celular o tablet, dejá la reunión en <b className="text-ink-200">altavoz</b> y sin
               auriculares: así el micrófono llega a captar también lo que dicen los demás.
             </p>

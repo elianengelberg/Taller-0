@@ -226,6 +226,17 @@ export default function ExternalMeeting() {
   // micrófono, el reconocimiento se apaga para siempre (ver el hook) y sin esto
   // no había forma de volver a encenderlo salvo recargando la página.
   const [micAttempt, setMicAttempt] = useState(0);
+  // El celular MATA el reconocimiento cuando la pestaña pasa a segundo plano
+  // (saltar a la app de Meet, bloquear la pantalla). Al volver, acá se
+  // relanza solo: sin esto la pantalla quedaba muda para siempre y parecía
+  // que "los subtítulos no funcionan".
+  useEffect(() => {
+    function alVolver() {
+      if (document.visibilityState === "visible") setMicAttempt((n) => n + 1);
+    }
+    document.addEventListener("visibilitychange", alVolver);
+    return () => document.removeEventListener("visibilitychange", alVolver);
+  }, []);
   const { supported: captionsSupported, error: captionsError } = useSpeechRecognition({
     key: micAttempt,
     lang: spokenLang,
@@ -281,10 +292,14 @@ export default function ExternalMeeting() {
         .webkitSpeechRecognition;
     return !Ctor || typeof (Ctor as { available?: unknown }).available !== "function";
   });
+  // En el celular no existe capturar pantalla/audio de la reunión: ahí el
+  // modo es el altavoz (la pantalla lo explica) y avisar "actualizá Chrome"
+  // sólo confundía. El aviso corre únicamente donde la captura es posible.
+  const capturaPosible = typeof navigator.mediaDevices?.getDisplayMedia === "function";
   const avisoReunion =
     recorder.status === "recording" && recorder.kind === "screen" && !recorder.remoteAudioTrack
       ? "La grabación no trae el audio de la reunión, así que los demás no salen en los subtítulos: paren y vuelvan a grabar tildando «Compartir audio» al elegir la pestaña o pantalla."
-      : chromeSinPista || (recorder.remoteAudioTrack && !reunionSoportada)
+      : capturaPosible && (chromeSinPista || (recorder.remoteAudioTrack && !reunionSoportada))
         ? "Para que los DEMÁS también salgan en los subtítulos, actualizá Chrome (este navegador no puede transcribir el audio de la reunión)."
         : null;
 
@@ -687,11 +702,16 @@ export default function ExternalMeeting() {
             kind={recorder.kind}
             selfCapture={recorder.selfCapture}
             // Pasar de sólo audio a pantalla necesita un clic: getDisplayMedia
-            // exige un gesto del usuario, y este botón es ese gesto.
-            onAddScreen={() => {
-              recorder.stop();
-              void recorder.start();
-            }}
+            // exige un gesto del usuario, y este botón es ese gesto. En el
+            // celular no existe capturar pantalla: ahí el botón ni aparece.
+            onAddScreen={
+              typeof navigator.mediaDevices?.getDisplayMedia === "function"
+                ? () => {
+                    recorder.stop();
+                    void recorder.start();
+                  }
+                : undefined
+            }
             onDismiss={recorder.reset}
           />
         </div>

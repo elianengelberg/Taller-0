@@ -23,8 +23,16 @@ function watch(page, bag) {
   page.on("pageerror", (e) => bag.push(`JS: ${e.message.slice(0, 140)}`));
   page.on("console", (m) => {
     if (m.type() !== "error") return;
-    const t = `${m.text()} ${m.location?.().url || ""}`;
-    if (!IGNORABLE.test(t)) bag.push(`consola: ${m.text().slice(0, 110)}`);
+    const url = m.location?.().url || "";
+    const t = `${m.text()} ${url}`;
+    if (IGNORABLE.test(t)) return;
+    // Un recurso que no cargó sólo es NUESTRO problema si vive en nuestro
+    // origen. El proxy del entorno a veces contesta 404/500 a los scripts
+    // externos (jitsi, fuentes) y Chrome no siempre adjunta la URL al error:
+    // sin ella, el texto genérico pasaba el filtro de arriba y ensuciaba el
+    // veredicto con ruido ajeno.
+    if (/Failed to load resource/i.test(m.text()) && !url.includes("localhost")) return;
+    bag.push(`consola: ${m.text().slice(0, 110)}`);
   });
 }
 

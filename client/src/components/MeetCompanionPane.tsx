@@ -52,7 +52,9 @@ export default function MeetCompanionPane({
             {meetState.presenting && " · presentando"}
           </span>
         ) : (
-          <span className="w-full text-[11px] text-ink-500">
+          // Consejo de compu (dos ventanas lado a lado): en el teléfono no
+          // aplica y era una línea más en una pantalla ya saturada.
+          <span className="hidden w-full text-[11px] text-ink-500 sm:block">
             Dejá esta pantalla al lado de Meet para leer los subtítulos mientras hablan.
           </span>
         )}
