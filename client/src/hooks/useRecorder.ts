@@ -100,6 +100,11 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
   // pantalla (efecto túnel) -- la UI lo avisa en vez de dejar que sorprenda.
   const [kind, setKind] = useState<RecordingKind>("screen");
   const [selfCapture, setSelfCapture] = useState(false);
+  // La pista de audio que vino CON la captura (el sonido de la reunión: las
+  // voces de los demás). Expuesta para que el companion la transcriba -- ver
+  // useReconocimientoDePista. Null cuando se graba sólo audio del micrófono o
+  // cuando la persona compartió sin tildar "compartir audio".
+  const [remoteAudioTrack, setRemoteAudioTrack] = useState<MediaStreamTrack | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -113,6 +118,7 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
   const cleanupStreams = useCallback(() => {
     displayStreamRef.current?.getTracks().forEach((track) => track.stop());
     displayStreamRef.current = null;
+    setRemoteAudioTrack(null);
     // Sólo cerramos el micrófono que abrimos nosotros; el que llega por
     // `micStream` es de quien nos lo pasó y sigue en uso en la reunión.
     ownAudioStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -288,6 +294,7 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
     setResultUrl(null);
     setUploadStatus("idle");
     setSelfCapture(false);
+    setRemoteAudioTrack(null);
     const audioOnly = Boolean(options.audioOnly);
     setKind(audioOnly ? "audio" : "screen");
     if (!audioOnly && !options.stream && !screenCaptureSupported) {
@@ -312,6 +319,7 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
           selfBrowserSurface: "exclude",
         } as DisplayMediaStreamOptions));
       displayStreamRef.current = displayStream;
+      setRemoteAudioTrack(displayStream.getAudioTracks()[0] ?? null);
       // Compartir el monitor entero con Unify a la vista sí produce el túnel,
       // y eso no se puede impedir -- pero sí avisarlo.
       setSelfCapture(capturesOwnScreen(displayStream));
@@ -450,5 +458,5 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
     };
   }, [stop]);
 
-  return { status, uploadStatus, error, resultUrl, resultType, kind, selfCapture, start, stop, reset };
+  return { status, uploadStatus, error, resultUrl, resultType, kind, selfCapture, remoteAudioTrack, start, stop, reset };
 }

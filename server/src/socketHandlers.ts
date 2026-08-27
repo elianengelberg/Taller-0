@@ -512,7 +512,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
     ack?.({ ok: true });
   });
 
-  socket.on("transcript-line", async (payload: { alternatives?: string[]; text?: string; lang?: string; screen?: boolean }) => {
+  socket.on("transcript-line", async (payload: { alternatives?: string[]; text?: string; lang?: string; screen?: boolean; origen?: string }) => {
     try {
       if (!allowTranscript()) return;
       // Stamp the utterance NOW, before the cleanup/translation awaits below --
@@ -558,7 +558,12 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
         if (!still || still !== meeting || !meeting.participants.has(socket.id)) return;
         const mismatch = cleanup.detectedLang !== null && cleanup.detectedLang !== shortLang(assumedLang);
         const sourceLang = mismatch ? cleanup.detectedLang! : assumedLang;
-        const nombre = `Pantalla de ${speaker.name}`;
+        // `origen: "reunion"`: el audio capturado ES la reunión externa (las
+        // voces de quienes entran por Zoom/Meet/la app que sea, sin Unify) --
+        // companion transcribiendo la pestaña/pantalla compartida. La etiqueta
+        // lo dice; "Pantalla de X" queda para el sonido de una pantalla
+        // compartida en una reunión nativa.
+        const nombre = payload?.origen === "reunion" ? "La reunión" : `Pantalla de ${speaker.name}`;
         const line = addNamedTranscriptLine(meeting, nombre, cleanup.text, sourceLang);
         io.to(roomName(meeting.id)).emit("transcript-line", { line });
         void db.recordMessage({

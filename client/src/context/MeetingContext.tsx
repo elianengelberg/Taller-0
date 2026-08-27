@@ -185,7 +185,14 @@ interface MeetingContextValue {
   sendChatMessage: (text: string) => void;
   assignRole: (participantId: string, roleId: string | null) => void;
   addRole: (name: string) => Promise<Role | null>;
-  sendTranscriptLine: (alternatives: string[], lang: string, opciones?: { screen?: boolean }) => void;
+  // `screen: true` marca audio que NO es la voz propia (pantalla compartida);
+  // con `origen: "reunion"` es el audio de la reunión externa capturada y el
+  // servidor lo etiqueta "La reunión" (ver socketHandlers).
+  sendTranscriptLine: (
+    alternatives: string[],
+    lang: string,
+    opciones?: { screen?: boolean; origen?: "reunion" }
+  ) => void;
   setMediaState: (muted: boolean, cameraOff: boolean) => void;
   setSharingScreen: (sharing: boolean) => void;
   setHandRaised: (raised: boolean) => void;
@@ -599,10 +606,15 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const sendTranscriptLine = useCallback(
-    (alternatives: string[], lang: string, opciones?: { screen?: boolean }) => {
+    (alternatives: string[], lang: string, opciones?: { screen?: boolean; origen?: "reunion" }) => {
       const cleaned = alternatives.filter((a) => a.trim());
       if (cleaned.length === 0) return;
-      emitOrQueue("transcript-line", { alternatives: cleaned, lang, screen: opciones?.screen === true });
+      emitOrQueue("transcript-line", {
+        alternatives: cleaned,
+        lang,
+        screen: opciones?.screen === true,
+        ...(opciones?.origen ? { origen: opciones.origen } : {}),
+      });
     },
     [emitOrQueue]
   );

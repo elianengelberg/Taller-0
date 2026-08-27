@@ -31,6 +31,7 @@ import { useAuth } from "../context/AuthContext";
 import { useMeeting } from "../context/MeetingContext";
 import { AUTO_LANG, ORIGINAL_LANG, useLineTranslations } from "../hooks/useLineTranslations";
 import { useRecorder } from "../hooks/useRecorder";
+import { useReconocimientoDePista } from "../hooks/useReconocimientoDePista";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { askMeetingAI } from "../lib/api";
 import { LANGUAGES, shortLang } from "../lib/languages";
@@ -253,6 +254,30 @@ export default function ExternalMeeting() {
     if (recorder.status === "recording") recorder.stop();
     else if (recorder.status === "idle" || recorder.status === "error") void recorder.start();
   }
+
+  // --- Las voces de LOS DEMÁS -----------------------------------------------
+  // El micrófono de arriba sólo escucha a quien tiene Unify abierto; la gente
+  // que entra por Zoom/Meet/la app que sea quedaba fuera de los subtítulos y
+  // de la transcripción. Su voz SÍ está en el audio que viene con la captura
+  // de pantalla/pestaña: se le pasa esa pista al reconocimiento (Chrome 139+)
+  // y cada frase viaja como línea de "La reunión" -- con la misma IA
+  // correctora y traducida al idioma de cada uno, igual que el resto.
+  const { soportado: reunionSoportada } = useReconocimientoDePista({
+    track: recorder.remoteAudioTrack,
+    lang: spokenLang,
+    onFinal: (alternativas) =>
+      sendTranscriptLine(alternativas, spokenLang, { screen: true, origen: "reunion" }),
+  });
+  // Los dos huecos que dejarían a "los demás" sin subtítulos, avisados en el
+  // mismo cartel donde se explican los problemas de subtítulos: la captura
+  // vino sin audio (no tildaron "compartir audio"), o el navegador no sabe
+  // transcribir una pista (Chrome viejo).
+  const avisoReunion =
+    recorder.status === "recording" && recorder.kind === "screen" && !recorder.remoteAudioTrack
+      ? "La grabación no trae el audio de la reunión, así que los demás no salen en los subtítulos: paren y vuelvan a grabar tildando «Compartir audio» al elegir la pestaña o pantalla."
+      : recorder.remoteAudioTrack && !reunionSoportada
+        ? "Este navegador no puede transcribir el audio de la reunión (los demás no van a salir en los subtítulos). Con Chrome actualizado, sí."
+        : null;
 
   // --- Grabación automática -------------------------------------------------
   // En una reunión externa la grabación no se pide: arranca sola. Con la
@@ -536,7 +561,7 @@ export default function ExternalMeeting() {
                   targetLabel={targetLabel}
                   translationFailed={translationFailed}
                   listening={connectionStatus === "connected" && captionsOn && !captionsProblem}
-                  problem={captionsProblem}
+                  problem={captionsProblem ?? avisoReunion}
                   onRetry={captionsSupported ? () => setMicAttempt((n) => n + 1) : undefined}
                   participantCount={participantCount}
                 />
