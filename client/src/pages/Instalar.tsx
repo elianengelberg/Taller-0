@@ -33,6 +33,11 @@ import { cardClass } from "../lib/ui";
 // título del elemento, este enlace sigue funcionando.
 const CHROME_WEB_STORE_URL = "https://chromewebstore.google.com/detail/elnehilolmbolklgagfegbkibmdjgpbb";
 
+// El instalador de la app de escritorio para Windows (ver desktop/README.md):
+// "latest" de GitHub Releases, así publicar una versión nueva no toca la web.
+const DESCARGA_WINDOWS =
+  "https://github.com/elianengelberg/Taller-0/releases/latest/download/Unify-Setup.exe";
+
 type Plataforma = "windows" | "mac" | "ios" | "android" | "otro";
 
 function detectarPlataforma(): Plataforma {
@@ -442,8 +447,29 @@ export default function Instalar() {
                 </>
               ) : (
                 <>
+                  {plataforma === "windows" && (
+                    <div className="mb-5 rounded-2xl border border-brand-500/40 bg-brand-500/10 p-4">
+                      <p className="text-sm font-semibold text-brand-200">
+                        Unify para Windows: el programa completo
+                      </p>
+                      <p className="mt-1 text-sm leading-relaxed text-ink-200">
+                        Se instala como cualquier programa y queda al lado del reloj. Cuando te unís
+                        a una reunión <span className="font-semibold text-strong">desde la app de Zoom</span>,
+                        te pregunta si la querés grabar — con subtítulos, traducción e IA — y al
+                        terminar te abre todo en tu historial.
+                      </p>
+                      <a href={DESCARGA_WINDOWS} className="mt-3 inline-block">
+                        <Button>Descargar Unify para Windows</Button>
+                      </a>
+                      <p className="mt-2 text-xs text-ink-400">
+                        Un instalador común (.exe): siguiente, siguiente, listo.
+                      </p>
+                    </div>
+                  )}
                   <p className="font-medium text-strong">
-                    {plataforma === "windows" ? "En Windows (Chrome o Edge):" : "En Chrome o Edge:"}
+                    {plataforma === "windows"
+                      ? "¿Preferís la versión liviana? En Windows (Chrome o Edge):"
+                      : "En Chrome o Edge:"}
                   </p>
                   <p className="mt-1.5">
                     Mirá arriba a la derecha, al final de la barra donde va la dirección de la

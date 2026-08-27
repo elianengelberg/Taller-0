@@ -79,6 +79,14 @@ export default function Privacidad() {
                 Unify pueda funcionar. No mira ninguna otra página que visites.
               </li>
               <li>
+                <span className="font-medium text-strong">La app de escritorio (Windows):</span> para
+                avisarte cuando entrás a una reunión, mira una sola cosa: si el proceso de reunión de Zoom
+                está corriendo en tu compu. No lee el contenido de la reunión, ni tus archivos, ni qué otras
+                aplicaciones usás; esa señal nunca sale de tu máquina. Grabar es siempre una pregunta que
+                aparece en pantalla (con unos segundos para decir que no), y podés cerrar la app desde la
+                bandeja cuando quieras.
+              </li>
+              <li>
                 <span className="font-medium text-strong">Lo que NO recolectamos:</span> historial de
                 navegación, ubicación, contactos, datos de otros sitios. No hay analytics, ni trackers, ni
                 cookies de publicidad — ni en la web ni en la extensión.

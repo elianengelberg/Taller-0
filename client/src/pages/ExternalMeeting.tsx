@@ -350,6 +350,57 @@ export default function ExternalMeeting() {
       navigate("/", { replace: true });
     });
   }
+
+  // --- Puente con la app de escritorio --------------------------------------
+  // Cuando esta barra la abrió la app de escritorio de Unify (detectó que la
+  // app de Zoom entró a una reunión), la app publica en 127.0.0.1:47125 si la
+  // reunión sigue en pie. Al terminar, acá se corta la grabación, se espera la
+  // subida y se abre el detalle en el historial (o el aviso de guardar, para
+  // invitados) -- sin que nadie toque nada. Dos lecturas seguidas de "terminó"
+  // antes de actuar: un tropiezo del puente no tiene que cortar una reunión
+  // que sigue viva.
+  const escritorioRef = useRef(sessionStorage.getItem("unify_escritorio") === "1");
+  // La marca se consume al entrar (como unify_autorec): si quedara colgada y
+  // esta misma pestaña abriera después una reunión externa común, el modo
+  // escritorio la cortaría solo al no encontrar el puente.
+  useEffect(() => {
+    sessionStorage.removeItem("unify_escritorio");
+  }, []);
+  const finishFromDesktopRef = useRef<() => void>(() => {});
+  finishFromDesktopRef.current = () => {
+    if (recorder.status === "recording") recorder.stop();
+    const dbId = meeting?.dbId ?? null;
+    if (!user && dbId) {
+      setPendingLeave(dbId);
+      return;
+    }
+    exitWhenSaved(() => {
+      leaveMeeting();
+      navigate(user && dbId ? `/historial/${dbId}` : "/", { replace: true });
+    });
+  };
+  useEffect(() => {
+    if (!escritorioRef.current || connectionStatus !== "connected") return;
+    let terminadas = 0;
+    let hecho = false;
+    const timer = setInterval(async () => {
+      if (hecho) return;
+      try {
+        const res = await fetch("http://127.0.0.1:47125/estado", { cache: "no-store" });
+        const est = (await res.json()) as { enReunion?: boolean };
+        terminadas = est.enReunion ? 0 : terminadas + 1;
+      } catch {
+        // El puente no responde: la app se cerró o nunca estuvo. Cuenta como
+        // "terminó" -- sin app no hay quien vigile a Zoom.
+        terminadas += 1;
+      }
+      if (terminadas < 2) return;
+      hecho = true;
+      clearInterval(timer);
+      finishFromDesktopRef.current();
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [connectionStatus]);
   function confirmSaveMeeting() {
     const dbId = pendingLeave!;
     setPendingLeave(null);

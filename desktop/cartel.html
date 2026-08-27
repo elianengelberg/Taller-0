@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<title>Unify</title>
+<style>
+  /* El cartel que aparece al medio cuando la app de Zoom entra a una reunión.
+     Chiquito, redondeado y con la paleta de Unify; sin marco de ventana (lo
+     dibuja Electron como ventana frameless siempre-encima). */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: transparent; }
+  body {
+    font-family: "Segoe UI", system-ui, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-user-select: none; user-select: none;
+  }
+  .caja {
+    width: 420px; padding: 26px 28px;
+    background: linear-gradient(160deg, #141d33, #1d2b55);
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 22px; color: #fff;
+    box-shadow: 0 18px 60px rgba(10, 20, 60, .55);
+    text-align: center;
+    -webkit-app-region: drag; /* se puede arrastrar el cartel entero */
+  }
+  .titulo { font-size: 17px; font-weight: 700; line-height: 1.35; }
+  .detalle { margin-top: 6px; font-size: 13px; color: rgba(255,255,255,.65); }
+  .botones { margin-top: 18px; display: flex; gap: 10px; justify-content: center; -webkit-app-region: no-drag; }
+  button {
+    border: 0; border-radius: 999px; padding: 11px 22px;
+    font-size: 14px; font-weight: 700; cursor: pointer;
+  }
+  #si { background: linear-gradient(180deg, #3B82F6, #2563EB); color: #fff; }
+  #si:hover { filter: brightness(1.08); }
+  #no { background: rgba(255,255,255,.12); color: rgba(255,255,255,.85); }
+  #no:hover { background: rgba(255,255,255,.2); }
+</style>
+</head>
+<body>
+  <div class="caja">
+    <p class="titulo">Uy, veo que te estás uniendo a una reunión. ¿Querés grabarla?</p>
+    <p class="detalle">Subtítulos, traducción y resumen incluidos. Si no elegís nada, la grabo igual.</p>
+    <div class="botones">
+      <button id="si" type="button">Sí, grabala (<span id="cuenta">8</span>)</button>
+      <button id="no" type="button">Ahora no</button>
+    </div>
+  </div>
+<script>
+  // Si nadie toca nada, a los N segundos cuenta como SÍ (decisión de producto:
+  // la gracia es que grabe sola; queda avisado en el propio cartel y en los
+  // términos). El puente con Electron lo pone el preload (window.unifyCartel);
+  // si no está (pruebas en un navegador pelado), la respuesta queda en
+  // window.__respuesta para poder verificar la lógica igual.
+  const parametros = new URLSearchParams(location.search);
+  let restante = Math.max(1, parseInt(parametros.get("seg") || "8", 10) || 8);
+  const cuenta = document.getElementById("cuenta");
+  cuenta.textContent = String(restante);
+  let respondido = false;
+  function responder(valor) {
+    if (respondido) return;
+    respondido = true;
+    clearInterval(reloj);
+    window.__respuesta = valor;
+    if (window.unifyCartel) window.unifyCartel.responder(valor);
+  }
+  const reloj = setInterval(() => {
+    restante -= 1;
+    if (restante <= 0) { responder("si"); return; }
+    cuenta.textContent = String(restante);
+  }, 1000);
+  document.getElementById("si").addEventListener("click", () => responder("si"));
+  document.getElementById("no").addEventListener("click", () => responder("no"));
+</script>
+</body>
+</html>

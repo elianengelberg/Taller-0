@@ -27,7 +27,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://source.zoom.us https://meet.jit.si https://8x8.vc; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://source.zoom.us; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https: wss: blob:; frame-src 'self' https://meet.jit.si https://8x8.vc https://whereby.com https://*.whereby.com https://call.element.io https://source.zoom.us; worker-src 'self' blob: https://source.zoom.us; child-src 'self' blob:; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"
+          "value": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://source.zoom.us https://meet.jit.si https://8x8.vc; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://source.zoom.us; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https: wss: blob: http://127.0.0.1:47125; frame-src 'self' https://meet.jit.si https://8x8.vc https://whereby.com https://*.whereby.com https://call.element.io https://source.zoom.us; worker-src 'self' blob: https://source.zoom.us; child-src 'self' blob:; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"
         }
       ]
     },

@@ -213,6 +213,33 @@ export default function ExternalJoin() {
   const deepLinkRan = useRef(false);
   useEffect(() => {
     if (deepLinkRan.current) return;
+    // Deep link de la APP DE ESCRITORIO: detectó que la app de Zoom entró a
+    // una reunión. Acá NO hay enlace que detectar (la persona se unió directo
+    // en Zoom), así que se entra derecho al companion con la sala que manda la
+    // app -- un solo movimiento, sin escribir nada. `sala` viene generada por
+    // la app (estable mientras dura esa reunión, por si esta pestaña se
+    // recarga); si faltara, se inventa una acá.
+    if (searchParams.get("origen") === "escritorio") {
+      deepLinkRan.current = true;
+      const cruda = searchParams.get("sala") ?? "";
+      const sala =
+        cruda.replace(/[^a-z0-9-]/gi, "").slice(0, 48) ||
+        `zoom-${Date.now().toString(36)}`;
+      // La barra acompañante arranca grabando sola y sabe que la vigila el
+      // puente local de la app (ver ExternalMeeting).
+      sessionStorage.setItem("unify_autorec", "1");
+      sessionStorage.setItem("unify_escritorio", "1");
+      const savedName = (localStorage.getItem("unify_external_name") ?? "").trim();
+      startCompanionDraft({
+        name: savedName || "Invitado",
+        language,
+        externalKey: `escritorio-${sala}`,
+        roomLabel: "Zoom (app de escritorio)",
+        embed: { kind: "external", label: "Zoom", joinLink: "https://zoom.us/join" },
+      });
+      navigate("/externa/reunion", { replace: true });
+      return;
+    }
     // `link` es el deep link de la extensión. `url`/`text`/`title` son lo que
     // manda el share_target de la PWA (compartís el enlace de Zoom desde
     // WhatsApp -> Unify): muchas apps ponen el enlace en `text`, no en `url`,
