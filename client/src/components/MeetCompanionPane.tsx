@@ -58,6 +58,26 @@ export default function MeetCompanionPane({
         )}
       </div>
 
+      {/* Sin la extensión conectada (el celular, siempre), lo más importante
+          de la pantalla es ENTRAR a la reunión de verdad: botón grande, no el
+          enlacecito de la esquina. En el teléfono abre la app de Meet. */}
+      {!fresh && (
+        <div className="px-4 pt-3">
+          <a
+            href={meetLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 rounded-2xl bg-brand-500 px-4 py-3 text-sm font-bold text-on-accent shadow-md hover:bg-brand-600"
+          >
+            Abrir la reunión de Meet →
+          </a>
+          <p className="mt-1.5 text-center text-[11px] leading-snug text-ink-400">
+            La reunión se abre en su app o pestaña. Volvé acá para leer los subtítulos con su
+            traducción.
+          </p>
+        </div>
+      )}
+
       {/* El resto es la pantalla de subtítulos. */}
       <div className="min-h-0 flex-1">{subtitleStage}</div>
     </div>

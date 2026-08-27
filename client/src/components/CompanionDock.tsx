@@ -149,7 +149,10 @@ export default function CompanionDock({
         <button
           type="button"
           onClick={() => setInviteOpen(true)}
-          className="max-w-[17rem] rounded-xl border border-brand-500/40 bg-brand-500/15 px-3 py-2 text-left text-[11px] leading-snug text-brand-100 shadow-soft backdrop-blur-md hover:bg-brand-500/25"
+          // En el teléfono este recordatorio se apilaba con los carteles de
+          // grabación y el botón de entrar a la reunión: ahí se lo guarda (la
+          // pantalla ya explica lo mismo) y queda el contador 👤 para abrirlo.
+          className="hidden max-w-[17rem] rounded-xl border border-brand-500/40 bg-brand-500/15 px-3 py-2 text-left text-[11px] leading-snug text-brand-100 shadow-soft backdrop-blur-md hover:bg-brand-500/25 sm:block"
         >
           Por ahora solo se transcribe <b>tu voz</b>. Para sumar la de los demás,
           <span className="font-semibold"> invitalos a Unify</span>.

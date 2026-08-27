@@ -31,8 +31,10 @@ export default function RecordingBanner({
   if (status === "idle") return null;
 
   if (status === "recording") {
+    // En el teléfono, top-4 chocaba con la barra de Unify: baja un escalón
+    // (los dos estados con tarjeta usan el mismo corrimiento).
     return (
-      <div className="absolute left-1/2 top-4 flex max-w-[92vw] -translate-x-1/2 flex-col items-center gap-1.5">
+      <div className="absolute left-1/2 top-16 flex max-w-[92vw] -translate-x-1/2 flex-col items-center gap-1.5 sm:top-4">
         <div className="pointer-events-none flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1.5 text-xs font-semibold text-on-accent shadow-soft">
           <RecordIcon className="h-3 w-3 animate-pulse" />
           {kind === "audio" ? "Grabando audio" : "Grabando"}
@@ -94,7 +96,7 @@ export default function RecordingBanner({
   }
 
   return (
-    <div className="absolute left-1/2 top-4 w-full max-w-sm -translate-x-1/2 px-4">
+    <div className="absolute left-1/2 top-16 w-full max-w-sm -translate-x-1/2 px-4 sm:top-4">
       <div className="rounded-xl border border-ink-700 bg-ink-800 p-3 shadow-soft">
         <div className="flex items-start justify-between gap-2">
           <p className="text-sm font-semibold text-strong">Grabación lista</p>

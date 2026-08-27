@@ -77,6 +77,51 @@ async function detectAndJoin(page, link, { passcode } = {}) {
     await p.close();
   }
 
+  // ---- "Unirme" abre la reunión REAL (el bug del celular: pegabas el link
+  //      de Meet y Unify te dejaba en su capa sin llevarte nunca a la
+  //      reunión). El clic tiene que abrir Meet en su pestaña/app Y dejar la
+  //      capa de Unify con un botón grande para volver a abrirla. ----
+  {
+    const p = await ctx.newPage();
+    await p.addInitScript(() => {
+      window.__abiertos = [];
+      window.open = (url) => {
+        window.__abiertos.push(String(url));
+        return null;
+      };
+    });
+    await p.route("**fonts.g**", (r) => r.abort());
+    await detectAndJoin(p, "https://meet.google.com/abc-defg-hij");
+    await p.getByRole("button", { name: /Unirme acá dentro/i }).click();
+    await p.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
+    const abiertos = await p.evaluate(() => window.__abiertos);
+    check("el clic de «Unirme» ABRE la reunión real de Meet (pestaña/app)",
+      abiertos.some((u) => u.includes("meet.google.com/abc-defg-hij")), JSON.stringify(abiertos));
+    check("y la capa Unify deja un botón GRANDE para volver a abrirla",
+      (await p.getByRole("link", { name: /Abrir la reunión de Meet/i }).count()) > 0);
+    await p.close();
+  }
+  {
+    // Una embebible (Jitsi) corre ADENTRO: abrir otra copia afuera sería
+    // duplicar la reunión.
+    const p = await ctx.newPage();
+    await p.addInitScript(() => {
+      window.__abiertos = [];
+      window.open = (url) => {
+        window.__abiertos.push(String(url));
+        return null;
+      };
+    });
+    await p.route((url) => url.hostname.endsWith("jit.si"), (r) => r.abort());
+    await p.route("**fonts.g**", (r) => r.abort());
+    await detectAndJoin(p, "https://meet.jit.si/SalaAbrirReal1");
+    await p.getByRole("button", { name: /Unirme acá dentro/i }).click();
+    await p.waitForTimeout(1500);
+    check("una plataforma embebible (Jitsi) NO abre pestañas de más",
+      (await p.evaluate(() => window.__abiertos)).length === 0);
+    await p.close();
+  }
+
   // ---- Graceful errors joining unconfigured platforms (Zoom/Teams 503) ----
   {
     const p = await ctx.newPage();

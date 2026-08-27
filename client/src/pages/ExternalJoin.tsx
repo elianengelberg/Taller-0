@@ -191,7 +191,21 @@ export default function ExternalJoin() {
   // cancela el selector, no pasa nada: adentro la grabación arranca igual en
   // modo sólo audio.
   const [preparingRecording, setPreparingRecording] = useState(false);
+  // La reunión REAL se abre acá, con el MISMO clic de "Unirme" (tras un await
+  // el navegador ya lo trataría como popup no pedido): en el celular salta a
+  // la app de Meet/la plataforma; en compu abre su pestaña. Unify queda en
+  // ESTA pestaña como capa de subtítulos. Sólo para las plataformas que no
+  // pueden vivir embebidas acá (Meet y las "external"): abrir otra copia de
+  // una embebible sería duplicar la reunión.
+  function abrirReunionRealSiHaceFalta(target: DetectedMeeting) {
+    const info = companionEmbedFor(target, passcode);
+    if (!info) return;
+    const e = info.embed;
+    const link = e.kind === "meet" ? e.meetLink : e.kind === "external" ? e.joinLink : null;
+    if (link) window.open(link, "_blank", "noopener");
+  }
   async function joinWithAutoRecord(target: DetectedMeeting) {
+    abrirReunionRealSiHaceFalta(target);
     if (!autoRecordEnabled()) {
       joinDetected(target);
       return;
