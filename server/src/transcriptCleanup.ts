@@ -22,7 +22,7 @@
 // instead of open-ended prose, and always fall back to the raw reading
 // rather than ever surface model chatter as a "transcription".
 import { anthropicClient } from "./anthropicClient";
-import { languageExpertiseHints, languageName } from "./translate";
+import { languageExpertiseHints, languageName, translateText } from "./translate";
 
 const CLEANUP_MODEL = process.env.ANTHROPIC_TRANSCRIPT_MODEL || "claude-haiku-4-5";
 // Live captions need to feel instant -- if the correction call takes too
@@ -380,8 +380,32 @@ export async function translateFragmentToAll(
         return translations;
       }
     }
-    return {};
+    return await traducirUnoPorUno(best, targetLangCodes, sourceLangHint);
   } catch {
-    return {};
+    // Claude caído no deja la reunión sin traducciones: se traduce la mejor
+    // lectura idioma por idioma con translateText, que a su vez cae al
+    // proveedor gratuito. Degradado (sin el contexto de la charla), pero vivo.
+    return await traducirUnoPorUno(best, targetLangCodes, sourceLangHint);
   }
+}
+
+async function traducirUnoPorUno(
+  texto: string,
+  targetLangCodes: string[],
+  sourceLangHint?: string
+): Promise<Record<string, string>> {
+  // Sin idioma de origen no hay respaldo posible: el proveedor gratuito
+  // rechaza "auto" como origen (con un error DENTRO de un 200, ya aprendido).
+  if (!sourceLangHint) return {};
+  const result: Record<string, string> = {};
+  // Pocos idiomas por sala (los que hablan los presentes); igual se acota por
+  // cortesía con el proveedor de respaldo.
+  for (const code of targetLangCodes.slice(0, 4)) {
+    try {
+      result[code] = await translateText(texto, sourceLangHint, code);
+    } catch {
+      // Sin ese idioma: la línea queda en original para esa persona.
+    }
+  }
+  return result;
 }

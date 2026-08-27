@@ -267,10 +267,34 @@ export async function translateText(
     return cached.value;
   }
 
-  const translated = anthropicEnabled
-    ? await translateWithClaude(trimmed, from, to)
-    : await translateWithMyMemory(trimmed, from, to);
+  // Con Anthropic configurado, traduce Claude; si Claude falla (sobrecarga,
+  // cuota agotada, clave con problemas), el proveedor gratuito toma la posta
+  // EN EL MOMENTO: una reunión en vivo no puede quedarse sin traducción por
+  // un tropiezo del proveedor principal. Antes no había caída: cualquier
+  // error de Claude mataba la traducción entera.
+  let translated: string;
+  if (anthropicEnabled) {
+    try {
+      translated = await translateWithClaude(trimmed, from, to);
+    } catch (err) {
+      avisarFallaClaude(err);
+      translated = await translateWithMyMemory(trimmed, from, to);
+    }
+  } else {
+    translated = await translateWithMyMemory(trimmed, from, to);
+  }
 
   boundedCacheSet(key, translated);
   return translated;
+}
+
+// Un aviso por minuto alcanza: bajo una falla sostenida, loguear cada línea
+// sería ruido que tapa el resto del log.
+let ultimoAvisoClaude = 0;
+function avisarFallaClaude(err: unknown) {
+  if (Date.now() - ultimoAvisoClaude < 60_000) return;
+  ultimoAvisoClaude = Date.now();
+  console.warn(
+    `[translate] Claude falló; el respaldo gratuito toma la posta: ${err instanceof Error ? err.message : String(err)}`
+  );
 }
