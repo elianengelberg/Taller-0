@@ -6,7 +6,6 @@ import Button from "../components/Button";
 import Logo from "../components/Logo";
 import CalendarPanel from "../components/CalendarPanel";
 import BotAgendaPanel from "../components/BotAgendaPanel";
-import PalabrasSeguidas from "../components/PalabrasSeguidas";
 import EmailVerificationNotice from "../components/EmailVerificationNotice";
 import FolderShareDialog from "../components/FolderShareDialog";
 import {
@@ -185,10 +184,6 @@ export default function History() {
 
         <div className="mt-4">
           <BotAgendaPanel />
-        </div>
-
-        <div className="mt-4">
-          <PalabrasSeguidas />
         </div>
 
         {!error && meetings !== null && meetings.length > 0 && (

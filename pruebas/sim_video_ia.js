@@ -287,6 +287,11 @@ const json = (b, extra = {}) => ({
     const linea2 = await page.locator("li.border-brand-400").textContent().catch(() => "");
     check("a los ~3,2 s la negrita ya pasó a la línea 2 (sigue al video)",
       /lámina azul/.test(linea2), linea2.slice(0, 60).replace(/\n/g, " "));
+    // El seguimiento de palabras SOBRE el video: el subtítulo aparece encima
+    // del reproductor solo, con la frase que se está diciendo, sin buscar nada.
+    const sobreVideo = await page.locator("[data-subtitulos-video]").textContent().catch(() => "");
+    check("el subtítulo va SOBRE el video mientras corre (seguimiento de palabras)",
+      /lámina azul/.test(sobreVideo), (sobreVideo || "(sin subtítulo)").slice(0, 60).replace(/\n/g, " "));
     await page.evaluate(() => document.querySelector("video").pause());
   }
 

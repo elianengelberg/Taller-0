@@ -19,8 +19,7 @@ import {
 } from "../lib/api";
 import { isExternalMeeting, meetingSourceLabel } from "../lib/meetingPlatforms";
 import { groupConsecutive } from "../lib/transcriptGroups";
-import { analizarReunion, seguirPalabras } from "../lib/meetingAnalytics";
-import { fetchTrackedWords } from "../lib/api";
+import { analizarReunion } from "../lib/meetingAnalytics";
 import { cardClass } from "../lib/ui";
 
 export default function MeetingDetail() {
@@ -295,12 +294,21 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
                   className="w-full"
                 />
               ) : (
-                <video
-                  ref={videoRef}
-                  controls
-                  src={meeting.recordingUrl}
-                  className="w-full rounded-lg"
-                />
+                <div className="relative overflow-hidden rounded-lg">
+                  <video
+                    ref={videoRef}
+                    controls
+                    src={meeting.recordingUrl}
+                    className="w-full rounded-lg"
+                  />
+                  {/* El seguimiento de palabras: los subtítulos van SOLOS
+                      sobre el video mientras se reproduce. */}
+                  <SubtitulosSobreVideo
+                    messages={meeting.messages}
+                    baseMs={baseMs}
+                    videoRef={videoRef}
+                  />
+                </div>
               )}
               <a
                 href={meeting.recordingUrl}
@@ -349,8 +357,6 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
         />
 
         <ParticipacionPanel messages={meeting.messages} />
-
-        <SeguimientoPanel messages={meeting.messages} />
 
         {/* Sin grabación, la transcripción va acá abajo como lista simple.
             Con grabación NO se repite: ya vive sincronizada junto al video. */}
@@ -558,48 +564,43 @@ const TranscriptLineItem = memo(function TranscriptLineItem({
 // push new React state when the active line or word actually changes -- so the
 // follow-along stays smooth instead of stuttering, and paused/seeked positions
 // are tracked too.
-function SyncedTranscript({
-  messages,
-  baseMs,
-  videoRef,
-  onSeek,
-}: {
-  messages: MeetingHistoryMessage[];
-  baseMs: number;
-  videoRef: React.RefObject<HTMLVideoElement>;
-  onSeek: (offsetSec: number) => void;
-}) {
-  const entries = useMemo<SyncEntry[]>(() => {
-    const base = messages.map((m) => ({
-      ...m,
-      offset: (new Date(m.createdAt).getTime() - baseMs) / 1000,
-      end: 0,
-    }));
-    // La ventana estimada de cada línea hablada: mismo cálculo que computeAt,
-    // así el clic por palabra y el relleno en negrita no discrepan jamás.
-    const voz = base.filter((e) => e.kind === "transcript");
-    for (let i = 0; i < voz.length; i++) {
-      const words = voz[i].text.split(/\s+/).filter(Boolean);
-      const est = Math.max(1.5, words.length * 0.45);
-      voz[i].end =
-        i + 1 < voz.length ? Math.min(voz[i + 1].offset, voz[i].offset + est + 3) : voz[i].offset + est;
-    }
-    return base;
-  }, [messages, baseMs]);
-  const voice = useMemo(() => entries.filter((e) => e.kind === "transcript"), [entries]);
+// Los mensajes con su lugar en el video: offset (segundos desde el inicio de
+// la grabación) y la ventana estimada de cada línea hablada. UNA sola fórmula
+// para todo (panel, clic por palabra y subtítulos sobre el video): jamás
+// discrepan.
+function armarEntradas(messages: MeetingHistoryMessage[], baseMs: number): SyncEntry[] {
+  const base = messages.map((m) => ({
+    ...m,
+    offset: (new Date(m.createdAt).getTime() - baseMs) / 1000,
+    end: 0,
+  }));
+  const voz = base.filter((e) => e.kind === "transcript");
+  for (let i = 0; i < voz.length; i++) {
+    const words = voz[i].text.split(/\s+/).filter(Boolean);
+    const est = Math.max(1.5, words.length * 0.45);
+    voz[i].end =
+      i + 1 < voz.length ? Math.min(voz[i + 1].offset, voz[i].offset + est + 3) : voz[i].offset + est;
+  }
+  return base;
+}
 
+// Qué línea se está diciendo AHORA en el video (y por qué palabra va),
+// leyendo la posición vía requestAnimationFrame mientras reproduce (más los
+// eventos de seek/pausa). Compartido por el panel "Palabra por palabra" y por
+// los subtítulos sobre el video: los dos siguen exactamente el mismo reloj.
+function useMomentoActivo(
+  voice: SyncEntry[],
+  videoRef: React.RefObject<HTMLVideoElement>
+): { id: number | null; wordIdx: number } {
   const [active, setActive] = useState<{ id: number | null; wordIdx: number }>({ id: null, wordIdx: -1 });
   const activeRef = useRef(active);
   activeRef.current = active;
 
-  // Which line is being spoken at time t, and how far into its words we are.
   const computeAt = useCallback(
     (t: number): { id: number | null; wordIdx: number } => {
       for (let i = 0; i < voice.length; i++) {
         const start = voice[i].offset;
         const words = voice[i].text.split(/\s+/).filter(Boolean);
-        // La ventana viene precalculada en entries (la misma que usa el clic
-        // por palabra), así negrita y salto nunca discrepan.
         const end = voice[i].end;
         if (t >= start && t < end) {
           const prog = end > start ? (t - start) / (end - start) : 1;
@@ -650,6 +651,61 @@ function SyncedTranscript({
       v.removeEventListener("timeupdate", sync);
     };
   }, [computeAt, videoRef]);
+
+  return active;
+}
+
+// El SEGUIMIENTO DE PALABRAS: subtítulos SOBRE el video que van solos.
+// Mientras el video corre, la frase que se está diciendo aparece encima
+// (quién habla + sus palabras, rellenándose una a una). No hay que buscar
+// nada ni configurar nada: es una ayuda que está ahí y ya. Siempre oscuro
+// sobre el video (como cualquier subtítulo), en los dos temas.
+function SubtitulosSobreVideo({
+  messages,
+  baseMs,
+  videoRef,
+}: {
+  messages: MeetingHistoryMessage[];
+  baseMs: number;
+  videoRef: React.RefObject<HTMLVideoElement>;
+}) {
+  const entries = useMemo<SyncEntry[]>(() => armarEntradas(messages, baseMs), [messages, baseMs]);
+  const voice = useMemo(() => entries.filter((e) => e.kind === "transcript"), [entries]);
+  const active = useMomentoActivo(voice, videoRef);
+  const linea = voice.find((e) => e.id === active.id);
+  if (!linea) return null;
+  const words = linea.text.split(/\s+/).filter(Boolean);
+  return (
+    <div
+      data-subtitulos-video
+      className="pointer-events-none absolute inset-x-3 bottom-14 flex justify-center"
+    >
+      <p className="max-w-[94%] rounded-xl bg-slate-900/85 px-3.5 py-2 text-center text-sm font-medium leading-snug text-white shadow-soft backdrop-blur-sm sm:text-base">
+        <span className="mr-1.5 text-brand-400">{linea.senderName}:</span>
+        {words.map((w, i) => (
+          <span key={i} className={i <= active.wordIdx ? "text-white" : "text-white/40"}>
+            {w}{" "}
+          </span>
+        ))}
+      </p>
+    </div>
+  );
+}
+
+function SyncedTranscript({
+  messages,
+  baseMs,
+  videoRef,
+  onSeek,
+}: {
+  messages: MeetingHistoryMessage[];
+  baseMs: number;
+  videoRef: React.RefObject<HTMLVideoElement>;
+  onSeek: (offsetSec: number) => void;
+}) {
+  const entries = useMemo<SyncEntry[]>(() => armarEntradas(messages, baseMs), [messages, baseMs]);
+  const voice = useMemo(() => entries.filter((e) => e.kind === "transcript"), [entries]);
+  const active = useMomentoActivo(voice, videoRef);
 
   const activeLiRef = useRef<HTMLLIElement>(null);
   useEffect(() => {
@@ -743,68 +799,6 @@ function StatusMessage({ text, children }: { text: string; children?: ReactNode 
       <Link to="/historial" className="text-sm font-medium text-brand-300 hover:text-brand-200">
         Volver al historial
       </Link>
-    </div>
-  );
-}
-
-// El seguimiento de palabras: cuántas veces se dijeron TUS palabras clave en
-// ESTA reunión, quién las dijo y en qué frases. La lista se administra en el
-// Historial (tarjeta "Seguimiento de palabras"); el conteo es la función pura
-// seguirPalabras sobre el transcripto ya guardado.
-function SeguimientoPanel({ messages }: { messages: MeetingHistoryMessage[] }) {
-  const [palabras, setPalabras] = useState<string[]>([]);
-  useEffect(() => {
-    fetchTrackedWords().then(setPalabras);
-  }, []);
-  const resultados = useMemo(() => seguirPalabras(messages, palabras), [messages, palabras]);
-  if (!palabras.length) return null;
-
-  const dichas = resultados.filter((r) => r.veces > 0);
-  const noDichas = resultados.filter((r) => r.veces === 0);
-
-  return (
-    <div className={`${cardClass} mt-6`}>
-      <h2 className="text-lg font-semibold text-strong">Seguimiento de palabras</h2>
-      <p className="mt-1 text-sm text-ink-400">
-        Tus palabras clave en esta reunión. La lista se cambia desde el Historial.
-      </p>
-
-      {dichas.length === 0 && (
-        <p className="mt-3 text-sm text-ink-400">
-          Ninguna de tus palabras seguidas apareció en esta reunión.
-        </p>
-      )}
-
-      <div className="mt-4 space-y-4">
-        {dichas.map((r) => (
-          <div key={r.palabra}>
-            <div className="flex items-baseline justify-between gap-2 text-sm">
-              <span className="font-medium text-strong">«{r.palabra}»</span>
-              <span className="shrink-0 tabular-nums text-ink-300">
-                {r.veces} {r.veces === 1 ? "vez" : "veces"}
-              </span>
-            </div>
-            <p className="mt-0.5 text-xs text-ink-400">
-              {r.porQuien.map((q) => `${q.nombre} (${q.veces})`).join(" · ")}
-            </p>
-            {r.ejemplos.length > 0 && (
-              <ul className="mt-1.5 space-y-1">
-                {r.ejemplos.map((e, i) => (
-                  <li key={i} className="rounded-lg bg-ink-800/60 px-3 py-1.5 text-xs leading-relaxed text-ink-300">
-                    {e}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {noDichas.length > 0 && dichas.length > 0 && (
-        <p className="mt-4 text-xs text-ink-500">
-          Sin menciones: {noDichas.map((r) => `«${r.palabra}»`).join(", ")}
-        </p>
-      )}
     </div>
   );
 }
