@@ -512,7 +512,8 @@ const UA = {
     await page.waitForTimeout(600);
     const t = await texto(page);
     check("y la página de instalación esconde la sección de la app",
-      !/1 · La app de Unify/.test(t) && !/Instalar Unify en este dispositivo/.test(t));
+      !/Instalar Unify en este dispositivo/.test(t) && !/Instalar la app/.test(t) &&
+      !/Tocá el botón grande/.test(t));
     check("pero sigue mostrando la extensión, que se instala aparte",
       /La extensión para tu navegador/.test(t));
     await ctx.close();

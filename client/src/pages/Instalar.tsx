@@ -209,17 +209,42 @@ export default function Instalar() {
           </Link>
         </div>
 
-        <h1 className="text-3xl font-bold text-strong">Instalar Unify</h1>
-        <p className="mt-2 text-sm leading-relaxed text-ink-300">
-          Tocá tu dispositivo acá abajo (ya marcamos cuál creemos que es) y te mostramos los pasos,
-          cortitos y con fotos de dónde tocar. Son dos cosas para instalar:{" "}
-          <span className="font-semibold text-strong">la app</span> (para abrir Unify con un ícono,
-          como cualquier app) y <span className="font-semibold text-strong">la extensión</span>{" "}
-          (para que, cuando entres a un Zoom o Meet, te aparezca solo el cartel de grabar).
-        </p>
+        {/* El héroe, como una página de descarga de producto (PWABuilder /
+            Epic): título grande, UNA línea, y el botón gigante que hace lo
+            correcto para el dispositivo detectado. El detalle vive abajo. */}
+        <div className="text-center">
+          <h1 className="text-4xl font-bold tracking-tight text-strong sm:text-5xl">
+            Instalar Unify
+          </h1>
+          <p className="mx-auto mt-3 max-w-xl text-base text-ink-300">
+            Dos piezas, un par de toques: <span className="font-semibold text-strong">la app</span> y{" "}
+            <span className="font-semibold text-strong">la extensión</span> que te avisa en cada
+            reunión.
+          </p>
+          {!instalada && (
+            <div className="mt-7 flex flex-col items-center gap-2.5">
+              {instalable ? (
+                <Button className="px-8 py-3.5 text-base shadow-soft" onClick={handleInstalar}>
+                  Instalar Unify en este dispositivo
+                </Button>
+              ) : (
+                <a href="#app">
+                  <Button className="px-8 py-3.5 text-base shadow-soft">Instalar la app</Button>
+                </a>
+              )}
+              <a
+                href="#ext"
+                className="flex min-h-[40px] items-center px-2 text-sm font-medium text-brand-300 hover:underline"
+              >
+                También quiero la extensión ↓
+              </a>
+            </div>
+          )}
+        </div>
+
         {/* Selector de sistema: una sección por cada uno, para elegir a mano.
             El detectado arranca marcado; los demás están a un toque. */}
-        <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Elegí el sistema">
+        <div className="mt-9 flex flex-wrap justify-center gap-2" role="group" aria-label="Elegí el sistema">
           {(["windows", "mac", "ios", "android"] as Plataforma[]).map((sys) => (
             <button
               key={sys}
@@ -283,24 +308,24 @@ export default function Instalar() {
 
         {/* ── 1. La app ─────────────────────────────────────────────── */}
         {!instalada && (
-        <section className={`${cardClass} mt-6`}>
-          <h2 className="text-lg font-semibold text-strong">1 · La app de Unify</h2>
+        <section id="app" className={`${cardClass} mt-6 scroll-mt-6`}>
+          <h2 className="text-lg font-semibold text-strong">La app</h2>
           <p className="mt-1 text-sm leading-relaxed text-ink-300">
-            Sin tiendas ni descargas: se instala desde esta misma página y queda con su ícono
+            Sin tiendas ni descargas: queda con su ícono
             {plataforma === "android" && ", y aparece en el menú Compartir de Android"}
             {esApple && plataforma === "ios" && ", en tu pantalla de inicio"}.
           </p>
 
           {instalable ? (
-            <Button className="mt-4 w-full sm:w-auto" onClick={handleInstalar}>
-              Instalar Unify en este dispositivo
-            </Button>
+            <p className="mt-3 text-sm text-ink-400">
+              Tocá el botón grande de arriba y ya queda instalada.
+            </p>
           ) : (
-            <div className="mt-4 rounded-xl border border-ink-700 bg-ink-800/60 p-4 text-sm leading-relaxed text-ink-200">
+            <div className="mt-4 text-sm leading-relaxed text-ink-200">
               {plataforma === "ios" ? (
                 <>
                   {!esSafariDeIos() && (
-                    <div className="mb-3 rounded-lg border border-brand-500/40 bg-brand-500/10 p-3">
+                    <div className="mb-4 border-l-2 border-brand-400 pl-3">
                       <p className="text-sm font-semibold text-brand-200">
                         Estás en Chrome o Edge de iPhone: también se puede
                       </p>
@@ -418,8 +443,9 @@ export default function Instalar() {
 
         {/* ── 2. La extensión ───────────────────────────────────────── */}
         <section
+          id="ext"
           ref={seccionExt}
-          className={`${cardClass} mt-6 ${
+          className={`${cardClass} mt-6 scroll-mt-6 ${
             siguientePaso ? "border-brand-500/60 ring-1 ring-brand-500/40" : ""
           }`}
         >
@@ -430,7 +456,7 @@ export default function Instalar() {
           )}
           {/* Sin la sección de la app (ya instalada), numerar "2" sobraría. */}
           <h2 className="text-lg font-semibold text-strong">
-            {instalada ? "La extensión para tu navegador" : "2 · La extensión para Chrome"}
+            {instalada ? "La extensión para tu navegador" : "La extensión"}
           </h2>
 
           {movil ? (
@@ -452,19 +478,14 @@ export default function Instalar() {
           ) : (
             <>
               <p className="mt-1 text-sm leading-relaxed text-ink-300">
-                La pieza de la magia automática: detecta que entrás a una reunión de Zoom, Meet, Teams, Jitsi,
-                Webex, Whereby o GoTo y te ofrece subtítulos traducidos, transcripción y grabación ahí mismo.
+                Se instala una vez y funciona sola: entrás a una reunión y el cartel aparece.{" "}
+                <span className="font-semibold text-strong">No hace falta abrir Unify</span> ni tener la app a
+                la vista.
               </p>
-              <div className="mt-3 rounded-xl border border-brand-500/40 bg-brand-500/10 p-3.5 text-sm leading-relaxed text-ink-200">
-                <p className="font-semibold text-strong">Instalás una vez y se olvida el tema: funciona sola.</p>
-                <p className="mt-1">
-                  Con la extensión <span className="font-semibold">no hace falta abrir Unify</span>: trabaja de
-                  fondo cada vez que tu navegador está abierto. Te mandan un enlace de reunión por WhatsApp,
-                  mail o donde sea, lo abrís, y el cartel aparece solo — sin la app a la vista, sin tocar nada.
-                </p>
-                <p className="mt-2 text-xs text-ink-400">
-                  ¿Lo querés desde que prendés la computadora? Poné tu navegador para que arranque con
-                  Windows (Configuración → Aplicaciones → Inicio) y la extensión queda lista 24/7, sin que
+              <div className="mt-3 text-sm leading-relaxed text-ink-200">
+                <p className="text-xs text-ink-400">
+                  ¿La querés 24/7? Poné el navegador para que arranque con Windows
+                  (Configuración → Aplicaciones → Inicio) y listo, sin que
                   abras nada.
                 </p>
               </div>
@@ -527,7 +548,7 @@ export default function Instalar() {
                       {copiado === "terminal" ? "¡Copiado!" : "Copiar"}
                     </button>
                   </div>
-                  <div className="mt-3 rounded-xl border border-ink-700 bg-ink-800/60 p-4 text-sm leading-relaxed text-ink-200">
+                  <div className="mt-4 text-sm leading-relaxed text-ink-200">
                     <p>
                       El instalador descarga la extensión, la deja en su carpeta, te{" "}
                       <span className="font-semibold">copia la ruta al portapapeles</span> y te abre la página de
@@ -557,7 +578,7 @@ export default function Instalar() {
                   <a href="/unify-extension.zip" download>
                     <Button className="w-full sm:w-auto">Descargar la extensión (ZIP)</Button>
                   </a>
-                  <div className="mt-3 rounded-xl border border-ink-700 bg-ink-800/60 p-4 text-sm leading-relaxed text-ink-200">
+                  <div className="mt-4 text-sm leading-relaxed text-ink-200">
                     <p className="font-medium text-strong">
                       Cuatro pasos, sin terminal ni avisos de seguridad{esEdge() ? " (estás en Edge: los pasos son los de Edge)" : ""}:
                     </p>
@@ -615,9 +636,7 @@ export default function Instalar() {
           <section className={`${cardClass} mt-6`}>
             <h2 className="text-lg font-semibold text-strong">El enlace que instala</h2>
             <p className="mt-1 text-sm leading-relaxed text-ink-300">
-              Compartí este enlace: a quien lo abra le arranca sola la descarga del{" "}
-              <span className="font-semibold text-strong">ZIP de la extensión</span> y le muestra los pasos de SU
-              sistema y navegador (Windows, Mac, iPhone o Android; Chrome o Edge).
+              Compartilo y a quien lo abra le baja la extensión sola, con los pasos de su sistema.
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <code className="rounded-lg bg-ink-800 px-3 py-2 text-xs text-brand-200">
