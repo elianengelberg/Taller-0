@@ -82,11 +82,11 @@ export default function Footer() {
         </div>
       </div>
 
-      {/* La marca GIGANTE recortada abajo, la firma visual de Discord. */}
+      {/* La marca recortada abajo como firma visual, pero discreta (no gigante). */}
       <div
         aria-hidden
-        className="pointer-events-none select-none px-4 text-center font-display font-extrabold leading-[0.75] tracking-tight text-white/10"
-        style={{ fontSize: "clamp(5rem, 22vw, 20rem)" }}
+        className="pointer-events-none select-none px-4 pt-2 text-center font-display font-extrabold leading-[0.8] tracking-tight text-white/10"
+        style={{ fontSize: "clamp(2.5rem, 11vw, 7rem)" }}
       >
         Unify
       </div>

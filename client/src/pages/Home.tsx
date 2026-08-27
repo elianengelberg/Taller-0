@@ -10,7 +10,6 @@ import { AppMockupDesktop } from "../components/AppMockup";
 import { useAuth } from "../context/AuthContext";
 import { getUnsavedMeeting } from "../lib/unsavedMeeting";
 import { isStandalone } from "../pwa";
-import { cardClass } from "../lib/ui";
 
 export default function Home() {
   const navigate = useNavigate();
@@ -173,28 +172,50 @@ export default function Home() {
             />
           </div>
 
-          <ul className="mx-auto mt-14 grid max-w-3xl gap-4 text-left sm:grid-cols-2">
-            <FeatureItem
-              icon={<PeopleIcon className="h-5 w-5" />}
-              title="Roles en vivo"
-              description="El anfitrión asigna roles a cada persona durante la reunión, y cada frase queda anotada con quién la dijo."
-            />
-            <FeatureItem
-              icon={<CaptionsIcon className="h-5 w-5" />}
-              title="Subtítulos y traducción"
-              description="Transcripción en vivo con nombre, traducida al instante al idioma que elija cada uno."
-            />
-            <FeatureItem
-              icon={<SparklesIcon className="h-5 w-5" />}
-              title="Asistente de IA"
-              description="Preguntale a la IA durante la reunión: resúmenes, conclusiones y qué se dijo, en el momento."
-            />
-            <FeatureItem
-              icon={<GlobeIcon className="h-5 w-5" />}
-              title="Sobre otras plataformas"
-              description="Llevá los subtítulos, la traducción y la IA a tus reuniones de Zoom, Teams o Jitsi."
-            />
-          </ul>
+          {/* Las cuatro cosas que hace Unify, presentadas en un "bento":
+              baldosas de tamaños distintos (dos anchas, dos chicas) con un
+              brillo de color propio. Misma información que antes, pero con un
+              ritmo visual en vez de una grilla pareja. */}
+          <div className="mt-20">
+            <h2 className="font-display text-3xl font-extrabold uppercase tracking-tight text-strong sm:text-4xl">
+              Todo lo que pasa en la reunión, resuelto
+            </h2>
+            <p className="mx-auto mt-3 max-w-xl text-ink-300">
+              Sin instalar nada raro ni tomar notas. Vos hablás, Unify se encarga del resto.
+            </p>
+            <div className="mx-auto mt-8 grid max-w-4xl gap-4 text-left sm:grid-cols-3">
+              <Feature
+                wide
+                glow="bg-brand-500/25"
+                chip="bg-brand-500/15 text-brand-300"
+                icon={<CaptionsIcon className="h-6 w-6" />}
+                title="Subtítulos y traducción"
+                description="Transcripción en vivo con el nombre de quien habla, traducida al instante al idioma que elija cada uno."
+              />
+              <Feature
+                glow="bg-sky-500/25"
+                chip="bg-sky-500/15 text-sky-300"
+                icon={<PeopleIcon className="h-6 w-6" />}
+                title="Roles en vivo"
+                description="El anfitrión asigna roles en la reunión y cada frase queda anotada con quién la dijo."
+              />
+              <Feature
+                glow="bg-violet-500/25"
+                chip="bg-violet-500/15 text-violet-300"
+                icon={<SparklesIcon className="h-6 w-6" />}
+                title="Asistente de IA"
+                description="Preguntale a la IA en plena reunión: resúmenes, conclusiones y qué se dijo, al momento."
+              />
+              <Feature
+                wide
+                glow="bg-indigo-500/25"
+                chip="bg-indigo-500/15 text-indigo-300"
+                icon={<GlobeIcon className="h-6 w-6" />}
+                title="Sobre otras plataformas"
+                description="Llevá los subtítulos, la traducción y la IA a tus reuniones de Zoom, Teams o Jitsi."
+              />
+            </div>
+          </div>
 
           {/* Mostrar el producto (estilo Discord): título display grande a un
               lado, la maqueta de Unify sobre un blob de color al otro. */}
@@ -275,24 +296,41 @@ function ActionCard({
   );
 }
 
-function FeatureItem({
+// Una baldosa del "bento". `wide` la hace ocupar dos columnas (y pone el ícono
+// al lado del texto en pantallas grandes); `glow` es el brillo de color en la
+// esquina y `chip` el color del ícono. Así cada una tiene su acento propio.
+function Feature({
   icon,
   title,
   description,
+  glow,
+  chip,
+  wide,
 }: {
   icon: ReactNode;
   title: string;
   description: string;
+  glow: string;
+  chip: string;
+  wide?: boolean;
 }) {
   return (
-    <li className="flex gap-3 rounded-xl border border-ink-700 bg-ink-800 p-4">
-      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-500/15 text-brand-300">
-        {icon}
-      </span>
-      <div>
-        <p className="font-semibold text-strong">{title}</p>
-        <p className="mt-1 text-sm text-ink-300">{description}</p>
+    <div
+      className={`relative overflow-hidden rounded-3xl border border-ink-700 bg-ink-800 p-6 shadow-soft transition-transform duration-200 hover:-translate-y-1 ${
+        wide ? "sm:col-span-2 sm:p-7" : ""
+      }`}
+    >
+      {/* Brillo de color en la esquina, la firma de cada baldosa. */}
+      <div aria-hidden className={`pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full blur-2xl ${glow}`} />
+      <div className={`relative ${wide ? "sm:flex sm:items-start sm:gap-5" : ""}`}>
+        <span className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${chip}`}>
+          {icon}
+        </span>
+        <div className={wide ? "mt-4 sm:mt-0" : "mt-4"}>
+          <h3 className="text-lg font-bold text-strong">{title}</h3>
+          <p className="mt-1.5 text-sm leading-relaxed text-ink-300">{description}</p>
+        </div>
       </div>
-    </li>
+    </div>
   );
 }

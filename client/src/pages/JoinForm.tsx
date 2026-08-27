@@ -29,8 +29,10 @@ export default function JoinForm() {
     navigate("/reunion");
   }
 
+  // min-h un poco menor que la pantalla: así asoma una franja del pie (la
+  // banda azul) abajo de todo, sin tener que scrollear.
   return (
-    <div className="flex min-h-screen flex-col items-center bg-ink-950 px-6 py-10">
+    <div className="flex min-h-[calc(100dvh-3.25rem)] flex-col items-center bg-ink-950 px-6 py-10">
       <div className="w-full max-w-md">
         <Logo className="mb-8" />
         <div className={cardClass}>

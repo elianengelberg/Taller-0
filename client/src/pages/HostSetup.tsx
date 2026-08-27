@@ -55,8 +55,9 @@ export default function HostSetup() {
     navigate("/reunion");
   }
 
+  // Deja asomar una franja del pie (banda azul) abajo, sin scrollear.
   return (
-    <div className="flex min-h-screen flex-col items-center bg-ink-950 px-6 py-10">
+    <div className="flex min-h-[calc(100dvh-3.25rem)] flex-col items-center bg-ink-950 px-6 py-10">
       <div className="w-full max-w-lg">
         <Logo className="mb-8" />
         <div className={cardClass}>
