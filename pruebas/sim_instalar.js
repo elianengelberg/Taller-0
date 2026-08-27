@@ -540,7 +540,8 @@ const UA = {
       /Ayuda de Unify/.test(sop) && /Cómo instalo/.test(sop) && /hola@unify-meet\.com/.test(sop));
     check("con el teléfono de contacto y su enlace de WhatsApp",
       /11 3025-4522/.test(sop) &&
-      (await page.locator('a[href="https://wa.me/5491130254522"]').count()) === 1);
+      // >= 1: la página tiene su bloque de contacto y el pie global suma otro.
+      (await page.locator('a[href="https://wa.me/5491130254522"]').count()) >= 1);
     check("y es honesto con el límite real (la app de escritorio de Zoom)",
       /extensión de navegador no puede/.test(sop));
     await ctx.close();
