@@ -118,9 +118,9 @@ export default function Home() {
           <span className="inline-block rounded-full bg-brand-500/15 px-4 py-1.5 text-sm font-medium text-brand-300">
             Tus reuniones: grabadas, traducidas y resumidas solas
           </span>
-          <h1 className="mt-6 text-4xl font-extrabold leading-tight tracking-tight text-strong sm:text-6xl">
-            Reuniones{" "}
-            <span className="bg-gradient-to-r from-brand-400 to-brand-600 bg-clip-text text-transparent">
+          <h1 className="mt-6 font-display text-5xl font-extrabold uppercase leading-[0.92] tracking-tight text-strong sm:text-7xl">
+            Reuniones<br />
+            <span className="bg-gradient-to-r from-sky-400 via-brand-500 to-indigo-500 bg-clip-text text-transparent">
               sin barreras
             </span>
           </h1>
@@ -214,6 +214,35 @@ export default function Home() {
             <AppMockupDesktop />
           </div>
         </div>
+
+        {/* Banda de cierre estilo Discord: fondo de color, título enorme y un
+            botón pill grande. Cierra la landing antes del pie. */}
+        <div className="relative mt-24 w-full overflow-hidden">
+          <div className="mx-auto max-w-5xl rounded-[2.5rem] bg-gradient-to-br from-brand-600 to-indigo-600 px-8 py-16 text-center shadow-lg sm:px-16">
+            <h2 className="font-display text-4xl font-extrabold uppercase leading-tight tracking-tight text-white sm:text-5xl">
+              Probalo en tu próxima reunión
+            </h2>
+            <p className="mx-auto mt-4 max-w-xl text-lg text-white/80">
+              Gratis, sin tarjeta. Instalás Unify y ya tenés subtítulos, traducción y resumen.
+            </p>
+            <div className="mt-8 flex flex-wrap justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => navigate("/instalar")}
+                className="rounded-full bg-white px-8 py-3.5 text-base font-bold text-brand-700 shadow-md transition-transform hover:-translate-y-0.5"
+              >
+                Instalar Unify
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate("/crear")}
+                className="rounded-full bg-white/15 px-8 py-3.5 text-base font-bold text-white ring-1 ring-white/30 transition-colors hover:bg-white/25"
+              >
+                Crear una reunión
+              </button>
+            </div>
+          </div>
+        </div>
       </main>
       {/* El pie de página global (Footer, montado por ConPie en App.tsx)
           reemplaza al que vivía acá: una sola barra de soporte en todo el
@@ -235,12 +264,12 @@ function ActionCard({
 }) {
   return (
     <div
-      className={`flex flex-col ${cardClass} ${
-        highlight ? "border-brand-500/60 ring-1 ring-brand-500/30" : ""
+      className={`flex flex-col rounded-3xl border border-ink-700 bg-ink-800 p-6 text-left shadow-soft transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${
+        highlight ? "ring-1 ring-brand-500/30" : ""
       }`}
     >
-      <h2 className="text-lg font-semibold text-strong">{title}</h2>
-      <p className="mt-1.5 flex-1 text-sm text-ink-300">{description}</p>
+      <h2 className="text-lg font-bold text-strong">{title}</h2>
+      <p className="mt-1.5 flex-1 text-sm leading-relaxed text-ink-300">{description}</p>
       {cta}
     </div>
   );
