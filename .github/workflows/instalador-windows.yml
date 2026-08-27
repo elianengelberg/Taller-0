@@ -1,0 +1,61 @@
+# Compila el instalador de la app de escritorio EN WINDOWS y lo publica en
+# GitHub Releases como "latest".
+#
+# Por qué existe: el botón "Descargar Unify para Windows" de /instalar apunta a
+#   https://github.com/elianengelberg/Taller-0/releases/latest/download/Unify-Setup.exe
+# -- la URL "latest" siempre sirve el último release publicado, así que correr
+# este workflow es TODO lo que hace falta para publicar una versión nueva: no
+# hay que tocar la web, ni compilar nada a mano, ni tener un Windows.
+#
+# Se dispara a mano (pestaña Actions → "Instalador de Windows" → Run workflow)
+# o solo, cuando un push a la rama principal toca desktop/.
+name: Instalador de Windows
+
+on:
+  workflow_dispatch: {}
+  push:
+    # La rama de trabajo está incluida para poder publicar sin esperar el
+    # merge; después del merge se puede dejar sólo la principal.
+    branches: [main, master, claude/zoom-platform-roles-transcription-4914ju]
+    paths: ["desktop/**", ".github/workflows/instalador-windows.yml"]
+
+permissions:
+  contents: write # crear el release y adjuntar el .exe
+
+jobs:
+  instalador:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar dependencias
+        working-directory: desktop
+        run: npm install
+
+      - name: Compilar el instalador NSIS
+        working-directory: desktop
+        # --publish never: publica el paso siguiente, no electron-builder.
+        run: npx electron-builder --win nsis --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false" # sin certificado de firma (por ahora)
+
+      - name: Publicar en Releases (queda como latest)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: escritorio-b${{ github.run_number }}
+          name: Unify para Windows (build ${{ github.run_number }})
+          body: |
+            Instalador de la app de escritorio de Unify.
+
+            Detecta tus reuniones de Zoom, pregunta si las querés grabar y las
+            guarda en tu historial con subtítulos, traducción e IA.
+
+            **Descarga directa:** Unify-Setup.exe (abajo). Al no estar firmado,
+            Windows puede mostrar el aviso de SmartScreen: "Más información" →
+            "Ejecutar de todas formas".
+          files: desktop/dist/Unify-Setup.exe
+          make_latest: "true"
