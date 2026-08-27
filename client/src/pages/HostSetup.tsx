@@ -5,7 +5,7 @@ import Logo from "../components/Logo";
 import { useAuth } from "../context/AuthContext";
 import { useMeeting } from "../context/MeetingContext";
 import { roleColorStyle } from "../lib/roleColors";
-import { LANGUAGES } from "../lib/languages";
+import { LANGUAGES, idiomaDelDispositivo, recordarIdioma } from "../lib/languages";
 import { cardClass, inputClass, labelClass, nameInputProps, sentenceInputProps } from "../lib/ui";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
@@ -22,7 +22,8 @@ export default function HostSetup() {
   useEffect(() => {
     if (user?.name) setName((current) => current || user.name);
   }, [user]);
-  const [language, setLanguage] = useState(LANGUAGES[0].code);
+  // Arranca en el idioma del APARATO (o el último elegido).
+  const [language, setLanguage] = useState(idiomaDelDispositivo);
   const [roleNames, setRoleNames] = useState<string[]>([]);
   const [roleInput, setRoleInput] = useState("");
 
@@ -92,7 +93,10 @@ export default function HostSetup() {
                 id="language"
                 className={inputClass}
                 value={language}
-                onChange={(e) => setLanguage(e.target.value)}
+                onChange={(e) => {
+                  setLanguage(e.target.value);
+                  recordarIdioma(e.target.value);
+                }}
               >
                 {LANGUAGES.map((lang) => (
                   <option key={lang.code} value={lang.code}>

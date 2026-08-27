@@ -11,7 +11,7 @@ import {
   setAutoRecordEnabled,
   stashDisplayStream,
 } from "../lib/autoRecord";
-import { LANGUAGES } from "../lib/languages";
+import { LANGUAGES, idiomaDelDispositivo, recordarIdioma } from "../lib/languages";
 import {
   DetectedMeeting,
   detectMeetingPlatform,
@@ -128,7 +128,9 @@ export default function ExternalJoin() {
   // Remembered across sessions so the from-Meet flow (extension button) can
   // skip straight into the companion without retyping anything.
   const [name, setName] = useState(() => localStorage.getItem("unify_external_name") ?? "");
-  const [language, setLanguage] = useState(LANGUAGES[0].code);
+  // Arranca en el idioma del APARATO (o el último elegido): también gobierna
+  // el deep link de la app de escritorio, que entra sin formularios.
+  const [language, setLanguage] = useState(idiomaDelDispositivo);
   const [passcode, setPasscode] = useState("");
   const [detected, setDetected] = useState<DetectedMeeting | null>(null);
   // Which platforms the server can actually embed (Zoom/Teams need credentials),
@@ -335,7 +337,10 @@ export default function ExternalJoin() {
                 id="language"
                 className={inputClass}
                 value={language}
-                onChange={(e) => setLanguage(e.target.value)}
+                onChange={(e) => {
+                  setLanguage(e.target.value);
+                  recordarIdioma(e.target.value);
+                }}
               >
                 {LANGUAGES.map((lang) => (
                   <option key={lang.code} value={lang.code}>

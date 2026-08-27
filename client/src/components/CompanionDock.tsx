@@ -15,6 +15,8 @@ interface Props {
   /** Abre/cierra la ventanita de subtítulos flotantes; null si el navegador no puede. */
   onFlotantes?: (() => void) | null;
   flotantesActivo?: boolean;
+  /** El idioma al que resuelve "Automático" (el que hablás), para mostrarlo. */
+  autoLabel?: string;
 }
 
 // Dock de estado, arriba a la derecha, sobre la reunión externa.
@@ -33,6 +35,7 @@ export default function CompanionDock({
   roomLabel,
   onFlotantes,
   flotantesActivo,
+  autoLabel,
 }: Props) {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -102,7 +105,9 @@ export default function CompanionDock({
             className="max-w-[7.5rem] truncate rounded-md border border-ink-600 bg-ink-800 px-1.5 py-0.5 text-xs text-strong focus:border-brand-400 focus:outline-none"
             title="Idioma en el que ves los subtítulos"
           >
-            <option value={AUTO_LANG}>Automático</option>
+            {/* Con el idioma resuelto a la vista: "Automático" dejaba la duda
+                de A QUÉ traduce; ahora se lee "Automático (Español...)". */}
+            <option value={AUTO_LANG}>{autoLabel ? `Automático (${autoLabel})` : "Automático"}</option>
             <option value={ORIGINAL_LANG}>Sin traducir</option>
             {LANGUAGES.map((l) => (
               <option key={l.code} value={l.code}>

@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import Button from "../components/Button";
 import Logo from "../components/Logo";
 import { useMeeting } from "../context/MeetingContext";
-import { LANGUAGES } from "../lib/languages";
+import { LANGUAGES, idiomaDelDispositivo, recordarIdioma } from "../lib/languages";
 import { cardClass, codeInputProps, inputClass, labelClass, nameInputProps, normalizeMeetingCode } from "../lib/ui";
 
 export default function JoinForm() {
@@ -17,7 +17,9 @@ export default function JoinForm() {
   const { code: codeFromUrl } = useParams<{ code?: string }>();
   const [name, setName] = useState("");
   const [meetingCode, setMeetingCode] = useState("");
-  const [language, setLanguage] = useState(LANGUAGES[0].code);
+  // Arranca en el idioma del APARATO (o el último elegido): "Automático"
+  // traduce a tu idioma sin que configures nada.
+  const [language, setLanguage] = useState(idiomaDelDispositivo);
 
   const fixedCode = codeFromUrl ? normalizeMeetingCode(codeFromUrl) || null : null;
 
@@ -89,7 +91,10 @@ export default function JoinForm() {
                 id="language"
                 className={inputClass}
                 value={language}
-                onChange={(e) => setLanguage(e.target.value)}
+                onChange={(e) => {
+                  setLanguage(e.target.value);
+                  recordarIdioma(e.target.value);
+                }}
               >
                 {LANGUAGES.map((lang) => (
                   <option key={lang.code} value={lang.code}>

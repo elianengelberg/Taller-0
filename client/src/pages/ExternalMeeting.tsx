@@ -34,7 +34,7 @@ import { useRecorder } from "../hooks/useRecorder";
 import { useReconocimientoDePista } from "../hooks/useReconocimientoDePista";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { askMeetingAI } from "../lib/api";
-import { LANGUAGES, shortLang } from "../lib/languages";
+import { LANGUAGES, etiquetaDeIdioma, shortLang } from "../lib/languages";
 import { recentCaptionEntries } from "../lib/captionLines";
 import { screenCaptureSupported } from "../lib/screenCapture";
 import { autoRecordEnabled, discardStashedDisplayStream, takeDisplayStream } from "../lib/autoRecord";
@@ -676,6 +676,7 @@ export default function ExternalMeeting() {
             roomLabel={draft.roomLabel}
             onFlotantes={pipSoportado ? () => void toggleFlotantes() : null}
             flotantesActivo={pipAbierto}
+            autoLabel={etiquetaDeIdioma(spokenLang)}
           />
 
           <LiveCaption
