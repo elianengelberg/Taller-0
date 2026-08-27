@@ -435,6 +435,80 @@ export default function ExternalMeeting() {
     }, 2500);
     return () => clearInterval(timer);
   }, [connectionStatus]);
+
+  // --- Subtítulos flotantes (Picture-in-Picture de documento) ---------------
+  // La ventanita que queda SIEMPRE encima: cuando la reunión vive en otra app
+  // (el Zoom de escritorio) o alguien comparte a pantalla completa, esta barra
+  // puede quedar tapada -- los subtítulos, con su traducción, siguen a la
+  // vista flotando sobre todo. Chrome 116+; sin el API, el botón no aparece.
+  const pipRef = useRef<Window | null>(null);
+  const [pipAbierto, setPipAbierto] = useState(false);
+  const pipSoportado =
+    typeof (window as unknown as { documentPictureInPicture?: unknown }).documentPictureInPicture !==
+    "undefined";
+  async function toggleFlotantes() {
+    if (pipRef.current) {
+      pipRef.current.close();
+      pipRef.current = null;
+      setPipAbierto(false);
+      return;
+    }
+    try {
+      const api = (
+        window as unknown as {
+          documentPictureInPicture: {
+            requestWindow: (o: { width: number; height: number }) => Promise<Window>;
+          };
+        }
+      ).documentPictureInPicture;
+      const win = await api.requestWindow({ width: 440, height: 190 });
+      win.document.body.style.cssText =
+        "margin:0;background:#0b1020;color:#fff;font-family:system-ui,sans-serif;overflow:hidden";
+      const cont = win.document.createElement("div");
+      cont.id = "subs";
+      cont.style.cssText =
+        "display:flex;flex-direction:column;justify-content:flex-end;gap:6px;height:100vh;padding:10px 14px;box-sizing:border-box";
+      win.document.body.appendChild(cont);
+      win.addEventListener("pagehide", () => {
+        pipRef.current = null;
+        setPipAbierto(false);
+      });
+      pipRef.current = win;
+      setPipAbierto(true);
+    } catch {
+      // Permiso denegado o bloqueado: el botón simplemente no hizo nada.
+    }
+  }
+  // Cada frase nueva (o su traducción, que llega después) repinta la ventana.
+  // Siempre por textContent, nunca innerHTML: lo dicho en la reunión es texto.
+  const transcriptPip = meeting?.transcript ?? [];
+  useEffect(() => {
+    const win = pipRef.current;
+    if (!pipAbierto || !win) return;
+    const cont = win.document.getElementById("subs");
+    if (!cont) return;
+    cont.textContent = "";
+    for (const l of transcriptPip.slice(-3)) {
+      const fila = win.document.createElement("div");
+      fila.style.cssText = "font-size:15px;line-height:1.35";
+      const quien = win.document.createElement("span");
+      quien.textContent = `${l.speakerName}: `;
+      quien.style.cssText = "color:#7fa5ff;font-weight:600";
+      const texto = win.document.createElement("span");
+      texto.textContent = getTranslation(l.id) ?? l.text;
+      fila.appendChild(quien);
+      fila.appendChild(texto);
+      cont.appendChild(fila);
+    }
+    if (captionsOn && interimCaption) {
+      const fila = win.document.createElement("div");
+      fila.textContent = `${draft?.name || "Vos"}: ${interimCaption}`;
+      fila.style.cssText = "font-size:15px;line-height:1.35;opacity:.6;font-style:italic";
+      cont.appendChild(fila);
+    }
+  });
+  // Al irse de la pantalla, la ventanita no queda flotando huérfana.
+  useEffect(() => () => pipRef.current?.close(), []);
   function confirmSaveMeeting() {
     const dbId = pendingLeave!;
     setPendingLeave(null);
@@ -585,6 +659,8 @@ export default function ExternalMeeting() {
             onTargetLangChange={setTargetLangChoice}
             inviteUrl={inviteUrl}
             roomLabel={draft.roomLabel}
+            onFlotantes={pipSoportado ? () => void toggleFlotantes() : null}
+            flotantesActivo={pipAbierto}
           />
 
           <LiveCaption

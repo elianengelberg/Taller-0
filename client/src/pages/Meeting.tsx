@@ -191,7 +191,27 @@ export default function Meeting() {
   // the oldest.
   const [openPanels, setOpenPanels] = useState<Panel[]>([]);
   const [chatUnread, setChatUnread] = useState(0);
-  const [captionsOn, setCaptionsOn] = useState(false);
+  // Prendidos POR DEFECTO: los subtítulos son el corazón del producto, y
+  // arrancar con ellos apagados era la primera razón del "no veo subtítulos".
+  // La elección de cada quien se recuerda entre reuniones.
+  const [captionsOn, setCaptionsOn] = useState(() => {
+    try {
+      return localStorage.getItem("unify_subtitulos") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  function toggleCaptions() {
+    setCaptionsOn((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem("unify_subtitulos", next ? "1" : "0");
+      } catch {
+        /* modo privado: no se recuerda, nada más */
+      }
+      return next;
+    });
+  }
 
   // "Automático" (the default) always resolves to whatever language you've
   // told the app you speak, live -- so two people speaking different
@@ -722,7 +742,7 @@ export default function Meeting() {
         onToggleHand={() => setHandRaised(!self?.handRaised)}
         captionsOn={captionsOn}
         captionsSupported={captionsSupported}
-        onToggleCaptions={() => setCaptionsOn((v) => !v)}
+        onToggleCaptions={toggleCaptions}
         chatOpen={openPanels.includes("chat")}
         chatUnread={chatUnread}
         onToggleChat={() => togglePanel("chat")}

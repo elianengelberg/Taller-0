@@ -50,14 +50,16 @@ export function useReconocimientoDePista({
     rec.lang = lang;
     rec.continuous = true;
     rec.interimResults = false;
-    rec.maxAlternatives = 3;
+    // 5 lecturas candidatas, igual que el micrófono: más hipótesis para que
+    // la IA correctora del servidor reconstruya la palabra que se dijo.
+    rec.maxAlternatives = 5;
     rec.onresult = (ev: SpeechRecognitionEvent) => {
       fallasSeguidas = 0;
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const res = ev.results[i];
         if (!res.isFinal) continue;
         const alternativas: string[] = [];
-        for (let j = 0; j < res.length && j < 3; j++) {
+        for (let j = 0; j < res.length && j < 5; j++) {
           const texto = res[j]?.transcript?.trim();
           if (texto && !alternativas.includes(texto)) alternativas.push(texto);
         }

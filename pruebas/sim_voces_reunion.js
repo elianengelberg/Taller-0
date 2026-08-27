@@ -53,6 +53,11 @@ const doble = (conAudio) => `
       rec.onresult({ resultIndex: 0, results: [res] });
       return true;
     };
+    // Picture-in-Picture de documento fingido: una ventana común hace de
+    // "siempre encima" (el API real no existe en el Chromium de pruebas).
+    window.documentPictureInPicture = {
+      requestWindow: async () => window.open("", "_blank", "width=440,height=190"),
+    };
     // Captura falsa: video de canvas + (según el caso) audio de un oscilador.
     navigator.mediaDevices.getDisplayMedia = async () => {
       const canvas = document.createElement("canvas");
@@ -124,6 +129,23 @@ async function entrarComoCompanion(ctx, nombre, conAudio) {
     (await ana.getByText("La reunión").count()) > 0);
   check("con el texto que se dijo",
     (await ana.getByText(/cerrar el presupuesto/i).count()) > 0);
+
+  // ═══════ 1b. Subtítulos flotantes: la ventana que queda siempre encima ═══════
+  console.log("\n── 1b. Subtítulos flotantes ──");
+  {
+    const [pip] = await Promise.all([
+      ctxA.waitForEvent("page"),
+      ana.getByRole("button", { name: /Subtítulos flotantes/i }).click(),
+    ]);
+    await dormir(1500);
+    const textoPip = await pip.evaluate(() => document.body.innerText).catch(() => "");
+    check("la ventana flotante muestra la frase de los demás con su hablante",
+      /La reunión/.test(textoPip) && /cerrar el presupuesto/i.test(textoPip),
+      textoPip.slice(0, 90) || "(vacía)");
+    check("y el botón queda marcado como activo",
+      (await ana.getByRole("button", { name: /Flotantes ✓/ }).count()) > 0);
+    await pip.close();
+  }
 
   // ═══════ 2. Beto (otro participante) también la ve ═══════
   console.log("\n── 2. Llega a todos los presentes ──");

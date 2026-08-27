@@ -12,6 +12,9 @@ interface Props {
   /** Enlace para que los demás abran ESTA misma reunión en Unify. */
   inviteUrl: string;
   roomLabel: string;
+  /** Abre/cierra la ventanita de subtítulos flotantes; null si el navegador no puede. */
+  onFlotantes?: (() => void) | null;
+  flotantesActivo?: boolean;
 }
 
 // Dock de estado, arriba a la derecha, sobre la reunión externa.
@@ -28,6 +31,8 @@ export default function CompanionDock({
   onTargetLangChange,
   inviteUrl,
   roomLabel,
+  onFlotantes,
+  flotantesActivo,
 }: Props) {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -84,12 +89,16 @@ export default function CompanionDock({
 
         <span className="hidden h-4 w-px bg-white/10 sm:block" aria-hidden />
 
-        <label className="hidden items-center gap-1.5 sm:flex">
-          <GlobeIcon className="h-3.5 w-3.5 text-brand-300" />
-          <span className="sr-only">Traducir los subtítulos a</span>
+        {/* Visible SIEMPRE y con texto (era un iconito escondido en pantallas
+            chicas): acceder a la traducción en vivo es de lo más usado. El
+            aria-label del select conserva el nombre accesible completo. */}
+        <label className="flex items-center gap-1.5">
+          <GlobeIcon className="h-3.5 w-3.5 shrink-0 text-brand-300" />
+          <span className="hidden whitespace-nowrap text-xs font-medium text-ink-300 sm:inline">Traducir a</span>
           <select
             value={targetLangChoice}
             onChange={(e) => onTargetLangChange(e.target.value)}
+            aria-label="Traducir los subtítulos a"
             className="max-w-[7.5rem] truncate rounded-md border border-ink-600 bg-ink-800 px-1.5 py-0.5 text-xs text-strong focus:border-brand-400 focus:outline-none"
             title="Idioma en el que ves los subtítulos"
           >
@@ -102,6 +111,21 @@ export default function CompanionDock({
             ))}
           </select>
         </label>
+
+        {onFlotantes && (
+          <button
+            type="button"
+            onClick={onFlotantes}
+            title="Una ventanita con los subtítulos que queda SIEMPRE encima: ideal cuando comparten pantalla o la reunión está en otra app"
+            className={`whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium transition-colors ${
+              flotantesActivo
+                ? "border-brand-400 bg-brand-500/20 text-brand-200"
+                : "border-ink-600 bg-ink-800 text-strong hover:border-brand-400"
+            }`}
+          >
+            {flotantesActivo ? "Flotantes ✓" : "Subtítulos flotantes"}
+          </button>
+        )}
 
         <span className="hidden h-4 w-px bg-white/10 sm:block" aria-hidden />
 
