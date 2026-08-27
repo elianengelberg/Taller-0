@@ -70,6 +70,13 @@ export default function Privacidad() {
                 demás sigue funcionando igual.
               </li>
               <li>
+                <span className="font-medium text-strong">Las páginas de reunión que abrís:</span> la
+                extensión corre sólo en las páginas de videollamada conocidas (Zoom, Meet, Teams, Jitsi y las
+                demás de la lista) para reconocer que estás entrando a una reunión y ofrecerte grabarla. En la
+                página de Zoom que abre la app de escritorio, te ofrece unirte desde el navegador para que
+                Unify pueda funcionar. No mira ninguna otra página que visites.
+              </li>
+              <li>
                 <span className="font-medium text-strong">Lo que NO recolectamos:</span> historial de
                 navegación, ubicación, contactos, datos de otros sitios. No hay analytics, ni trackers, ni
                 cookies de publicidad — ni en la web ni en la extensión.

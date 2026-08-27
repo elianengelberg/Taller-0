@@ -415,6 +415,25 @@
   }
 
   // --- Toast inicial -----------------------------------------------------------
+  // ¿Estamos en la página de LANZAMIENTO de Zoom (zoom.us/j/… o /w/…)? Es la
+  // pantalla que abre la app de escritorio: si la app se la lleva, Unify no
+  // puede hacer nada (una extensión no ve adentro de un programa de escritorio
+  // -- es un límite del sistema, no de permisos). El camino que SÍ sirve es
+  // quedarse en el navegador: /wc/join/<id> abre la reunión ahí mismo.
+  function esLanzamientoZoom(det) {
+    return (
+      det.plataforma === "zoom" &&
+      /\/(?:j|w)\//.test(location.pathname) &&
+      !/\/wc\//.test(location.pathname)
+    );
+  }
+  function urlWebClientZoom(det) {
+    const id = (det.roomKey.split(":")[1] || "").trim();
+    if (!id) return null;
+    const pwd = new URLSearchParams(location.search).get("pwd");
+    return `https://${location.hostname}/wc/join/${id}${pwd ? `?pwd=${encodeURIComponent(pwd)}` : ""}`;
+  }
+
   function mostrarToast(det) {
     // Borrón y cuenta nueva: si quedó un overlay sondeando la reunión
     // ANTERIOR (o un gesto armado, o una cuenta regresiva vieja), acá muere.
@@ -430,6 +449,29 @@
 
     const texto = document.createElement("div");
     texto.textContent = `Uy, veo que te estás uniendo a una reunión de ${det.nombre}. ¿Querés grabarla? Los subtítulos con traducción y la transcripción van incluidos.`;
+
+    // Página de lanzamiento de Zoom: Zoom va a abrir su app de escritorio, y
+    // ahí Unify no llega. El aviso + un botón que abre el cliente web
+    // (/wc/join/<id>) para quedarse en el navegador, donde Unify sí funciona.
+    const urlNavegador = esLanzamientoZoom(det) ? urlWebClientZoom(det) : null;
+    let bloqueZoom = null;
+    if (urlNavegador) {
+      bloqueZoom = document.createElement("div");
+      const aviso = document.createElement("div");
+      aviso.className = "pie";
+      aviso.textContent = "Zoom va a abrir su app de escritorio, donde Unify no puede grabar ni traducir. Unite desde el navegador y tenés todo:";
+      const filaNav = document.createElement("div");
+      filaNav.className = "fila";
+      const abrirNav = document.createElement("button");
+      abrirNav.className = "si";
+      abrirNav.textContent = "Unirme desde el navegador";
+      abrirNav.addEventListener("click", () => {
+        recordarSi(det.roomKey); // al caer en /wc/ no vuelve a preguntar
+        location.href = urlNavegador;
+      });
+      filaNav.append(abrirNav);
+      bloqueZoom.append(aviso, filaNav);
+    }
 
     const fila = document.createElement("div");
     fila.className = "fila";
@@ -455,7 +497,8 @@
     pie.className = "pie";
     pie.textContent = "Consejo: con Ctrl+Shift+U (⌘⇧U en Mac) grabás directo, sin el selector de pestaña.";
 
-    caja.append(texto, fila, cuenta, pie);
+    if (bloqueZoom) caja.append(texto, bloqueZoom, fila, cuenta, pie);
+    else caja.append(texto, fila, cuenta, pie);
     root.appendChild(caja);
 
     if (toastTimer) clearInterval(toastTimer);

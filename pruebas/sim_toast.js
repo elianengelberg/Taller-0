@@ -163,6 +163,11 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     texto.slice(0, 80));
   check("avisa la cuenta regresiva del auto-SÍ", /arranco solo/.test(texto));
   check("ofrece el atajo del carril A en el pie", /Ctrl\+Shift\+U/.test(texto));
+  // En la página /j/ (la que abre la app de escritorio) ofrece el camino que
+  // SÍ funciona: unirse desde el navegador (el cliente web /wc/join).
+  check("en la página de lanzamiento de Zoom ofrece unirse desde el navegador",
+    (await page.getByRole("button", { name: /Unirme desde el navegador/i }).count()) === 1);
+  check("y avisa que la app de escritorio deja a Unify afuera", /app de escritorio/i.test(texto));
 
   // ═══════ 2. “Ahora no” se respeta (y le gana al timer) ═══════
   console.log("\n── 2. Ahora no ──");
@@ -182,7 +187,7 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
   await page.waitForTimeout(2500);
   check("nueva reunión, nuevo toast", (await page.locator(".caja").count()) === 1);
 
-  await page.locator("button.si").click();
+  await page.getByRole("button", { name: "Sí, dale" }).click();
   await page.waitForTimeout(2500);
   const overlay = await page.locator(".rec").textContent().catch(() => "");
   check("al aceptar, el overlay dice que está grabando y transcribiendo",
@@ -219,7 +224,7 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     const zoomId = `9${Date.now() % 1e9}0`;
     await page.goto(`https://acme.zoom.us/j/${zoomId}`, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(2500);
-    await page.locator("button.si").click();
+    await page.getByRole("button", { name: "Sí, dale" }).click();
     await page.waitForTimeout(2000);
 
     // Alguien más (la web, otro overlay) publica una línea en la MISMA sala.
