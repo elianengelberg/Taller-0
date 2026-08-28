@@ -33,7 +33,11 @@ import { AUTO_LANG, ORIGINAL_LANG, useLineTranslations } from "../hooks/useLineT
 import { useRecorder } from "../hooks/useRecorder";
 import { useReconocimientoDePista } from "../hooks/useReconocimientoDePista";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
-import { MENSAJE_MIC_BLOQUEADO, usePermisoDeMicrofono } from "../hooks/usePermisoDeMicrofono";
+import {
+  MENSAJE_MIC_BLOQUEADO,
+  pedirCartelDeMicrofono,
+  usePermisoDeMicrofono,
+} from "../hooks/usePermisoDeMicrofono";
 import { askMeetingAI } from "../lib/api";
 import { LANGUAGES, etiquetaDeIdioma, shortLang } from "../lib/languages";
 import { recentCaptionEntries } from "../lib/captionLines";
@@ -297,6 +301,36 @@ export default function ExternalMeeting() {
   // Permiso de micrófono mirado de frente (ver el hook): si está bloqueado
   // se avisa al instante, y cuando llega el reconocimiento se relanza solo.
   const micBloqueado = usePermisoDeMicrofono(micAttempt, () => setMicAttempt((n) => n + 1));
+  // Y el CARTEL de autorización, de entrada: al entrar a la reunión (y en
+  // cada Reintentar) se pide el micrófono para que el navegador muestre su
+  // cartel nativo si el permiso está sin decidir -- nadie tiene que ir a
+  // Configuración salvo que lo haya bloqueado "para siempre".
+  const cartelListoRef = useRef(false);
+  useEffect(() => {
+    let vivo = true;
+    void (async () => {
+      try {
+        const p = await navigator.permissions?.query?.({ name: "microphone" as PermissionName });
+        if (p?.state === "granted") {
+          cartelListoRef.current = true;
+          return;
+        }
+      } catch {
+        // sin permissions.query: pedir igual
+      }
+      const r = await pedirCartelDeMicrofono();
+      // Con el permiso recién dado, el reconocimiento se relanza ya
+      // autorizado -- una sola vez, para no pedir en bucle donde el
+      // navegador no sabe contarnos el estado del permiso.
+      if (vivo && r === "concedido" && !cartelListoRef.current) {
+        cartelListoRef.current = true;
+        setMicAttempt((n) => n + 1);
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [micAttempt]);
 
   const captionsProblem = !captionsSupported
     ? "Este navegador no puede transcribir voz. Para ver subtítulos, entrá desde Chrome o Edge (en iPhone/iPad, desde la app de Chrome)."

@@ -41,3 +41,20 @@ export function usePermisoDeMicrofono(reintento: number, onConcedido: () => void
 
 export const MENSAJE_MIC_BLOQUEADO =
   "El micrófono está bloqueado para Unify, así que no podemos subtitular. Permitilo en el navegador (en iPhone/iPad: Ajustes → Apps → Safari o la app Unify → Micrófono) y tocá Reintentar.";
+
+// Fuerza el CARTEL nativo de "¿Permitir el micrófono?". El reconocimiento de
+// voz a veces arranca sin disparar el cartel (iOS), y la persona terminaba
+// obligada a ir a Configuración sin que nadie le pidiera permiso de frente.
+// Con el permiso ya dado resuelve en silencio; con el permiso bloqueado no
+// hay cartel posible (regla del navegador) y ahí sí quedan los Ajustes.
+export async function pedirCartelDeMicrofono(): Promise<"concedido" | "bloqueado" | "sin-audio"> {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    for (const t of stream.getTracks()) t.stop();
+    return "concedido";
+  } catch (e) {
+    const nombre = (e as DOMException)?.name || "";
+    if (nombre === "NotAllowedError" || nombre === "SecurityError") return "bloqueado";
+    return "sin-audio";
+  }
+}
