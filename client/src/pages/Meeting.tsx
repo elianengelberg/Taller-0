@@ -30,6 +30,7 @@ import { RecTile, useCompositeRecorder } from "../hooks/useCompositeRecorder";
 import { useScreenShare } from "../hooks/useScreenShare";
 import { useTrackTranscription } from "../hooks/useTrackTranscription";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
+import { MENSAJE_MIC_BLOQUEADO, usePermisoDeMicrofono } from "../hooks/usePermisoDeMicrofono";
 import { useWebRTC } from "../hooks/useWebRTC";
 import { getSocket } from "../lib/socket";
 
@@ -338,7 +339,20 @@ export default function Meeting() {
   // background data collection (for the meeting's saved transcript and the
   // AI features), not just a display feature. The "Subtítulos"/"Transcripción"
   // buttons only control what's shown on screen, not whether this runs.
+  // Paridad con la reunión externa: reintento a mano, relanzamiento al
+  // volver del segundo plano (el celular mata el reconocimiento al saltar de
+  // app o bloquear la pantalla) y el permiso de micrófono mirado de frente.
+  const [micAttempt, setMicAttempt] = useState(0);
+  useEffect(() => {
+    function alVolver() {
+      if (document.visibilityState === "visible") setMicAttempt((n) => n + 1);
+    }
+    document.addEventListener("visibilitychange", alVolver);
+    return () => document.removeEventListener("visibilitychange", alVolver);
+  }, []);
+  const micBloqueado = usePermisoDeMicrofono(micAttempt, () => setMicAttempt((n) => n + 1));
   const { supported: captionsSupported, error: captionsError } = useSpeechRecognition({
+    key: micAttempt,
     lang: self?.language ?? "es-AR",
     active: !media.muted && connectionStatus === "connected",
     onInterim: (text) => setInterimCaption(text),
@@ -347,6 +361,7 @@ export default function Meeting() {
       sendTranscriptLine(alternatives, self?.language ?? "es-AR");
     },
   });
+  const captionsProblem = micBloqueado ? MENSAJE_MIC_BLOQUEADO : captionsError;
   // El audio de la pantalla compartida (un video, una presentación con
   // sonido) también se transcribe: Chrome 139+ deja darle al reconocimiento
   // una pista en vez del micrófono. Llega al transcript como "Pantalla de
@@ -686,9 +701,16 @@ export default function Meeting() {
               Estás silenciado — activá el micrófono para que se transcriba lo que decís.
             </div>
           )}
-          {watchingTranscription && !captionsMutedHint && captionsError && (
-            <div className="mb-4 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm text-brand-300">
-              {captionsError}
+          {watchingTranscription && !captionsMutedHint && captionsProblem && (
+            <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm text-brand-300">
+              <span className="min-w-0 flex-1">{captionsProblem}</span>
+              <button
+                type="button"
+                onClick={() => setMicAttempt((n) => n + 1)}
+                className="shrink-0 rounded-lg border border-brand-400/50 px-2.5 py-1 text-xs font-semibold hover:bg-brand-500/20"
+              >
+                Reintentar
+              </button>
             </div>
           )}
           {meeting.presenterId && meeting.presenterId !== selfId && (
