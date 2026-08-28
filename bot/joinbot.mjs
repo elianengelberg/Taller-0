@@ -354,14 +354,32 @@ const adaptadores = {
         break;
       }
       const cuerpo = ((await page.locator("body").textContent().catch(() => "")) || "").slice(0, 4000);
+      // Un pedazo de la pantalla real, para el diagnóstico: "qué vio el bot"
+      // vale más que cualquier adivinanza nuestra.
+      const vista = ` Lo que vio el bot: "${cuerpo.replace(/\s+/g, " ").trim().slice(0, 110)}…"`;
       if (/sign in|inicia sesión|iniciá sesión|debes acceder|use your google account|usa tu cuenta de google/i.test(cuerpo)) {
         motivoFallo =
           "Google exigió una cuenta iniciada para dejar entrar al bot. En el host del bot hay " +
-          "que dejarle una sesión de Google (BOT_PROFILE_DIR, ver bot/README.md).";
+          "que dejarle una sesión de Google (BOT_PROFILE_DIR, ver bot/README.md)." + vista;
         return false;
       }
-      if (/can't join|no puedes unirte|no podés unirte|check your meeting code|comprueba el código|not supported|no es compatible|update your browser|actualiza tu navegador/i.test(cuerpo)) {
-        motivoFallo = "Meet rechazó al navegador del bot o el código de la reunión.";
+      if (/can't join|you can't|no puedes unirte|no podés unirte|no se puede unir/i.test(cuerpo)) {
+        // La pantalla "No puedes unirte a esta llamada": para un invitado
+        // anónimo, casi siempre significa "esta reunión pide cuenta iniciada".
+        motivoFallo =
+          "Meet no dejó entrar al bot como invitado (pantalla \"No puedes unirte\"). Casi " +
+          "siempre pide una cuenta de Google iniciada: configurá BOT_PROFILE_DIR en el host " +
+          "(bot/README.md, paso 3)." + vista;
+        return false;
+      }
+      if (/not supported|no es compatible|update your browser|actualiza tu navegador|unsupported/i.test(cuerpo)) {
+        motivoFallo =
+          "Meet rechazó al NAVEGADOR del bot. En el host conviene el Google Chrome real: " +
+          "bash bot/instalar-host.sh lo instala." + vista;
+        return false;
+      }
+      if (/check your meeting code|comprueba el código|verificá el código|invalid/i.test(cuerpo)) {
+        motivoFallo = "Meet dice que el código de la reunión no es válido." + vista;
         return false;
       }
       await page.waitForTimeout(3000);
