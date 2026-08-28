@@ -293,9 +293,41 @@ export default function ExternalMeeting() {
   // escritorio) o un micrófono denegado dejaban la pantalla diciendo
   // "Escuchando tu micrófono" para siempre, sin una sola línea y sin explicar
   // nada -- que es exactamente lo que se ve como "no andan los subtítulos".
+  // Permiso de micrófono mirado de frente. En iPhone/iPad el reconocimiento
+  // "arranca" sin error aunque el sitio tenga el micrófono BLOQUEADO -- la
+  // pantalla decía "Escuchando tu micrófono" mentirosa y la única pista era
+  // el cartel rojo de la grabación. Preguntarle al navegador permite avisar
+  // al instante con instrucciones, y reintentar solo cuando el permiso llega.
+  const [micBloqueado, setMicBloqueado] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    let estado: PermissionStatus | null = null;
+    void (async () => {
+      try {
+        const p = await navigator.permissions?.query?.({ name: "microphone" as PermissionName });
+        if (!p || !vivo) return;
+        estado = p;
+        setMicBloqueado(p.state === "denied");
+        p.onchange = () => {
+          if (!vivo) return;
+          setMicBloqueado(p.state === "denied");
+          if (p.state === "granted") setMicAttempt((n) => n + 1);
+        };
+      } catch {
+        // navegador sin permissions.query de micrófono: seguimos sin sondeo
+      }
+    })();
+    return () => {
+      vivo = false;
+      if (estado) estado.onchange = null;
+    };
+  }, [micAttempt]);
+
   const captionsProblem = !captionsSupported
     ? "Este navegador no puede transcribir voz. Para ver subtítulos, entrá desde Chrome o Edge (en iPhone/iPad, desde la app de Chrome)."
-    : captionsError;
+    : micBloqueado
+      ? "El micrófono está bloqueado para Unify, así que no podemos subtitular. En iPhone/iPad: Ajustes → Apps → Safari (o la app Unify) → Micrófono → Permitir. Después tocá Reintentar."
+      : captionsError;
 
   // Vigía de silencio. "Escuchando tu micrófono" con CERO frases durante 20
   // segundos de reunión no es normal: casi siempre es iOS dándole el
