@@ -78,6 +78,12 @@ export default function Footer() {
 
         <div className="mt-12 flex flex-col items-center justify-between gap-2 border-t border-white/15 py-6 text-xs text-white/50 sm:flex-row">
           <p>© {anio} Unify. Todos los derechos reservados.</p>
+          {/* El sello del build, en toda la app: la respuesta de un vistazo
+              a "¿estoy en la versión nueva?" (el detalle y el botón de
+              buscar actualización viven en /instalar). */}
+          <Link to="/instalar" className="font-mono text-white/50 transition-colors hover:text-white">
+            Versión {__UNIFY_BUILD__}
+          </Link>
           <p>Hecho para que las reuniones se entiendan.</p>
         </div>
       </div>
