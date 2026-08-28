@@ -366,24 +366,45 @@ const adaptadores = {
       // si hay una X de cerrar, se toca antes de buscar.
       const cerrarModal = page.locator('button[aria-label="Close" i], button[aria-label="Cerrar" i]').first();
       try { if (await cerrarModal.count()) await cerrarModal.click({ timeout: 1500 }); } catch { /* no había */ }
-      const entrar = page.locator(BOTON).first();
-      if (await entrar.count()) {
+      // Un clic sólo cuenta si ENTRÓ y además HIZO EFECTO (el botón
+      // desaparece: pasó a "pidiendo entrar" o directo a la llamada). Antes,
+      // un clic vencido por timeout igual marcaba "pidió entrar" -- y la
+      // persona esperaba una solicitud que nunca había salido.
+      const tocar = async (loc, origenNombre) => {
+        const etiqueta = (((await loc.textContent().catch(() => "")) || "").trim() ||
+          (await loc.getAttribute("aria-label").catch(() => "")) || "(sin texto)").slice(0, 60);
         // Timeout corto: si algo lo tapa, mejor reintentar la ronda entera
         // (que vuelve a cerrar modales) que colgarse 30s en un clic.
-        await entrar.click({ timeout: 4000 }).catch(() => {});
-        pidio = true;
-        break;
-      }
-      // Última red: por ROL accesible (matchea también aria-labels y los
-      // "botones" que no son <button>).
-      const porRol = page.getByRole("button", { name: RE_ENTRAR }).first();
-      if (await porRol.count()) {
-        const nombre = (await porRol.textContent().catch(() => "")) || "";
-        // Jamás "Cambiar aquí"/"Switch here": sacaría a la persona.
-        if (!/cambiar aquí|switch here/i.test(nombre)) {
-          await porRol.click({ timeout: 4000 }).catch(() => {});
+        const hizo = await loc.click({ timeout: 4000 }).then(() => true).catch(() => false);
+        log(`meet: ${origenNombre} "${etiqueta}" ->`, hizo ? "clic ok" : "clic NO entró");
+        if (!hizo) return false;
+        await page.waitForTimeout(2500);
+        const sigue = await loc.isVisible().catch(() => false);
+        if (sigue) {
+          log("meet: el botón sigue en pantalla tras el clic: reintento");
+          return false;
+        }
+        return true;
+      };
+      const entrar = page.locator(BOTON).first();
+      if (await entrar.count()) {
+        if (await tocar(entrar, "botón")) {
           pidio = true;
           break;
+        }
+      } else {
+        // Última red: por ROL accesible (matchea también aria-labels y los
+        // "botones" que no son <button>).
+        const porRol = page.getByRole("button", { name: RE_ENTRAR }).first();
+        if (await porRol.count()) {
+          const nombre = (await porRol.textContent().catch(() => "")) || "";
+          // Jamás "Cambiar aquí"/"Switch here": sacaría a la persona.
+          if (!/cambiar aquí|switch here/i.test(nombre)) {
+            if (await tocar(porRol, "botón (por rol)")) {
+              pidio = true;
+              break;
+            }
+          }
         }
       }
       const cuerpo = ((await page.locator("body").textContent().catch(() => "")) || "").slice(0, 4000);
