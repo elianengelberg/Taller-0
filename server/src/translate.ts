@@ -25,10 +25,13 @@ function boundedCacheSet(key: string, value: string): void {
   cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
-// Deliberately NOT the same (larger, slower) model used for the AI Q&A
-// feature: translation is high-volume and latency-sensitive, and a short
-// phrase doesn't benefit from extra reasoning power.
-const TRANSLATE_MODEL = process.env.ANTHROPIC_TRANSLATE_MODEL || "claude-haiku-4-5";
+// El motor de las traducciones. El nivel en TODOS los idiomas manda: Opus
+// 4.8 traduce parejo también en chino, japonés y alemán, donde el modelo
+// chico perdía matices. La velocidad no se paga con razonamiento extra (una
+// frase corta no lo necesita y no se pide) sino con temperatura 0 y el
+// system CACHEADO: el mismo par de idiomas no re-procesa las instrucciones
+// en cada frase de la reunión.
+const TRANSLATE_MODEL = process.env.ANTHROPIC_TRANSLATE_MODEL || "claude-opus-4-8";
 
 const LANGUAGE_NAMES: Record<string, string> = {
   es: "Spanish",
@@ -156,12 +159,27 @@ function domainVocabLine(code: string): string | undefined {
     `lectura es ambigua: ${words}.`;
 }
 
+// La REGIÓN importa para el nivel: "Spanish" a secas borra el voseo
+// rioplatense y mezcla variantes; "Portuguese" mezcla Brasil con Portugal.
+// Con el código completo, el modelo escribe en la variante que la persona
+// eligió de verdad.
+const REGIONAL_LANGUAGE_NAMES: Record<string, string> = {
+  "es-ar": "Spanish as spoken in Argentina (rioplatense: voseo, natural local phrasing)",
+  "es-es": "European Spanish (Spain)",
+  "es-mx": "Mexican Spanish",
+  "en-us": "American English",
+  "en-gb": "British English",
+  "pt-br": "Brazilian Portuguese",
+  "pt-pt": "European Portuguese",
+};
+
 export function shortLang(lang: string): string {
   return lang.split("-")[0].toLowerCase();
 }
 
 export function languageName(code: string): string {
-  return LANGUAGE_NAMES[shortLang(code)] ?? code;
+  const full = code.trim().toLowerCase();
+  return REGIONAL_LANGUAGE_NAMES[full] ?? LANGUAGE_NAMES[shortLang(code)] ?? code;
 }
 
 // Returns the combined domain-vocabulary + linguistic-expertise notes for
@@ -181,12 +199,14 @@ export function languageExpertiseHints(codes: string[]): string {
   return hints.join("\n\n");
 }
 
+// La clave lleva el código COMPLETO: una traducción a es-AR (voseo) no es
+// la misma que a es-ES, y compartir la entrada mezclaría variantes.
 function cacheKey(text: string, source: string, target: string): string {
-  return `${shortLang(source)}|${shortLang(target)}|${text}`;
+  return `${source.trim().toLowerCase()}|${target.trim().toLowerCase()}|${text}`;
 }
 
 async function translateWithClaude(text: string, from: string, to: string): Promise<string> {
-  const sinOrigen = ORIGEN_DESCONOCIDO.has(from);
+  const sinOrigen = ORIGEN_DESCONOCIDO.has(shortLang(from));
   const expertise = languageExpertiseHints(sinOrigen ? [to] : [from, to]);
   const system =
     (sinOrigen
@@ -194,13 +214,21 @@ async function translateWithClaude(text: string, from: string, to: string): Prom
       : `Translate the user's message from ${languageName(from)} to ${languageName(to)}. `) +
     `The message is a live-caption fragment from speech recognition and may contain misheard ` +
     `words; translate the meaning the speaker most likely intended, in natural, idiomatic ` +
-    `${languageName(to)}. ` +
+    `${languageName(to)}, matching the speaker's tone and register. ` +
+    `Keep proper names, numbers, units and product names as they are. If the fragment is cut ` +
+    `mid-sentence, translate it as a fragment -- never complete or extend it. ` +
     `Reply with ONLY the translated text -- no quotes, no notes, no explanations.` +
     (expertise ? `\n\n${expertise}` : "");
   const response = await anthropicClient!.messages.create({
     model: TRANSLATE_MODEL,
     max_tokens: 1024,
-    system,
+    // Determinista: para subtítulos en vivo no hay lugar para "creatividad"
+    // de muestreo, y la salida estable mejora el caché de acá arriba.
+    temperature: 0,
+    // El system es idéntico para todas las frases del mismo par de idiomas:
+    // cachearlo hace que cada frase siguiente de la reunión entre más rápida
+    // y más barata, sin re-procesar las instrucciones ni la pericia.
+    system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
     messages: [{ role: "user", content: text }],
   });
 
@@ -261,7 +289,7 @@ export async function translateText(
   const to = shortLang(target);
   if (from === to) return text;
 
-  const key = cacheKey(trimmed, from, to);
+  const key = cacheKey(trimmed, source, target);
   const cached = cache.get(key);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.value;
@@ -275,7 +303,9 @@ export async function translateText(
   let translated: string;
   if (anthropicEnabled) {
     try {
-      translated = await translateWithClaude(trimmed, from, to);
+      // Claude recibe los códigos COMPLETOS: la región (es-AR, pt-BR...)
+      // es parte del nivel de la traducción, no un detalle a recortar.
+      translated = await translateWithClaude(trimmed, source, target);
     } catch (err) {
       avisarFallaClaude(err);
       translated = await translateWithMyMemory(trimmed, from, to);

@@ -24,7 +24,11 @@
 import { anthropicClient } from "./anthropicClient";
 import { languageExpertiseHints, languageName, translateText } from "./translate";
 
-const CLEANUP_MODEL = process.env.ANTHROPIC_TRANSCRIPT_MODEL || "claude-haiku-4-5";
+// Mismo motor que la traducción: el nivel de la corrección en TODOS los
+// idiomas (homófonos del chino, compuestos del alemán) pesa más que el
+// ahorro del modelo chico. La velocidad se cuida igual: sin razonamiento
+// extra, temperatura 0, system cacheado y el timeout duro de acá abajo.
+const CLEANUP_MODEL = process.env.ANTHROPIC_TRANSCRIPT_MODEL || "claude-opus-4-8";
 // Live captions need to feel instant -- if the correction call takes too
 // long, ship the raw recognized text instead of stalling the conversation.
 const CLEANUP_TIMEOUT_MS = 3500;
@@ -238,7 +242,16 @@ export async function cleanTranscriptFragment(
       {
         model: CLEANUP_MODEL,
         max_tokens: 512,
-        system: buildCleanupSystemPrompt(expertiseBlockFor([expectedLang])),
+        temperature: 0,
+        // El system por idioma se repite en cada frase: cacheado, la reunión
+        // entera paga las instrucciones una sola vez y responde más rápido.
+        system: [
+          {
+            type: "text" as const,
+            text: buildCleanupSystemPrompt(expertiseBlockFor([expectedLang])),
+            cache_control: { type: "ephemeral" as const },
+          },
+        ],
         messages: [{ role: "user", content: buildUserMessage(trimmedAlternatives, recentContext) }],
       },
       { timeout: CLEANUP_TIMEOUT_MS }
@@ -366,7 +379,16 @@ export async function translateFragmentToAll(
       {
         model: CLEANUP_MODEL,
         max_tokens: 1536,
-        system: translateAllSystemPrompt(targets, expertiseBlock),
+        temperature: 0,
+        // Mismo caché que arriba: el juego de idiomas destino de una reunión
+        // no cambia frase a frase.
+        system: [
+          {
+            type: "text" as const,
+            text: translateAllSystemPrompt(targets, expertiseBlock),
+            cache_control: { type: "ephemeral" as const },
+          },
+        ],
         messages: [{ role: "user", content: buildUserMessage(trimmedAlternatives, recentContext) }],
       },
       { timeout: CLEANUP_TIMEOUT_MS }
