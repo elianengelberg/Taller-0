@@ -300,6 +300,26 @@
     return rootRef;
   }
 
+  // --- El cartel sobrevive a la PANTALLA COMPLETA -----------------------------
+  // Cuando alguien presenta y la página pone un elemento en fullscreen, el
+  // navegador muestra SOLO el subárbol de ese elemento: nuestro cartel (hijo
+  // de <html>) desaparecía justo cuando más se lo necesita. La salida es
+  // mudarse ADENTRO del elemento fullscreen mientras dure, y volver a <html>
+  // al salir. Los subtítulos, la traducción y la IA siguen a la vista sin
+  // importar dónde estés en la reunión.
+  document.addEventListener("fullscreenchange", () => {
+    if (!host) return;
+    const fs = document.fullscreenElement;
+    try {
+      if (fs && !fs.contains(host)) fs.appendChild(host);
+      else if (!fs && host.parentElement !== document.documentElement) {
+        (document.documentElement || document.body).appendChild(host);
+      }
+    } catch {
+      // Un fullscreen exótico (iframe de otro origen) no puede romper la UI.
+    }
+  });
+
   function quitarUI() {
     if (vozPropia) { vozPropia.parar(); vozPropia = null; }
     if (vozPantalla) { vozPantalla.parar(); vozPantalla = null; }
