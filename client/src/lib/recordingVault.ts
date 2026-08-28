@@ -113,3 +113,67 @@ export async function markAttempt(id: string): Promise<void> {
   if (rec) await tx(db, "readwrite", (s) => s.put({ ...rec, attempts: rec.attempts + 1 }));
   db.close();
 }
+
+// --- Subida compartida -------------------------------------------------------
+// La misma subida que usa la reunión en vivo (PUT directo a R2 con respaldo
+// por servidor), como función pura: también la usa el HISTORIAL para rescatar
+// a mano lo que quedó en la bóveda -- antes el reintento sólo corría al
+// entrar a otra reunión, así que una grabación colgada era invisible justo
+// en la pantalla donde la persona la va a buscar.
+import {
+  confirmRecordingComplete,
+  requestRecordingUploadUrl,
+  uploadRecordingViaServer,
+} from "./api";
+
+export async function subirGrabacion(
+  dbId: string,
+  blob: Blob,
+  contentType: string,
+  durationMs: number
+): Promise<boolean> {
+  const target = await requestRecordingUploadUrl(dbId, contentType);
+  if (target) {
+    // Camino rápido: PUT directo del navegador a R2. Un PUT bloqueado por
+    // CORS rechaza el fetch en vez de devolver !ok, así que las dos formas
+    // de fallar caen igual en el respaldo por servidor.
+    let directOk = false;
+    try {
+      const putResponse = await fetch(target.uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": contentType },
+        body: blob,
+      });
+      directOk = putResponse.ok;
+    } catch {
+      directOk = false;
+    }
+    if (directOk) {
+      await confirmRecordingComplete(dbId, target.publicUrl, durationMs);
+      return true;
+    }
+  }
+  // Respaldo: el video pasa por nuestro servidor (sin CORS de navegador),
+  // que lo sube a R2 y lo engancha a la reunión.
+  return uploadRecordingViaServer(dbId, blob, contentType, durationMs);
+}
+
+// Rescate a pedido (el botón del historial): intenta subir TODO lo pendiente,
+// sin respetar el tope de 3 intentos automáticos -- un pedido explícito de la
+// persona es otra cosa que un reintento de fondo.
+export async function subirPendientes(): Promise<{ subidas: number; fallidas: number }> {
+  const pendientes = await listPendingRecordings();
+  let subidas = 0;
+  let fallidas = 0;
+  for (const rec of pendientes) {
+    await markAttempt(rec.id);
+    const ok = await subirGrabacion(rec.meetingDbId, rec.blob, rec.contentType, rec.durationMs);
+    if (ok) {
+      await dropRecording(rec.id);
+      subidas += 1;
+    } else {
+      fallidas += 1;
+    }
+  }
+  return { subidas, fallidas };
+}

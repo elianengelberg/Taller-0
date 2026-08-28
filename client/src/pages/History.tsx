@@ -25,6 +25,7 @@ import { isExternalMeeting, meetingSourceLabel } from "../lib/meetingPlatforms";
 import { MoreIcon, ShareIcon } from "../components/icons";
 import { cardClass } from "../lib/ui";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
+import { listPendingRecordings, subirPendientes } from "../lib/recordingVault";
 
 // null = all; { kind:"none" } = loose (no folder); owned/shared folder id.
 type Selection =
@@ -48,6 +49,30 @@ export default function History() {
   const [error, setError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [shareDialog, setShareDialog] = useState<FolderSummary | null>(null);
+
+  // --- Grabaciones que quedaron en ESTE dispositivo --------------------------
+  // La bóveda (IndexedDB) guarda toda grabación ANTES de subirla; si la
+  // subida se cortó (salir apurado, red caída, pestaña cerrada), acá es donde
+  // la persona la viene a buscar -- y antes el historial ni se enteraba: el
+  // reintento automático sólo corría al entrar a otra reunión.
+  const [pendientes, setPendientes] = useState(0);
+  const [rescate, setRescate] = useState<"" | "subiendo" | "listo" | "fallo">("");
+  useEffect(() => {
+    listPendingRecordings()
+      .then((p) => setPendientes(p.length))
+      .catch(() => setPendientes(0));
+  }, [reloadKey]);
+  async function rescatarPendientes() {
+    setRescate("subiendo");
+    try {
+      const { subidas, fallidas } = await subirPendientes();
+      setPendientes(fallidas);
+      setRescate(fallidas > 0 ? "fallo" : "listo");
+      if (subidas > 0) setReloadKey((k) => k + 1); // el video aparece en su reunión
+    } catch {
+      setRescate("fallo");
+    }
+  }
 
   const reloadFolders = useCallback(async () => {
     const { folders, shared } = await fetchFolders();
@@ -176,6 +201,33 @@ export default function History() {
           <div className="mt-4 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-3 text-sm text-brand-200">
             Esa reunión ya está guardada en la cuenta de quien la abrió, así que no pudimos sumarla
             a la tuya. Pedile que te comparta la carpeta donde la tenga y la vas a ver acá.
+          </div>
+        )}
+
+        {(pendientes > 0 || rescate === "listo") && (
+          <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+            {rescate === "listo" ? (
+              <p className="text-emerald-300">
+                ✓ Grabación subida: ya está en su reunión, acá abajo.
+              </p>
+            ) : (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-amber-200">
+                  {pendientes === 1
+                    ? "Tenés una grabación en este dispositivo que no terminó de subirse."
+                    : `Tenés ${pendientes} grabaciones en este dispositivo que no terminaron de subirse.`}
+                  {rescate === "fallo" && " El último intento no pudo: probá de nuevo con buena conexión."}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void rescatarPendientes()}
+                  disabled={rescate === "subiendo"}
+                  className="rounded-full bg-amber-500/20 px-4 py-1.5 text-xs font-semibold text-amber-100 ring-1 ring-amber-400/50 hover:bg-amber-500/30 disabled:opacity-60"
+                >
+                  {rescate === "subiendo" ? "Subiendo…" : "Subir ahora"}
+                </button>
+              </div>
+            )}
           </div>
         )}
 

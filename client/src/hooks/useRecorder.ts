@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  confirmRecordingComplete,
-  fetchPlatformConfig,
-  markRecordingStarted,
-  requestRecordingUploadUrl,
-  uploadRecordingViaServer,
-} from "../lib/api";
+import { fetchPlatformConfig, markRecordingStarted } from "../lib/api";
 import {
   displayMediaErrorMessage,
   screenCaptureSupported,
   RECORDING_UNSUPPORTED_MESSAGE,
 } from "../lib/screenCapture";
 import { capturesOwnScreen } from "../lib/autoRecord";
-import { dropRecording, listPendingRecordings, markAttempt, stashRecording } from "../lib/recordingVault";
+import {
+  dropRecording,
+  listPendingRecordings,
+  markAttempt,
+  stashRecording,
+  subirGrabacion,
+} from "../lib/recordingVault";
 
 export type RecordingStatus = "idle" | "recording" | "processing" | "done" | "error";
 export type UploadStatus = "idle" | "uploading" | "uploaded" | "unavailable" | "failed";
@@ -140,30 +140,9 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
   // quedaron guardadas en la bóveda de una sesión anterior.
   const pushRecording = useCallback(
     async (dbId: string, blob: Blob, contentType: string, durationMs: number): Promise<boolean> => {
-      const target = await requestRecordingUploadUrl(dbId, contentType);
-      if (target) {
-        // Camino rápido: PUT directo del navegador a R2. Un PUT bloqueado por
-        // CORS rechaza el fetch en vez de devolver !ok, así que las dos formas
-        // de fallar caen igual en el respaldo por servidor.
-        let directOk = false;
-        try {
-          const putResponse = await fetch(target.uploadUrl, {
-            method: "PUT",
-            headers: { "Content-Type": contentType },
-            body: blob,
-          });
-          directOk = putResponse.ok;
-        } catch {
-          directOk = false;
-        }
-        if (directOk) {
-          await confirmRecordingComplete(dbId, target.publicUrl, durationMs);
-          return true;
-        }
-      }
-      // Respaldo: el video pasa por nuestro servidor (sin CORS de navegador),
-      // que lo sube a R2 y lo engancha a la reunión.
-      return uploadRecordingViaServer(dbId, blob, contentType, durationMs);
+      // La subida real vive en recordingVault (subirGrabacion): la comparte
+      // el rescate a mano del historial, así los dos caminos suben IGUAL.
+      return subirGrabacion(dbId, blob, contentType, durationMs);
     },
     []
   );

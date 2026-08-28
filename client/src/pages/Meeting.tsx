@@ -790,7 +790,11 @@ export default function Meeting() {
             <div>
               <p className="text-sm font-semibold text-strong">Guardando la grabación…</p>
               <p className="mt-1 text-xs leading-relaxed text-ink-300">
-                La reunión ya terminó para vos; falta subir el video (unos segundos).
+                {recorder.status === "processing"
+                  ? "Preparando el archivo del video…"
+                  : recorder.uploadStatus === "uploading"
+                    ? "Subiendo la grabación al historial…"
+                    : "Terminando de guardar…"}
               </p>
             </div>
             <button
