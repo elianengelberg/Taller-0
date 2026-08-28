@@ -38,11 +38,53 @@ import { LANGUAGES, etiquetaDeIdioma, shortLang } from "../lib/languages";
 import { recentCaptionEntries } from "../lib/captionLines";
 import { screenCaptureSupported } from "../lib/screenCapture";
 import { autoRecordEnabled, discardStashedDisplayStream, takeDisplayStream } from "../lib/autoRecord";
+import { cerrarVentanaSiQuedoEnBlanco } from "../lib/ventanaReunion";
 import { loadRoles, roleById, RoleMap, saveRoles } from "../lib/companionRoles";
 import { setUnsavedMeeting } from "../lib/unsavedMeeting";
 import { CompanionEmbed } from "../types";
 
 type PanelKey = "transcript" | "ai" | "roles" | null;
+
+// El <video> con los métodos de PiP que TypeScript no trae de fábrica:
+// los webkit* son de Safari (iPad/iPhone/Mac), el resto es el estándar.
+type VideoConPip = HTMLVideoElement & {
+  webkitSupportsPresentationMode?: (modo: string) => boolean;
+  webkitSetPresentationMode?: (modo: "picture-in-picture" | "inline") => void;
+  webkitPresentationMode?: string;
+  requestPictureInPicture?: () => Promise<unknown>;
+};
+
+// ¿Este navegador puede flotar un video? (El camino de los subtítulos
+// flotantes donde no existe el PiP de documento: Safari y Chrome móvil.)
+function videoPipSoportado(): boolean {
+  if (typeof document === "undefined") return false;
+  const v = document.createElement("video") as VideoConPip;
+  if (
+    typeof v.webkitSupportsPresentationMode === "function" &&
+    v.webkitSupportsPresentationMode("picture-in-picture")
+  ) {
+    return true;
+  }
+  const d = document as Document & { pictureInPictureEnabled?: boolean };
+  return typeof v.requestPictureInPicture === "function" && d.pictureInPictureEnabled === true;
+}
+
+// Parte un texto en renglones que entran en el ancho del canvas.
+function partirEnRenglones(ctx: CanvasRenderingContext2D, texto: string, ancho: number): string[] {
+  const palabras = texto.split(/\s+/).filter(Boolean);
+  const renglones: string[] = [];
+  let actual = "";
+  for (const p of palabras) {
+    const prueba = actual ? `${actual} ${p}` : p;
+    if (ctx.measureText(prueba).width <= ancho || !actual) actual = prueba;
+    else {
+      renglones.push(actual);
+      actual = p;
+    }
+  }
+  if (actual) renglones.push(actual);
+  return renglones;
+}
 
 // Renders the actual external-meeting pane for a companion session. One branch
 // per embeddable platform; adding a new platform means adding a case here.
@@ -462,21 +504,73 @@ export default function ExternalMeeting() {
     return () => clearInterval(timer);
   }, [connectionStatus]);
 
-  // --- Subtítulos flotantes (Picture-in-Picture de documento) ---------------
+  // Si la app de Meet/Zoom se llevó el enlace que abrimos, la pestaña quedó
+  // huérfana en blanco: apenas Unify vuelve a estar visible, se cierra para
+  // que el próximo regreso a Safari caiga acá y no en una página vacía.
+  useEffect(() => {
+    const alVolver = () => cerrarVentanaSiQuedoEnBlanco();
+    document.addEventListener("visibilitychange", alVolver);
+    window.addEventListener("focus", alVolver);
+    return () => {
+      document.removeEventListener("visibilitychange", alVolver);
+      window.removeEventListener("focus", alVolver);
+    };
+  }, []);
+
+  // --- Subtítulos flotantes (Picture-in-Picture) ----------------------------
   // La ventanita que queda SIEMPRE encima: cuando la reunión vive en otra app
-  // (el Zoom de escritorio) o alguien comparte a pantalla completa, esta barra
-  // puede quedar tapada -- los subtítulos, con su traducción, siguen a la
-  // vista flotando sobre todo. Chrome 116+; sin el API, el botón no aparece.
+  // (el Zoom de escritorio, el Meet del iPad) o alguien comparte a pantalla
+  // completa, esta barra puede quedar tapada -- los subtítulos, con su
+  // traducción, siguen a la vista flotando sobre todo.
+  //
+  // Dos caminos: el PiP de DOCUMENTO (Chrome 116+ de compu) y, donde no
+  // existe (Safari de iPad/iPhone, Chrome de Android), el PiP de VIDEO: los
+  // subtítulos se dibujan en un canvas que se transmite como video flotante.
   const pipRef = useRef<Window | null>(null);
+  const videoPipRef = useRef<{
+    video: HTMLVideoElement;
+    canvas: HTMLCanvasElement;
+    stream: MediaStream;
+  } | null>(null);
   const [pipAbierto, setPipAbierto] = useState(false);
-  const pipSoportado =
+  const docPipSoportado =
     typeof (window as unknown as { documentPictureInPicture?: unknown }).documentPictureInPicture !==
     "undefined";
+  const [videoPipDisponible] = useState(videoPipSoportado);
+  const pipSoportado = docPipSoportado || videoPipDisponible;
+  function cerrarFlotantes() {
+    pipRef.current?.close();
+    pipRef.current = null;
+    const vp = videoPipRef.current;
+    if (vp) {
+      videoPipRef.current = null;
+      const v = vp.video as VideoConPip;
+      try {
+        v.webkitSetPresentationMode?.("inline");
+      } catch {
+        // ya estaba inline
+      }
+      try {
+        const d = document as Document & {
+          pictureInPictureElement?: Element | null;
+          exitPictureInPicture?: () => Promise<void>;
+        };
+        if (d.pictureInPictureElement === vp.video) void d.exitPictureInPicture?.();
+      } catch {
+        // ya había salido
+      }
+      for (const t of vp.stream.getTracks()) t.stop();
+      vp.video.remove();
+    }
+    setPipAbierto(false);
+  }
   async function toggleFlotantes() {
-    if (pipRef.current) {
-      pipRef.current.close();
-      pipRef.current = null;
-      setPipAbierto(false);
+    if (pipRef.current || videoPipRef.current) {
+      cerrarFlotantes();
+      return;
+    }
+    if (!docPipSoportado) {
+      await abrirFlotantesDeVideo();
       return;
     }
     try {
@@ -505,10 +599,101 @@ export default function ExternalMeeting() {
       // Permiso denegado o bloqueado: el botón simplemente no hizo nada.
     }
   }
+  // El camino sin PiP de documento (iPad, iPhone, Android): los subtítulos
+  // se dibujan en un canvas, el canvas se captura como stream y un <video>
+  // chiquito lo flota. La ventanita queda encima de CUALQUIER app -- también
+  // cuando la reunión vive en la app de Meet y Unify quedó en Safari.
+  async function abrirFlotantesDeVideo() {
+    const canvas = document.createElement("canvas");
+    canvas.width = 720;
+    canvas.height = 240;
+    pintarCanvasPip(canvas);
+    let video: VideoConPip | null = null;
+    let stream: MediaStream | null = null;
+    try {
+      stream = canvas.captureStream(5);
+      video = document.createElement("video") as VideoConPip;
+      video.muted = true;
+      video.playsInline = true;
+      video.setAttribute("playsinline", "");
+      video.srcObject = stream;
+      // Diminuto pero presente y no invisible del todo: iOS se niega a
+      // flotar videos que considera ocultos (display:none u opacity 0).
+      video.style.cssText =
+        "position:fixed;bottom:0;right:0;width:2px;height:2px;opacity:0.02;pointer-events:none;z-index:-1";
+      document.body.appendChild(video);
+      await video.play();
+      const alSalir = () => {
+        if (!videoPipRef.current) return;
+        videoPipRef.current = null;
+        if (stream) for (const t of stream.getTracks()) t.stop();
+        video?.remove();
+        setPipAbierto(false);
+      };
+      video.addEventListener("leavepictureinpicture", alSalir);
+      video.addEventListener("webkitpresentationmodechanged", () => {
+        if ((video as VideoConPip).webkitPresentationMode === "inline") alSalir();
+      });
+      if (
+        typeof video.webkitSetPresentationMode === "function" &&
+        video.webkitSupportsPresentationMode?.("picture-in-picture")
+      ) {
+        video.webkitSetPresentationMode("picture-in-picture");
+      } else if (video.requestPictureInPicture) {
+        await video.requestPictureInPicture();
+      } else {
+        throw new Error("sin PiP de video");
+      }
+      videoPipRef.current = { video, canvas, stream };
+      setPipAbierto(true);
+    } catch {
+      // No pudo flotar (permiso, modo ahorro, navegador raro): limpiar y
+      // dejar el botón como estaba, igual que en el camino de documento.
+      if (stream) for (const t of stream.getTracks()) t.stop();
+      video?.remove();
+    }
+  }
+  // Dibuja las últimas frases (con su traducción) en el canvas del PiP de
+  // video: fondo blanco Unify, quién habla en azul, el texto en oscuro.
+  function pintarCanvasPip(canvas: HTMLCanvasElement) {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const W = canvas.width;
+    const H = canvas.height;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, W, H);
+    const margen = 22;
+    const ancho = W - margen * 2;
+    // Frases de la más nueva a la más vieja, dibujadas de abajo hacia arriba.
+    const frases: { quien: string; texto: string; interina?: boolean }[] = [];
+    if (captionsOn && interimCaption) {
+      frases.push({ quien: draft?.name || "Vos", texto: interimCaption, interina: true });
+    }
+    for (const l of [...transcriptPip.slice(-3)].reverse()) {
+      frases.push({ quien: l.speakerName, texto: getTranslation(l.id) ?? l.text });
+    }
+    let y = H - 18;
+    for (const f of frases) {
+      ctx.font = f.interina ? "italic 24px system-ui, sans-serif" : "24px system-ui, sans-serif";
+      ctx.fillStyle = f.interina ? "#64748b" : "#1e293b";
+      const renglones = partirEnRenglones(ctx, f.texto, ancho);
+      for (let i = renglones.length - 1; i >= 0; i--) {
+        if (y < 60) return;
+        ctx.fillText(renglones[i], margen, y);
+        y -= 30;
+      }
+      if (y < 60) return;
+      ctx.font = "600 17px system-ui, sans-serif";
+      ctx.fillStyle = "#2563EB";
+      ctx.fillText(f.quien, margen, y);
+      y -= 32;
+    }
+  }
   // Cada frase nueva (o su traducción, que llega después) repinta la ventana.
   // Siempre por textContent, nunca innerHTML: lo dicho en la reunión es texto.
   const transcriptPip = meeting?.transcript ?? [];
   useEffect(() => {
+    if (videoPipRef.current) pintarCanvasPip(videoPipRef.current.canvas);
     const win = pipRef.current;
     if (!pipAbierto || !win) return;
     const cont = win.document.getElementById("subs");
@@ -534,7 +719,18 @@ export default function ExternalMeeting() {
     }
   });
   // Al irse de la pantalla, la ventanita no queda flotando huérfana.
-  useEffect(() => () => pipRef.current?.close(), []);
+  useEffect(
+    () => () => {
+      pipRef.current?.close();
+      const vp = videoPipRef.current;
+      if (vp) {
+        videoPipRef.current = null;
+        for (const t of vp.stream.getTracks()) t.stop();
+        vp.video.remove();
+      }
+    },
+    [],
+  );
   function confirmSaveMeeting() {
     const dbId = pendingLeave!;
     setPendingLeave(null);

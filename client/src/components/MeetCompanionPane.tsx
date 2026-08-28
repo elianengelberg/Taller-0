@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMeeting } from "../context/MeetingContext";
+import { abrirVentanaReunion } from "../lib/ventanaReunion";
 import { CameraIcon, CameraOffIcon, MicIcon, MicOffIcon, PeopleIcon, ScreenShareIcon } from "./icons";
 
 // Companion pane for a Google Meet call. Meet can't be embedded (no SDK,
@@ -36,10 +37,16 @@ export default function MeetCompanionPane({
           <p className="text-[10px] font-semibold uppercase tracking-wide text-brand-300">Google Meet</p>
           <p className="truncate font-mono text-sm text-strong">{meetCode}</p>
         </div>
+        {/* La apertura pasa por abrirVentanaReunion: si la app se lleva el
+            enlace (iPad/celular), la pestaña huérfana se cierra sola. */}
         <a
           href={meetLink}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={(e) => {
+            e.preventDefault();
+            abrirVentanaReunion(meetLink);
+          }}
           className="ml-auto shrink-0 rounded-xl bg-brand-500 px-3.5 py-2 text-xs font-semibold text-on-accent hover:bg-brand-600"
         >
           Abrir en Meet
@@ -69,6 +76,10 @@ export default function MeetCompanionPane({
             href={meetLink}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={(e) => {
+              e.preventDefault();
+              abrirVentanaReunion(meetLink);
+            }}
             className="flex items-center justify-center gap-2 rounded-2xl bg-brand-500 px-4 py-3 text-sm font-bold text-on-accent shadow-md hover:bg-brand-600"
           >
             Abrir la reunión de Meet →

@@ -205,6 +205,56 @@ async function botonesChicos(p, minimo = 40) {
       /Zoom/i.test(cuerpoExt) && /Unify/i.test(cuerpoExt));
     check("y esa pantalla tampoco desborda", !(await desbordaX(p)));
 
+    // ── 4. Subtítulos flotantes en el teléfono (PiP de VIDEO) ──
+    // Sin documentPictureInPicture (Safari y Chrome móvil no lo tienen), el
+    // botón flota un video dibujado desde un canvas: queda encima de la app
+    // de Meet. El PiP real no existe en el arnés: se registra el pedido.
+    const pf = await ctx.newPage();
+    await pf.addInitScript(() => {
+      try { delete window.documentPictureInPicture; } catch { /* no estaba */ }
+      window.__pipVideo = 0;
+      HTMLVideoElement.prototype.requestPictureInPicture = function () {
+        window.__pipVideo++;
+        return Promise.resolve({});
+      };
+      Object.defineProperty(document, "pictureInPictureEnabled", { get: () => true, configurable: true });
+      window.open = () => null;
+    });
+    const bagF = [];
+    watch(pf, bagF);
+    await pf.goto(`${B}/externa?url=${encodeURIComponent("https://meet.google.com/flo-tant-esx")}`, { waitUntil: "networkidle" });
+    await pf.waitForTimeout(800);
+    const nombreF = pf.getByLabel("Tu nombre");
+    if (await nombreF.count()) await nombreF.first().fill("Flota");
+    if (!(await pf.getByRole("button", { name: /Unirme acá dentro/i }).count())) {
+      const det = pf.getByRole("button", { name: /^Detectar$/ });
+      if (await det.count()) await det.first().tap();
+      await pf.waitForTimeout(500);
+    }
+    await pf.getByRole("button", { name: /Unirme acá dentro/i }).first().tap();
+    await pf.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
+    const botonFlot = pf.getByRole("button", { name: /Subtítulos flotantes/i });
+    check("el botón de subtítulos flotantes está en el teléfono", (await botonFlot.count()) > 0);
+    if (await botonFlot.count()) {
+      await botonFlot.first().tap();
+      await pf.waitForTimeout(1200);
+      check("tocarlo flota el video con los subtítulos (PiP de video)",
+        await pf.evaluate(() => window.__pipVideo === 1),
+        `pedidos=${await pf.evaluate(() => window.__pipVideo)}`);
+      check("y el botón queda como activo",
+        (await pf.getByRole("button", { name: /Flotantes ✓/i }).count()) > 0);
+      check("el video flotante vive y transmite el canvas",
+        await pf.evaluate(() => [...document.querySelectorAll("video")].some(
+          (v) => v.muted && v.srcObject && v.srcObject.getVideoTracks?.().some((t) => t.readyState === "live"))));
+      await pf.getByRole("button", { name: /Flotantes ✓/i }).first().tap();
+      await pf.waitForTimeout(400);
+      check("tocarlo de nuevo lo apaga y limpia el video",
+        (await pf.getByRole("button", { name: /Subtítulos flotantes/i }).count()) > 0 &&
+        await pf.evaluate(() => ![...document.querySelectorAll("video")].some((v) => v.muted && v.srcObject)));
+    }
+    check("sin errores de JS en el camino de flotantes", bagF.length === 0, bagF[0] || "");
+    await pf.close();
+
     await ctx.close();
   }
 

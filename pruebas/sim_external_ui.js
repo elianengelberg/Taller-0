@@ -122,6 +122,56 @@ async function detectAndJoin(page, link, { passcode } = {}) {
     await p.close();
   }
 
+  // ---- La pestaña que la APP dejó en blanco se cierra sola al volver ----
+  // En iPad/celular la app de Meet se lleva el enlace y la pestaña recién
+  // abierta queda huérfana en about:blank, al frente: quien volvía a Unify
+  // aterrizaba en una página vacía. El companion la cierra al detectar el
+  // regreso -- y JAMÁS toca una pestaña que sí navegó a la reunión (es de
+  // otro origen y su location ni se puede leer).
+  {
+    const p = await ctx.newPage();
+    await p.addInitScript(() => {
+      window.__abiertos = [];
+      window.open = (url) => {
+        window.__abiertos.push(String(url));
+        const falsa = {
+          closed: false,
+          opener: {},
+          document: {
+            visibilityState: "visible",
+            addEventListener: () => { falsa.__armada = true; },
+          },
+          close() { this.closed = true; },
+        };
+        Object.defineProperty(falsa, "location", {
+          get() {
+            if (window.__yaNavego) throw new Error("cross-origin");
+            return { href: "about:blank" };
+          },
+        });
+        window.__falsa = falsa;
+        return falsa;
+      };
+    });
+    await p.route("**fonts.g**", (r) => r.abort());
+    await detectAndJoin(p, "https://meet.google.com/abc-defg-hij");
+    await p.getByRole("button", { name: /Unirme acá dentro/i }).click();
+    await p.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
+    check("al abrir la reunión se corta su acceso de vuelta (opener null)",
+      await p.evaluate(() => Boolean(window.__falsa) && window.__falsa.opener === null));
+    check("y el auto-cierre queda armado dentro de la pestaña",
+      await p.evaluate(() => window.__falsa?.__armada === true));
+    // La gracia de 3s: cerrar antes sería matar una reunión todavía cargando.
+    await p.waitForTimeout(3300);
+    await p.evaluate(() => { window.__yaNavego = true; document.dispatchEvent(new Event("visibilitychange")); });
+    check("una pestaña que SÍ navegó a la reunión no se toca",
+      await p.evaluate(() => window.__falsa.closed === false));
+    await p.evaluate(() => { window.__yaNavego = false; document.dispatchEvent(new Event("visibilitychange")); });
+    check("la que quedó en blanco se cierra sola al volver a Unify",
+      await p.evaluate(() => window.__falsa.closed === true));
+    await p.close();
+  }
+
   // ---- Graceful errors joining unconfigured platforms (Zoom/Teams 503) ----
   {
     const p = await ctx.newPage();

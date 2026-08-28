@@ -21,6 +21,7 @@ import {
   PLATFORM_REGISTRY,
 } from "../lib/meetingPlatforms";
 import { cardClass, inputClass, labelClass, nameInputProps, urlInputProps } from "../lib/ui";
+import { abrirVentanaReunion } from "../lib/ventanaReunion";
 import { CompanionEmbed } from "../types";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 
@@ -204,7 +205,7 @@ export default function ExternalJoin() {
     if (!info) return;
     const e = info.embed;
     const link = e.kind === "meet" ? e.meetLink : e.kind === "external" ? e.joinLink : null;
-    if (link) window.open(link, "_blank", "noopener");
+    if (link) abrirVentanaReunion(link);
   }
   async function joinWithAutoRecord(target: DetectedMeeting) {
     abrirReunionRealSiHaceFalta(target);
