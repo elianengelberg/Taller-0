@@ -260,8 +260,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     // Un enlace de Jitsi ya detectado: la pantalla de externa muestra el botón.
     await p.goto(`${B}/externa?url=${encodeURIComponent("https://meet.jit.si/SalaDelBot")}`, { waitUntil: "networkidle" });
     await p.waitForTimeout(1500);
-    const boton = p.getByRole("button", { name: /Que entre el bot por mí/i });
-    check("la web ofrece «Que entre el bot por mí» en una reunión detectada",
+    // Como INVITADO el botón pide sesión primero (el bot graba a tu nombre:
+    // el servidor exige login y antes eso fallaba en silencio); con sesión,
+    // ofrece mandar. Las dos caras son la oferta del bot.
+    const boton = p.getByRole("button", { name: /Que entre el bot por mí|Iniciá sesión para mandar el bot/i });
+    check("la web ofrece el bot en una reunión detectada (mandar, o sesión primero)",
       (await boton.count()) >= 1, `botones=${await boton.count()}`);
     // Sin BOT_ENABLED en el servidor de pruebas, tocarlo tiene que mostrar el
     // mensaje honesto (no romperse).

@@ -603,7 +603,11 @@ function DetectionResult({
 // entiende (jitsi / google-meet / zoom-web); el resto cae a jitsi, que el
 // servidor también usa por defecto.
 function BotButton({ url, roomKey, platform }: { url: string; roomKey: string; platform: string }) {
-  const [estado, setEstado] = useState<string | null>(null);
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  // "ok" deja el botón en "mandado" (repetir el toque mandaba OTRO bot y,
+  // peor, parecía que el primero nunca había salido); "error" grita en rojo.
+  const [estado, setEstado] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
   const [mandando, setMandando] = useState(false);
   const plataformaBot =
     platform === "google-meet" ? "google-meet" : platform === "zoom" ? "zoom-web" : platform === "jitsi" ? "jitsi" : "jitsi";
@@ -613,7 +617,16 @@ function BotButton({ url, roomKey, platform }: { url: string; roomKey: string; p
     setEstado(null);
     const r = await dispatchBot({ url, roomKey, platform: plataformaBot });
     setMandando(false);
-    setEstado(r.error ?? r.message ?? "El bot está entrando a la reunión.");
+    if (r.error) setEstado({ tipo: "error", texto: r.error });
+    else
+      setEstado({
+        tipo: "ok",
+        texto:
+          (r.message ?? "El bot va en camino: puede tardar un minuto en aparecer.") +
+          (plataformaBot === "google-meet"
+            ? " Si Meet pide permiso para dejarlo entrar, aceptalo desde la reunión."
+            : ""),
+      });
   }
 
   return (
@@ -622,15 +635,38 @@ function BotButton({ url, roomKey, platform }: { url: string; roomKey: string; p
       <p className="mt-1 text-xs leading-relaxed text-ink-400">
         El bot entra por vos, graba, y te deja todo en el historial.
       </p>
-      <button
-        type="button"
-        onClick={() => void mandar()}
-        disabled={mandando}
-        className="mt-2.5 w-full rounded-xl border border-brand-500/50 px-4 py-2.5 text-sm font-semibold text-brand-200 hover:bg-brand-500/10 disabled:opacity-60"
-      >
-        {mandando ? "Mandando el bot…" : "Que entre el bot por mí"}
-      </button>
-      {estado && <p className="mt-2 text-xs leading-relaxed text-ink-300">{estado}</p>}
+      {/* El bot graba A TU NOMBRE (la reunión queda en tu historial): sin
+          sesión, el servidor lo rechaza -- mejor decirlo ANTES del toque que
+          fallar en silencio, que es lo que pasaba. */}
+      {!user ? (
+        <button
+          type="button"
+          onClick={() => navigate("/ingresar")}
+          className="mt-2.5 w-full rounded-xl border border-brand-500/50 px-4 py-2.5 text-sm font-semibold text-brand-200 hover:bg-brand-500/10"
+        >
+          Iniciá sesión para mandar el bot
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => void mandar()}
+          disabled={mandando || estado?.tipo === "ok"}
+          className="mt-2.5 w-full rounded-xl border border-brand-500/50 px-4 py-2.5 text-sm font-semibold text-brand-200 hover:bg-brand-500/10 disabled:opacity-60"
+        >
+          {estado?.tipo === "ok" ? "Bot mandado ✓" : mandando ? "Mandando el bot…" : "Que entre el bot por mí"}
+        </button>
+      )}
+      {estado && (
+        <p
+          className={`mt-2 rounded-lg border px-3 py-2 text-xs leading-relaxed ${
+            estado.tipo === "error"
+              ? "border-red-500/40 bg-red-500/10 text-red-300"
+              : "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+          }`}
+        >
+          {estado.texto}
+        </p>
+      )}
     </div>
   );
 }

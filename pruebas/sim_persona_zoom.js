@@ -118,7 +118,15 @@ const json = (obj) => ({ method: "POST", headers: { "Content-Type": "application
   const browser = await chromium.launch({
     args: ["--no-sandbox", "--no-proxy-server", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"],
   });
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, permissions: ["microphone"] });
+  // locale es-AR: desde que el idioma sale del APARATO, un navegador de
+  // pruebas en inglés haría que Ana "hable" en-US y elegir traducir a en-US
+  // no pediría nada (mismo idioma). Ana es argentina: se lo decimos al
+  // navegador, como en un teléfono real.
+  const ctx = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+    permissions: ["microphone"],
+    locale: "es-AR",
+  });
   const p = await ctx.newPage();
   const errs = [];
   p.on("pageerror", (e) => errs.push(e.message.slice(0, 120)));
