@@ -398,6 +398,16 @@ const adaptadores = {
     if (!pidio) {
       const cuerpoFinal = ((await page.locator("body").textContent().catch(() => "")) || "")
         .replace(/\s+/g, " ").trim().slice(0, 160);
+      // La lista de botones REALES de la pantalla: con esto, el journal dice
+      // el texto exacto del botón que falta en nuestra lista, sin adivinar.
+      const botones = await page.evaluate(() =>
+        [...document.querySelectorAll('button, [role="button"]')]
+          .map((b) => (b.textContent || b.getAttribute("aria-label") || "").trim())
+          .filter(Boolean)
+          .slice(0, 25)
+          .join(" | ")
+      ).catch(() => "(no se pudo listar)");
+      log("meet: botones en pantalla:", botones || "(ninguno)");
       motivoFallo =
         "No apareció el botón para pedir entrar (Meet no cargó o cambió su pantalla). " +
         `Lo que vio el bot: "${cuerpoFinal}…"`;
