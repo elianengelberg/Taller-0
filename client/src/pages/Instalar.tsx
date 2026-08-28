@@ -113,6 +113,17 @@ export default function Instalar() {
       clearTimeout(t);
     };
   }, []);
+  // ¿La versión instalada quedó vieja? La web siempre sirve la última al
+  // lado del ZIP (version-extension.json); compararla acá avisa de frente,
+  // sin esperar al chequeo periódico del fondo de la extensión.
+  const [ultimaVersion, setUltimaVersion] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("/version-extension.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { version?: string } | null) => setUltimaVersion(d?.version ?? null))
+      .catch(() => {});
+  }, []);
+  const extVieja = Boolean(extVersion && ultimaVersion && extVersion !== ultimaVersion);
 
   useEffect(() => {
     const onInstalable = () => setInstalable(true);
@@ -312,10 +323,18 @@ export default function Instalar() {
                 <p className="text-sm font-semibold text-emerald-300">
                   ✓ La extensión está instalada en este navegador (versión {extVersion})
                 </p>
-                <p className="mt-1 text-sm leading-relaxed text-ink-200">
-                  Entrá a cualquier reunión y Unify te va a avisar solo. No hace falta que tengas la
-                  app abierta.
-                </p>
+                {extVieja ? (
+                  <p className="mt-1 text-sm leading-relaxed text-amber-300">
+                    Hay una versión nueva ({ultimaVersion}). Si la instalaste desde la Chrome Web
+                    Store se actualiza sola; si la cargaste por ZIP, bajá el ZIP de abajo de nuevo y
+                    recargala en <span className="font-mono">chrome://extensions</span>.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-sm leading-relaxed text-ink-200">
+                    Entrá a cualquier reunión y Unify te va a avisar solo. No hace falta que tengas
+                    la app abierta.
+                  </p>
+                )}
               </>
             ) : (
               <>

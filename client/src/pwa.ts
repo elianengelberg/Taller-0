@@ -204,7 +204,32 @@ export function initPwa(): void {
         kind: "info",
         text: "Hay una versión nueva de Unify.",
         actionLabel: "Actualizar",
-        onAction: () => void updateSW(true),
+        onAction: () => {
+          recargarAlTomarControl();
+          void updateSW(true);
+        },
+      },
+      30_000
+    );
+  };
+
+  // El botón DURANTE la reunión, una vez por versión. Antes, la versión
+  // nueva esperaba en silencio a que la reunión terminara: correcto para no
+  // recargar encima de nadie, pero quien QUERÍA lo nuevo ya no tenía forma
+  // de aplicarlo. Ahora se avisa con el botón y la persona decide.
+  let ofrecidaEnReunion = false;
+  const ofrecerEnReunion = () => {
+    if (ofrecidaEnReunion) return;
+    ofrecidaEnReunion = true;
+    showToast(
+      {
+        kind: "info",
+        text: "Hay una versión nueva de Unify. La aplicamos solos al salir de la reunión — o tocá Actualizar ahora (recarga esta pantalla).",
+        actionLabel: "Actualizar",
+        onAction: () => {
+          recargarAlTomarControl();
+          void updateSW(true);
+        },
       },
       30_000
     );
@@ -212,7 +237,11 @@ export function initPwa(): void {
 
   /** Aplica la versión nueva si se puede. Devuelve true si la aplicó. */
   const aplicarSiSePuede = (): boolean => {
-    if (!pendiente || aplicada || !momentoSeguro()) return false;
+    if (!pendiente || aplicada) return false;
+    if (!momentoSeguro()) {
+      if (enReunion()) ofrecerEnReunion();
+      return false;
+    }
     if (autoAplicadas() >= MAX_AUTO) {
       pendiente = false;
       avisarComoUltimoRecurso();
@@ -239,22 +268,25 @@ export function initPwa(): void {
         aplicarSiSePuede();
       }, 3000);
 
-      // La app puede quedar abierta días (sobre todo instalada): revisar cada
-      // hora si hay una versión nueva, en vez de esperar la próxima recarga.
+      // La app puede quedar abierta días (sobre todo instalada): revisar
+      // seguido si hay una versión nueva, en vez de esperar la próxima
+      // recarga. Buscar es UN fetch del sw.js: cuesta nada.
       const buscar = () => void registration.update().catch(() => {});
-      setInterval(buscar, 60 * 60 * 1000);
+      setInterval(buscar, 15 * 60 * 1000);
 
-      // Y al volver a primer plano. En iPhone y iPad la app instalada queda
-      // suspendida, a veces por días: el setInterval de arriba no corre ahí,
-      // pero volver a abrirla sí dispara esto.
-      let ultimaBusqueda = Date.now();
+      // Y al volver a primer plano, casi siempre. En iPhone y iPad la app
+      // instalada queda suspendida (el setInterval no corre ahí) y volver a
+      // abrirla es EL momento en el que la gente espera ver lo nuevo: con el
+      // freno anterior de 15 minutos, quien volvía a los cinco se quedaba
+      // con la versión vieja sin aviso ninguno.
+      let ultimaBusqueda = 0;
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState !== "visible") {
           // Irse a otra pestaña es el mejor momento posible para recargar.
           aplicarSiSePuede();
           return;
         }
-        if (Date.now() - ultimaBusqueda < 15 * 60_000) return;
+        if (Date.now() - ultimaBusqueda < 60_000) return;
         ultimaBusqueda = Date.now();
         buscar();
       });
