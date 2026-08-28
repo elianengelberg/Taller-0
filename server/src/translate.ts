@@ -25,13 +25,13 @@ function boundedCacheSet(key: string, value: string): void {
   cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
-// El motor de las traducciones. El nivel en TODOS los idiomas manda: Opus
-// 4.8 traduce parejo también en chino, japonés y alemán, donde el modelo
-// chico perdía matices. La velocidad no se paga con razonamiento extra (una
-// frase corta no lo necesita y no se pide) sino con temperatura 0 y el
-// system CACHEADO: el mismo par de idiomas no re-procesa las instrucciones
-// en cada frase de la reunión.
-const TRANSLATE_MODEL = process.env.ANTHROPIC_TRANSLATE_MODEL || "claude-opus-4-8";
+// El motor de las traducciones: Sonnet 5, el punto medio elegido a
+// propósito. Traduce casi al nivel de Opus también en los idiomas difíciles
+// (chino, japonés, alemán) pero genera bastante más rápido -- y para un
+// subtítulo en vivo esa velocidad se ve. Sin razonamiento extra (una frase
+// corta no lo necesita), temperatura 0 y el system CACHEADO: el mismo par
+// de idiomas no re-procesa las instrucciones en cada frase de la reunión.
+const TRANSLATE_MODEL = process.env.ANTHROPIC_TRANSLATE_MODEL || "claude-sonnet-5";
 
 const LANGUAGE_NAMES: Record<string, string> = {
   es: "Spanish",

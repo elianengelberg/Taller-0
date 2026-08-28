@@ -24,11 +24,11 @@
 import { anthropicClient } from "./anthropicClient";
 import { languageExpertiseHints, languageName, translateText } from "./translate";
 
-// Mismo motor que la traducción: el nivel de la corrección en TODOS los
-// idiomas (homófonos del chino, compuestos del alemán) pesa más que el
-// ahorro del modelo chico. La velocidad se cuida igual: sin razonamiento
-// extra, temperatura 0, system cacheado y el timeout duro de acá abajo.
-const CLEANUP_MODEL = process.env.ANTHROPIC_TRANSCRIPT_MODEL || "claude-opus-4-8";
+// Mismo motor que la traducción (Sonnet 5, el punto medio): corrige los
+// homófonos del chino y los compuestos del alemán casi como el modelo
+// grande, pero con la velocidad que un subtítulo en vivo pide. Sin
+// razonamiento extra, temperatura 0, system cacheado y el timeout duro.
+const CLEANUP_MODEL = process.env.ANTHROPIC_TRANSCRIPT_MODEL || "claude-sonnet-5";
 // Live captions need to feel instant -- if the correction call takes too
 // long, ship the raw recognized text instead of stalling the conversation.
 const CLEANUP_TIMEOUT_MS = 3500;
