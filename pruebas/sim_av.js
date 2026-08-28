@@ -21,9 +21,17 @@ function watch(page, bag) {
     const url = m.location?.().url || "";
     const t = `${m.text()} ${url}`;
     if (IGNORABLE.test(t)) return;
-    // Recursos externos que el sandbox corta (proxy con 502/404): no son
-    // errores del producto. Sólo cuentan las fallas de carga de NUESTRO stack.
-    if (/Failed to load resource/i.test(m.text()) && !url.includes("localhost")) return;
+    if (/Failed to load resource/i.test(m.text())) {
+      // Recursos externos que el sandbox corta (proxy con 502/404): no son
+      // errores del producto. Sólo cuentan las fallas de carga de NUESTRO stack.
+      if (!url.includes("localhost")) return;
+      // El 502 de /api/translate es la degradación DISEÑADA cuando ningún
+      // proveedor de traducción responde (en el sandbox están bloqueados):
+      // el cliente lo maneja y deja el texto original.
+      if (url.includes("/api/translate")) return;
+      bag.push(`consola: ${m.text().slice(0, 80)} @ ${url.slice(-50)}`);
+      return;
+    }
     bag.push(`consola: ${m.text().slice(0, 110)}`);
   });
 }
