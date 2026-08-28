@@ -255,6 +255,65 @@ async function botonesChicos(p, minimo = 40) {
     check("sin errores de JS en el camino de flotantes", bagF.length === 0, bagF[0] || "");
     await pf.close();
 
+    // ── 5. La app instalada (pantalla de inicio de iOS) no abre la sábana ──
+    // En la PWA de iOS, window.open abre un navegador interno ENCIMA de
+    // Unify: si la app de Meet se lleva el enlace, esa sábana queda en
+    // blanco tapando todo y no se puede cerrar desde el código. Ahí se
+    // navega DIRECTO (iOS abre la app sin sábana y Unify queda abajo).
+    //
+    // Contexto propio SIN service worker: con una ruta interceptada, el SW
+    // deja la página como cascarón vacío (limitación documentada de
+    // Playwright: rutas + service workers piden serviceWorkers:"block").
+    const ctxPwa = await browser.newContext({
+      ...device,
+      permissions: ["microphone", "camera"],
+      serviceWorkers: "block",
+    });
+    const pw = await ctxPwa.newPage();
+    await pw.addInitScript(() => {
+      Object.defineProperty(navigator, "standalone", { get: () => true, configurable: true });
+      window.__abiertos = [];
+      window.open = (u) => { window.__abiertos.push(String(u)); return null; };
+    });
+    // El 204 simula el enlace universal de iOS: la navegación se pide pero
+    // no comete y la página queda intacta (abort() la mandaría a
+    // chrome-error:// y mataría la SPA, cosa que en el iPad real no pasa).
+    let navegoAMeet = false;
+    await pw.route("**meet.google.com/**", (r) => { navegoAMeet = true; r.fulfill({ status: 204 }); });
+    // Sin el SW no hay caché de fuentes: las de Google cuelgan en el proxy
+    // del arnés y "networkidle" no llega nunca. Se bloquean y listo.
+    await pw.route("**fonts.g**", (r) => r.abort());
+    await pw.goto(`${B}/externa?url=${encodeURIComponent("https://meet.google.com/pwa-inst-ala")}`, { waitUntil: "domcontentloaded" });
+    await pw.waitForTimeout(1500);
+    // Con el nombre ya recordado de antes, la app se une SOLA (el camino
+    // automático); con el contexto limpio queda el formulario. Ambos valen:
+    // lo que se mira es CÓMO se abrió la reunión real.
+    if (!pw.url().includes("/externa/reunion")) {
+      const nombreW = pw.getByLabel("Tu nombre");
+      if (await nombreW.count()) await nombreW.first().fill("Pwa");
+      if (!(await pw.getByRole("button", { name: /Unirme acá dentro/i }).count())) {
+        const detW = pw.getByRole("button", { name: /^Detectar$/ });
+        if (await detW.count()) await detW.first().tap();
+        await pw.waitForTimeout(500);
+      }
+      // Sin auto-grabación: en este contexto el selector de pantalla del
+      // arnés (getDisplayMedia sin fake-ui) colgaría el flujo de unión.
+      const grabW = pw.getByRole("checkbox").first();
+      if ((await grabW.count()) && (await grabW.isChecked().catch(() => false))) {
+        await grabW.uncheck().catch(() => {});
+      }
+      await pw.getByRole("button", { name: /Unirme acá dentro/i }).first().tap();
+      await pw.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
+    }
+    // La navegación directa abortada por la ruta tarda un momento en morir:
+    // sin esta espera, el evaluate cae justo en el medio.
+    await pw.waitForTimeout(1500);
+    const abiertosPwa = await pw.evaluate(() => (window.__abiertos || []).length).catch(() => -1);
+    check("la app instalada navega DIRECTO a la reunión (cero ventanas internas)",
+      navegoAMeet && abiertosPwa === 0, `navego=${navegoAMeet} abiertos=${abiertosPwa}`);
+    check("y Unify sigue en su capa de subtítulos", pw.url().includes("/externa/reunion"));
+    await ctxPwa.close();
+
     await ctx.close();
   }
 

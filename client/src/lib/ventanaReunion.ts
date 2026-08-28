@@ -22,8 +22,29 @@ function quedoEnBlanco(w: Window): boolean {
   }
 }
 
+// ¿Unify está corriendo como app de pantalla de inicio en iPhone/iPad?
+// (navigator.standalone es un flag propio de Safari: sólo existe ahí, así
+// que no confunde con las PWA instaladas de escritorio o Android.)
+function esAppDeInicioIOS(): boolean {
+  return (navigator as Navigator & { standalone?: boolean }).standalone === true;
+}
+
 export function abrirVentanaReunion(url: string) {
   cerrarVentanaSiQuedoEnBlanco();
+  // En la app instalada de iOS, window.open no abre una pestaña: abre un
+  // navegador interno ENCIMA de Unify. Si la app de la reunión se lleva el
+  // enlace, esa sábana queda EN BLANCO tapando todo, y desde acá no hay
+  // forma de cerrarla. Navegar directo evita la sábana: iOS abre la app de
+  // la reunión y Unify queda intacto abajo; sin la app instalada, iOS abre
+  // el navegador interno con la reunión de verdad (y su X para volver).
+  if (esAppDeInicioIOS()) {
+    try {
+      window.location.href = url;
+    } catch {
+      // sin permiso para navegar: no hay nada mejor que hacer
+    }
+    return;
+  }
   let w: Window | null = null;
   try {
     w = window.open(url, "_blank");
