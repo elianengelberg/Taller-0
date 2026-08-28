@@ -337,9 +337,14 @@ const adaptadores = {
       'button:has-text("Ask to join"), button:has-text("Pedir unirse"), ' +
       'button:has-text("Solicitar unirse"), button:has-text("Join now"), ' +
       'button:has-text("Unirte ahora"), button:has-text("Unirse ahora"), ' +
-      'button:has-text("Unirme ahora")';
+      'button:has-text("Unirme ahora"), button:has-text("Participar"), ' +
+      'button:has-text("Join anyway"), button:has-text("Unirse de todos modos")';
     let pidio = false;
-    for (let intento = 0; intento < 8 && !pidio; intento++) {
+    // 20 intentos ≈ un minuto de paciencia: en un host chico, el Chrome con
+    // un perfil sincronizado tarda MUCHO en dejar lista la pantalla de Meet
+    // (la primera falla real fue exactamente esta: el bot se rindió a los
+    // ~30s con Meet todavía cargando).
+    for (let intento = 0; intento < 20 && !pidio; intento++) {
       await descartarDialogos(page);
       // Nombre sólo si Meet lo pide (invitado sin sesión).
       const nombre = page.locator(
@@ -385,7 +390,11 @@ const adaptadores = {
       await page.waitForTimeout(3000);
     }
     if (!pidio) {
-      motivoFallo = "No apareció el botón para pedir entrar (Meet no cargó o cambió su pantalla).";
+      const cuerpoFinal = ((await page.locator("body").textContent().catch(() => "")) || "")
+        .replace(/\s+/g, " ").trim().slice(0, 160);
+      motivoFallo =
+        "No apareció el botón para pedir entrar (Meet no cargó o cambió su pantalla). " +
+        `Lo que vio el bot: "${cuerpoFinal}…"`;
       return false;
     }
     await postEstado({ botFase: "esperando-admision" });
@@ -765,6 +774,9 @@ async function arrancarEscucha(page) {
   const adentro = await adaptador(page);
   if (!adentro) {
     log("no se pudo confirmar el ingreso a la reunión");
+    // El motivo también al journal: así el diagnóstico se lee acá mismo,
+    // sin depender de que alguien mire el botón de la web a tiempo.
+    log("motivo:", motivoFallo || "(sin motivo detectado)");
     await postEstado({
       botFase: "fallo",
       botDetalle: motivoFallo || "La reunión no admitió al bot y no se pudo saber por qué.",
