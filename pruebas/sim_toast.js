@@ -171,7 +171,7 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
 
   // ═══════ 2. “Ahora no” se respeta (y le gana al timer) ═══════
   console.log("\n── 2. Ahora no ──");
-  await page.locator("button.no").click();
+  await page.getByRole("button", { name: /Detener|Cerrar|Ahora no/ }).first().click();
   await page.waitForTimeout(400);
   check("el toast se va", (await page.locator(".caja").count()) === 0);
   await page.waitForTimeout(5500);
@@ -195,7 +195,7 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
 
   // Grabar unos segundos de canvas animado y detener desde el overlay.
   await page.waitForTimeout(7000);
-  await page.locator("button.no").click(); // "Detener"
+  await page.getByRole("button", { name: /Detener|Cerrar|Ahora no/ }).first().click(); // "Detener"
   await page.waitForTimeout(600);
   const guardando = await page.locator(".rec").textContent().catch(() => "");
   check("al detener, el overlay avisa que está guardando (no desaparece)",
@@ -243,7 +243,7 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
 
     // Detener acá sube contra el servidor real SIN R2: el 503 tiene que
     // volver como un aviso honesto, no como un silencio.
-    await page.locator("button.no").click();
+    await page.getByRole("button", { name: /Detener|Cerrar|Ahora no/ }).first().click();
     await page.waitForTimeout(3500);
     const aviso = await page.locator(".aviso").textContent().catch(() => "");
     check("sin almacenamiento configurado, la falla de subida SE DICE",
@@ -289,7 +289,7 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     check("los botones son grandes (>= 40px de alto)", alto >= 40, `alto=${alto}px`);
     const fuente = await page.locator(".caja").evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
     check("la letra base del panel es legible (>= 15px)", fuente >= 15, `${fuente}px`);
-    const borde = await page.locator("button.no").evaluate((el) => parseFloat(getComputedStyle(el).borderTopWidth));
+    const borde = await page.locator("button.no").first().evaluate((el) => parseFloat(getComputedStyle(el).borderTopWidth));
     check("el botón secundario tiene borde visible (no es un texto gris perdido)", borde >= 1, `${borde}px`);
     const a11y = await page.locator(".caja").evaluate((el) => ({
       role: el.getAttribute("role"),
@@ -327,7 +327,7 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     const estado2 = await page.locator(".rec").textContent().catch(() => "");
     check("el primer clic en la página sí dispara la grabación que quedó armada",
       /Grabando y transcribiendo/i.test(estado2), estado2.slice(0, 60));
-    await page.locator("button.no").click(); // Detener
+    await page.getByRole("button", { name: /Detener|Cerrar|Ahora no/ }).first().click(); // Detener
     await page.waitForTimeout(2500);
   }
 
@@ -426,7 +426,7 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     check("con dos clics, hay UNA sola grabación en marcha",
       /Grabando y transcribiendo/i.test(estado5e), estado5e.slice(0, 50));
     await page.waitForTimeout(7000);
-    await page.locator("button.no").click(); // Detener
+    await page.getByRole("button", { name: /Detener|Cerrar|Ahora no/ }).first().click(); // Detener
     await page.waitForTimeout(3500);
     check("al detener llega exactamente UNA subida (no dos entrelazadas)",
       subidas - antes === 1, `subidas=${subidas - antes}`);
@@ -465,7 +465,7 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     await page.waitForTimeout(2500);
     check("y arranca la grabación con ese clic",
       /Grabando y transcribiendo/i.test(await page.locator(".rec").textContent().catch(() => "")));
-    await page.locator("button.no").click(); // Detener: la subida no es lo que se mide acá
+    await page.getByRole("button", { name: /Detener|Cerrar|Ahora no/ }).first().click(); // Detener: la subida no es lo que se mide acá
     await page.waitForTimeout(2500);
 
     // "Unirse desde el navegador": misma reunión, otra página.
@@ -518,7 +518,7 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     await page.waitForTimeout(2500);
     const t = await page.locator(".caja").textContent().catch(() => "");
     check(`el aviso sale en ${nombre}`, new RegExp(`reunión de ${nombre}`).test(t), t.slice(0, 55));
-    await page.locator("button.no").click().catch(() => {}); // no encadenar toasts
+    await page.getByRole("button", { name: /Detener|Cerrar|Ahora no/ }).first().click().catch(() => {}); // no encadenar toasts
   }
 
   // ═══════ 8. El aviso de "hay una versión nueva" ═══════

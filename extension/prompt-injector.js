@@ -211,6 +211,7 @@
                            // de la reunión ANTERIOR)
   let host = null;         // nodo raíz de nuestra UI
   let rootRef = null;      // la shadow root de la UI activa
+  let pipWin = null;       // la ventanita de subtítulos flotantes (si está abierta)
 
   // --- Estilos: hoja construida, no <style> inyectado -------------------------
   // Una hoja creada desde el mundo aislado no depende del CSP de la página,
@@ -329,6 +330,8 @@
     if (desarmar) desarmar();
     if (host) { host.remove(); host = null; }
     rootRef = null;
+    // La ventanita flotante no queda huérfana al cerrarse el cartel.
+    if (pipWin) { try { pipWin.close(); } catch { /* ya cerrada */ } pipWin = null; }
   }
 
   // Color determinístico por nombre para la inicial (mismo espíritu que
@@ -839,6 +842,67 @@
     parar.className = "no";
     parar.textContent = grabandoAca ? "Detener" : "Cerrar";
     fila.append(abrir, parar);
+
+    // --- Subtítulos FLOTANTES (Picture-in-Picture de documento) --------------
+    // La ventanita que queda SIEMPRE encima -- de la reunión, de la pantalla
+    // compartida, de cualquier app -- con las últimas frases y su traducción.
+    // Chrome 116+ de escritorio; donde el API no existe, el botón no aparece.
+    const flot = document.createElement("button");
+    flot.className = "no";
+    flot.textContent = "Subtítulos flotantes";
+    if (!("documentPictureInPicture" in window)) flot.style.display = "none";
+    const pintarPip = (lineas) => {
+      if (!pipWin) return;
+      try {
+        const cont = pipWin.document.getElementById("subs");
+        if (!cont) return;
+        cont.textContent = "";
+        for (const linea of (lineas ?? []).slice(-3)) {
+          const filaPip = pipWin.document.createElement("div");
+          filaPip.style.cssText = "font-size:15px;line-height:1.35";
+          const quien = pipWin.document.createElement("span");
+          quien.textContent = `${linea.speakerName ?? "Alguien"}: `;
+          quien.style.cssText = "color:#2563EB;font-weight:700";
+          const texto = pipWin.document.createElement("span");
+          const trad = traducciones.get(linea.id);
+          texto.textContent = trad && trad !== linea.text ? trad : (linea.text ?? "");
+          filaPip.append(quien, texto);
+          cont.appendChild(filaPip);
+        }
+      } catch { /* la ventanita se cerró en el medio: el próximo pintar la ignora */ }
+    };
+    flot.addEventListener("click", async () => {
+      if (pipWin) {
+        try { pipWin.close(); } catch { /* ya cerrada */ }
+        pipWin = null;
+        flot.textContent = "Subtítulos flotantes";
+        return;
+      }
+      try {
+        const win = await window.documentPictureInPicture.requestWindow({ width: 440, height: 190 });
+        win.document.body.style.cssText =
+          "margin:0;background:linear-gradient(170deg,#ffffff,#f6f9ff);color:#101c40;font-family:system-ui,sans-serif;overflow:hidden";
+        const cont = win.document.createElement("div");
+        cont.id = "subs";
+        cont.style.cssText =
+          "display:flex;flex-direction:column;justify-content:flex-end;gap:6px;height:100vh;padding:10px 14px;box-sizing:border-box";
+        win.document.body.appendChild(cont);
+        win.addEventListener("pagehide", () => {
+          pipWin = null;
+          try { flot.textContent = "Subtítulos flotantes"; } catch { /* overlay ya no está */ }
+        });
+        pipWin = win;
+        flot.textContent = "Flotantes ✓";
+        pintarPip(ultimasLineas);
+      } catch {
+        // Bloqueado (política de la página, Chrome viejo): decirlo, no callar.
+        flot.textContent = "No se pudo abrir";
+        setTimeout(() => { if (!pipWin) flot.textContent = "Subtítulos flotantes"; }, 2500);
+      }
+    });
+    fila.append(flot);
+    // Las últimas líneas pintadas, para espejarlas al abrir la ventanita.
+    let ultimasLineas = [];
     // Sin grabación local: ofrecer arrancarla acá (este clic es un gesto
     // válido para getDisplayMedia).
     if (!grabandoAca) {
@@ -1013,6 +1077,9 @@
         row.append(foto, cuerpo);
         subs.appendChild(row);
       }
+      // Espejo hacia la ventanita flotante (si está abierta), con lo mismo.
+      ultimasLineas = ultimas;
+      pintarPip(ultimas);
       // La línea interina (lo que estás diciendo AHORA) va siempre última.
       if (textoInterino) pintarInterina();
       subs.scrollTop = subs.scrollHeight;
