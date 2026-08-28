@@ -286,6 +286,17 @@ async function contarParticipantes(page) {
         const n = window.APP?.conference?.membersCount;
         if (Number.isFinite(n) && n > 0) return n;
       } catch { /* no es Jitsi */ }
+      // Google Meet: cada participante visible lleva data-participant-id en
+      // su ficha. Contar los DISTINTOS es el conteo confiable que el globito
+      // no da (sin esto, el bot no sabía cuándo quedó solo en Meet y se
+      // quedaba hasta el tope de tiempo con la grabación rehén).
+      const fichas = document.querySelectorAll("[data-participant-id]");
+      if (fichas.length > 0) {
+        const distintos = new Set(
+          [...fichas].map((f) => f.getAttribute("data-participant-id"))
+        );
+        if (distintos.size > 0) return distintos.size;
+      }
       const badge = document.querySelector(
         '[data-testid="participantsCountBadge"], .badge-round, .toolbox-badge, .participants-count'
       );
