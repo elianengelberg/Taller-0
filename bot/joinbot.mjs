@@ -338,7 +338,13 @@ const adaptadores = {
       'button:has-text("Solicitar unirse"), button:has-text("Join now"), ' +
       'button:has-text("Unirte ahora"), button:has-text("Unirse ahora"), ' +
       'button:has-text("Unirme ahora"), button:has-text("Participar"), ' +
-      'button:has-text("Join anyway"), button:has-text("Unirse de todos modos")';
+      'button:has-text("Join anyway"), button:has-text("Unirse de todos modos"), ' +
+      // La cuenta del bot ya está en la llamada (es la MISMA cuenta que la
+      // persona): Meet muestra "Ya estás en esta llamada" y el botón es
+      // "Unirse aquí también". OJO: jamás tocar "Cambiar aquí"/"Switch
+      // here", que sacaría a la persona de su propia reunión.
+      'button:has-text("Join here too"), button:has-text("Unirse aquí también"), ' +
+      'button:has-text("Únete aquí también"), button:has-text("Unirse también")';
     let pidio = false;
     // 20 intentos ≈ un minuto de paciencia: en un host chico, el Chrome con
     // un perfil sincronizado tarda MUCHO en dejar lista la pantalla de Meet
