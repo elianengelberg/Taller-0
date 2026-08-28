@@ -935,6 +935,8 @@ export async function dispatchBot(params: {
   url: string;
   roomKey: string;
   platform: string;
+  /** El idioma que se habla en la reunión: el oído del bot. */
+  lang?: string;
 }): Promise<{ ok?: boolean; message?: string; error?: string }> {
   try {
     const res = await fetchWithTimeout(`${SERVER_URL}/api/bot/dispatch`, {

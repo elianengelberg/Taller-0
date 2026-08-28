@@ -373,6 +373,7 @@ export default function ExternalJoin() {
               preparing={preparingRecording}
               onPasscodeChange={setPasscode}
               onJoinEmbed={() => void joinWithAutoRecord(detected)}
+              lang={language}
             />
           )}
         </div>
@@ -388,6 +389,7 @@ function DetectionResult({
   preparing,
   onPasscodeChange,
   onJoinEmbed,
+  lang,
 }: {
   detected: DetectedMeeting;
   platforms: PlatformConfig | null;
@@ -395,6 +397,8 @@ function DetectionResult({
   preparing: boolean;
   onPasscodeChange: (value: string) => void;
   onJoinEmbed: () => void;
+  /** El idioma que la persona dijo que se habla: el OÍDO del bot. */
+  lang: string;
 }) {
   const { platform, info, url, meetingId, roomKey } = detected;
 
@@ -596,7 +600,7 @@ function DetectionResult({
       {/* El bot "Notetaker": entra a la reunión POR VOS, aunque no estés.
           Aparece cuando tenemos el enlace y la clave de sala. Si el bot no
           está encendido en el servidor, lo dice con claridad (no rompe). */}
-      {url && roomKey && <BotButton url={url} roomKey={roomKey} platform={platform} />}
+      {url && roomKey && <BotButton url={url} roomKey={roomKey} platform={platform} lang={lang} />}
     </div>
   );
 }
@@ -604,7 +608,7 @@ function DetectionResult({
 // El botón que manda al bot. La plataforma se traduce a las que el bot
 // entiende (jitsi / google-meet / zoom-web); el resto cae a jitsi, que el
 // servidor también usa por defecto.
-function BotButton({ url, roomKey, platform }: { url: string; roomKey: string; platform: string }) {
+function BotButton({ url, roomKey, platform, lang }: { url: string; roomKey: string; platform: string; lang: string }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   // "ok" deja el botón en "mandado" (repetir el toque mandaba OTRO bot y,
@@ -681,7 +685,7 @@ function BotButton({ url, roomKey, platform }: { url: string; roomKey: string; p
     } catch {
       atPrevioRef.current = 0;
     }
-    const r = await dispatchBot({ url, roomKey, platform: plataformaBot });
+    const r = await dispatchBot({ url, roomKey, platform: plataformaBot, lang });
     setMandando(false);
     if (r.error) setEstado({ tipo: "error", texto: r.error });
     else {

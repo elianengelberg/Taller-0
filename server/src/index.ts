@@ -1735,6 +1735,8 @@ async function despacharBot(args: {
   roomKey: string;
   platform: string;
   ownerId: string | null;
+  /** El idioma de la reunión (el oído del bot); vacío = el default del host. */
+  lang?: string;
 }): Promise<ResultadoDespacho> {
   const plataformaBot = BOT_PLATFORMS.has(args.platform) ? args.platform : "jitsi";
 
@@ -1757,7 +1759,7 @@ async function despacharBot(args: {
     const r = await fetch(`${BOT_HOST_URL}/despachar`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-unify-secret": BOT_HOST_SECRET },
-      body: JSON.stringify({ url: args.url, roomKey: args.roomKey, platform: plataformaBot }),
+      body: JSON.stringify({ url: args.url, roomKey: args.roomKey, platform: plataformaBot, lang: args.lang || "" }),
       signal: AbortSignal.timeout(10_000),
     });
     const data = (await r.json().catch(() => ({}))) as { ok?: boolean; yaEstaba?: boolean };
@@ -1773,6 +1775,7 @@ async function despacharBot(args: {
       ROOM_KEY: args.roomKey,
       SERVER_URL: `http://localhost:${process.env.PORT || 4001}`,
       BOT_NAME: process.env.BOT_NAME || "Unify Notetaker",
+      ...(args.lang ? { BOT_LANG: args.lang } : {}),
       PLATFORM: plataformaBot,
     },
     stdio: "ignore",
@@ -1803,8 +1806,11 @@ app.post("/api/bot/dispatch", requireAuth, async (req, res) => {
     return;
   }
   const plataformaBot = BOT_PLATFORMS.has(platform) ? platform : "jitsi";
+  // El idioma viaja hasta el reconocimiento del bot; sólo formatos sanos.
+  const langCrudo = String(req.body?.lang ?? "").trim();
+  const lang = /^[a-z]{2,3}(-[a-zA-Z]{2,4})?$/.test(langCrudo) ? langCrudo : "";
   try {
-    const r = await despacharBot({ url, roomKey, platform: plataformaBot, ownerId: (req as AuthedRequest).userId! });
+    const r = await despacharBot({ url, roomKey, platform: plataformaBot, ownerId: (req as AuthedRequest).userId!, lang });
     if (!r.ok) {
       res.status(r.status).json({ error: r.error });
       return;

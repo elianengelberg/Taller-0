@@ -66,6 +66,8 @@ const server = createServer((req, res) => {
     if (req.method === "POST" && req.url === "/despachar") {
       const url = String(datos.url || "").slice(0, 2000);
       const platform = String(datos.platform || "jitsi");
+      const langCrudo = String(datos.lang || "").trim();
+      const lang = /^[a-z]{2,3}(-[a-zA-Z]{2,4})?$/.test(langCrudo) ? langCrudo : "";
       if (!/^https?:\/\//.test(url) || !roomKey) {
         json(res, 400, { error: "Faltan url o roomKey." });
         return;
@@ -82,6 +84,9 @@ const server = createServer((req, res) => {
           SERVER_URL,
           PLATFORM: platform,
           BOT_NAME: process.env.BOT_NAME || "Unify Notetaker",
+          // El oído del bot en el idioma de ESTA reunión (el que eligió
+          // quien lo mandó), no en el default del host.
+          ...(lang ? { BOT_LANG: lang } : {}),
         },
         // La salida del bot pasa por el agente: con el agente corriendo como
         // servicio, queda en journald (journalctl -u unify-bot-agent) y se

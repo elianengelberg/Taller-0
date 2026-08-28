@@ -151,7 +151,13 @@ async function subirGrabacion() {
   const stream = recStream;
   recStream = null;
   await new Promise((res) => stream.end(res));
-  if (!recBytes) { try { unlinkSync(recPath); } catch {} return; }
+  if (!recBytes) {
+    // Antes esto era un salto MUDO: la reunión aparecía sin video y nadie
+    // sabía por qué. Que quede dicho en el journal.
+    log("grabación: no llegó NI UN chunk de video (la captura de pestaña no arrancó); nada para subir");
+    try { unlinkSync(recPath); } catch {}
+    return;
+  }
   if (!recDbId) {
     // El aviso de inicio pudo fallar (red); un último intento antes de rendirse.
     try { recDbId = await dbIdDeLaSala(); } catch (e) { log("grabación: sin reunión adónde subirla:", e.message); }
@@ -680,7 +686,7 @@ async function arrancarEscucha(page) {
       if (!Ctor) { diag("este navegador no trae SpeechRecognition"); return; }
       if (typeof Ctor.available !== "function") { diag("SpeechRecognition sin soporte de pista (Chrome < 139)"); return; }
       try {
-        const disp = await Ctor.available({ langs: ["es-AR"], processLocally: false });
+        const disp = await Ctor.available({ langs: [lang], processLocally: false });
         diag(`reconocimiento disponible: ${disp}`);
       } catch (e) { diag(`available() falló: ${e?.message || e}`); }
       let activa = true, fallas = 0;
@@ -688,7 +694,9 @@ async function arrancarEscucha(page) {
       r.lang = lang;
       r.continuous = true;
       r.interimResults = false;
-      r.maxAlternatives = 3;
+      // 5 como en la web: más candidatas para que la IA correctora elija
+      // la lectura con sentido (con 3 se le escapaban palabras).
+      r.maxAlternatives = 5;
       // El reconocimiento corta las frases donde respira, no donde terminan:
       // "quedamos entonces" / "en revisar los números" quedaban como dos
       // líneas sueltas y el transcripto se leía picado. Los fragmentos se
