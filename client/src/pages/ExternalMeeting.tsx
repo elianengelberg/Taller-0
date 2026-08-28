@@ -351,6 +351,12 @@ export default function ExternalMeeting() {
   // plain leave, "save to an account", or "skip").
   const pendingExitRef = useRef<(() => void) | null>(null);
 
+  // La fecha límite se ancla UNA vez al pedir la salida: el setTimeout del
+  // efecto de abajo se reseteaba con cada transición de la grabación
+  // (procesando -> subiendo -> reintento) y el "tope de 30s" se corría
+  // infinitamente -- el spinner eterno del iPad.
+  const savingDeadlineRef = useRef(0);
+
   // Runs `exit` now, or defers it until the recording finishes uploading.
   function exitWhenSaved(exit: () => void) {
     const busy =
@@ -363,30 +369,35 @@ export default function ExternalMeeting() {
     }
     if (recorder.status === "recording") recorder.stop();
     pendingExitRef.current = exit;
+    savingDeadlineRef.current = Date.now() + 30000;
     setSavingRecording(true);
   }
 
-  // Completes the deferred exit once the recording is uploaded (or after a 30s
-  // fallback, so a stuck upload can never trap someone in the meeting).
+  // La salida diferida, ejecutable también a mano (el botón "Salir igual").
+  function completarSalida() {
+    if (leftRef.current) return;
+    leftRef.current = true;
+    const exit = pendingExitRef.current;
+    pendingExitRef.current = null;
+    exit?.();
+  }
+
+  // Completes the deferred exit once the recording is uploaded (or once the
+  // anchored deadline passes, so a stuck upload can never trap someone).
   useEffect(() => {
     if (!savingRecording || leftRef.current) return;
-    const finish = () => {
-      if (leftRef.current) return;
-      leftRef.current = true;
-      const exit = pendingExitRef.current;
-      pendingExitRef.current = null;
-      exit?.();
-    };
     const busy =
       recorder.status === "recording" ||
       recorder.status === "processing" ||
       recorder.uploadStatus === "uploading";
-    if (!busy) {
-      finish();
+    const restante = Math.max(0, savingDeadlineRef.current - Date.now());
+    if (!busy || restante === 0) {
+      completarSalida();
       return;
     }
-    const t = setTimeout(finish, 30000);
+    const t = setTimeout(completarSalida, restante);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savingRecording, recorder.status, recorder.uploadStatus]);
 
   function handleLeave() {
@@ -815,15 +826,29 @@ export default function ExternalMeeting() {
       </div>
       {pendingLeave && <SaveMeetingPrompt onSave={confirmSaveMeeting} onSkip={skipSaveMeeting} />}
       {savingRecording && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/80 backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-4 rounded-2xl border border-white/10 bg-ink-900/90 px-8 py-7 text-center shadow-2xl">
-            <div className="h-9 w-9 animate-spin rounded-full border-2 border-white/20 border-t-brand-400" />
+        // Tokens de tema (la versión anterior era texto blanco sobre una
+        // tarjeta que en tema claro es casi blanca: un modal "vacío"), más la
+        // salida a mano para que nadie quede rehén de una subida lenta.
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/60 backdrop-blur-sm">
+          <div className="mx-6 flex max-w-sm flex-col items-center gap-4 rounded-2xl border border-ink-600 bg-ink-800 px-8 py-7 text-center shadow-2xl">
+            <div className="h-9 w-9 animate-spin rounded-full border-2 border-ink-600 border-t-brand-500" />
             <div>
-              <p className="text-sm font-semibold text-white">Guardando grabación…</p>
-              <p className="mt-1 text-xs text-white/60">
-                No cierres esta pestaña. Terminamos de subir el video y seguimos.
+              <p className="text-sm font-semibold text-strong">Guardando la grabación…</p>
+              <p className="mt-1 text-xs leading-relaxed text-ink-300">
+                La reunión ya terminó para vos; falta subir el video (unos segundos).
               </p>
             </div>
+            <button
+              type="button"
+              onClick={completarSalida}
+              className="rounded-full border border-ink-600 px-5 py-2 text-xs font-semibold text-ink-200 hover:border-brand-400 hover:text-strong"
+            >
+              Salir igual
+            </button>
+            <p className="text-[11px] leading-snug text-ink-400">
+              Si salís, la subida sigue sola; y si no llega, la grabación queda guardada en este
+              dispositivo y se reintenta desde el historial.
+            </p>
           </div>
         </div>
       )}

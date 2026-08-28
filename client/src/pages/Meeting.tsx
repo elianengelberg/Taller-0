@@ -451,6 +451,18 @@ export default function Meeting() {
   // history instead of the upload being abandoned mid-flight when they leave.
   const [savingRecording, setSavingRecording] = useState(false);
   const leftRef = useRef(false);
+  // La fecha límite se ancla UNA vez al pedir la salida. Antes el setTimeout
+  // vivía en el efecto de abajo, y cada transición de la grabación
+  // (grabando -> procesando -> subiendo -> reintento) lo reseteaba: el
+  // "tope de 30s" se corría infinitamente y el spinner quedaba eterno.
+  const savingDeadlineRef = useRef(0);
+
+  function salirYa() {
+    if (leftRef.current) return;
+    leftRef.current = true;
+    leaveMeeting();
+    navigate("/", { replace: true });
+  }
 
   function handleLeave() {
     if (!user && meeting?.dbId) {
@@ -463,34 +475,30 @@ export default function Meeting() {
       recorder.uploadStatus === "uploading";
     if (busy) {
       if (recorder.status === "recording") recorder.stop();
+      savingDeadlineRef.current = Date.now() + 30000;
       setSavingRecording(true); // an effect below leaves once the save finishes
       return;
     }
-    leaveMeeting();
-    navigate("/", { replace: true });
+    salirYa();
   }
 
-  // Completes the deferred leave once the recording is safely uploaded (or a
-  // 30s fallback elapses, so a stuck upload can never trap someone here).
+  // Completes the deferred leave once the recording is safely uploaded (or the
+  // anchored 30s deadline passes, so a stuck upload can never trap someone).
   useEffect(() => {
     if (!savingRecording || leftRef.current) return;
-    const finish = () => {
-      if (leftRef.current) return;
-      leftRef.current = true;
-      leaveMeeting();
-      navigate("/", { replace: true });
-    };
     const busy =
       recorder.status === "recording" ||
       recorder.status === "processing" ||
       recorder.uploadStatus === "uploading";
-    if (!busy) {
-      finish();
+    const restante = Math.max(0, savingDeadlineRef.current - Date.now());
+    if (!busy || restante === 0) {
+      salirYa();
       return;
     }
-    const t = setTimeout(finish, 30000);
+    const t = setTimeout(salirYa, restante);
     return () => clearTimeout(t);
-  }, [savingRecording, recorder.status, recorder.uploadStatus, leaveMeeting, navigate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savingRecording, recorder.status, recorder.uploadStatus]);
   function confirmSaveMeeting() {
     const dbId = pendingLeave!;
     leaveMeeting();
@@ -773,15 +781,29 @@ export default function Meeting() {
       )}
       {pendingLeave && <SaveMeetingPrompt onSave={confirmSaveMeeting} onSkip={skipSaveMeeting} />}
       {savingRecording && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/80 backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-4 rounded-2xl border border-white/10 bg-ink-900/90 px-8 py-7 text-center shadow-2xl">
-            <div className="h-9 w-9 animate-spin rounded-full border-2 border-white/20 border-t-brand-400" />
+        // Colores por TOKENS de tema: la versión anterior era texto blanco
+        // sobre ink-900, que en tema claro es una tarjeta casi blanca -- el
+        // modal se veía VACÍO, un spinner mudo sin explicación ni salida.
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/60 backdrop-blur-sm">
+          <div className="mx-6 flex max-w-sm flex-col items-center gap-4 rounded-2xl border border-ink-600 bg-ink-800 px-8 py-7 text-center shadow-2xl">
+            <div className="h-9 w-9 animate-spin rounded-full border-2 border-ink-600 border-t-brand-500" />
             <div>
-              <p className="text-sm font-semibold text-white">Guardando grabación…</p>
-              <p className="mt-1 text-xs text-white/60">
-                No cierres esta pestaña. Terminaremos de subir el video y te llevaremos al historial.
+              <p className="text-sm font-semibold text-strong">Guardando la grabación…</p>
+              <p className="mt-1 text-xs leading-relaxed text-ink-300">
+                La reunión ya terminó para vos; falta subir el video (unos segundos).
               </p>
             </div>
+            <button
+              type="button"
+              onClick={salirYa}
+              className="rounded-full border border-ink-600 px-5 py-2 text-xs font-semibold text-ink-200 hover:border-brand-400 hover:text-strong"
+            >
+              Salir igual
+            </button>
+            <p className="text-[11px] leading-snug text-ink-400">
+              Si salís, la subida sigue sola; y si no llega, la grabación queda guardada en este
+              dispositivo y se reintenta desde el historial.
+            </p>
           </div>
         </div>
       )}
