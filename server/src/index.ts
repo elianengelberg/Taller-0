@@ -1930,11 +1930,30 @@ app.post("/api/meet-bridge/:meetId", bridgeLimit, (req, res) => {
       : null,
     at: Date.now(),
   };
+  // La fase del BOT ("abriendo", "esperando-admision", "adentro", "fallo" +
+  // su porqué) se GUARDA además de emitirse: el botón "Que entre el bot"
+  // la sondea para contar en vivo qué está pasando, en vez del "mandado"
+  // ciego que dejaba a la gente esperando un bot que ya había muerto.
+  if (typeof b.botFase === "string" && b.botFase) {
+    if (botEstadoPorSala.size >= 500) {
+      const primera = botEstadoPorSala.keys().next().value;
+      if (primera !== undefined) botEstadoPorSala.delete(primera);
+    }
+    botEstadoPorSala.set(meetId, {
+      fase: String(b.botFase).slice(0, 40),
+      detalle: typeof b.botDetalle === "string" ? String(b.botDetalle).slice(0, 300) : null,
+      at: Date.now(),
+    });
+  }
   // La sala del socket es la misma que crea getOrCreateCompanionMeeting: la
   // clave en mayúsculas. Antes esto estaba clavado a GOOGLE-MEET.
   io.to(`meeting:${meetId.toUpperCase()}`).emit("meet-state", state);
   res.json({ ok: true });
 });
+
+// Último estado conocido del bot por sala (en memoria: si el servidor se
+// reinicia se pierde, y está bien -- es información de "ahora mismo").
+const botEstadoPorSala = new Map<string, { fase: string; detalle: string | null; at: number }>();
 
 // --- Extension transcript relay ---------------------------------------------
 // Google Meet's OWN live captions carry every speaker (with their name), which
@@ -2055,6 +2074,9 @@ app.get("/api/meet-bridge/:meetId/session", bridgeLimit, (req, res) => {
       name: p.name,
       avatarUrl: p.avatarUrl ?? null,
     })),
+    // La fase del bot, si alguien mandó uno a esta sala: el botón del cliente
+    // la sondea para mostrar el progreso (o el fallo, con su porqué).
+    bot: botEstadoPorSala.get(roomKey) ?? null,
   });
 });
 

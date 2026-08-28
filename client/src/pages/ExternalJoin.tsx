@@ -21,6 +21,7 @@ import {
   PLATFORM_REGISTRY,
 } from "../lib/meetingPlatforms";
 import { cardClass, inputClass, labelClass, nameInputProps, urlInputProps } from "../lib/ui";
+import { SERVER_URL } from "../lib/socket";
 import { abrirVentanaReunion } from "../lib/ventanaReunion";
 import { CompanionEmbed } from "../types";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
@@ -613,13 +614,77 @@ function BotButton({ url, roomKey, platform }: { url: string; roomKey: string; p
   const plataformaBot =
     platform === "google-meet" ? "google-meet" : platform === "zoom" ? "zoom-web" : platform === "jitsi" ? "jitsi" : "jitsi";
 
+  // La fase REAL del bot, sondeada del bridge. "Mandado ✓" solo decía que el
+  // host aceptó el trabajo: si el bot moría contra la pantalla de Meet, la
+  // persona quedaba esperando un bot muerto sin ninguna señal. Ahora el botón
+  // cuenta el viaje (abriendo → pidió entrar → adentro) o el fallo con su
+  // porqué. atPrevio evita confundir fases de un intento anterior: se compara
+  // timestamp del servidor contra timestamp del servidor (sin líos de reloj).
+  const [sondeoDesde, setSondeoDesde] = useState<number | null>(null);
+  const atPrevioRef = useRef(0);
+  useEffect(() => {
+    if (!sondeoDesde) return;
+    let vivo = true;
+    const timer = window.setInterval(() => {
+      void (async () => {
+        try {
+          const r = await fetch(`${SERVER_URL}/api/meet-bridge/${encodeURIComponent(roomKey)}/session`);
+          if (!r.ok || !vivo) return;
+          const d = (await r.json()) as { bot?: { fase: string; detalle: string | null; at: number } | null };
+          const bot = d.bot;
+          if (!vivo) return;
+          if (bot && bot.at > atPrevioRef.current) {
+            if (bot.fase === "fallo") {
+              setEstado({ tipo: "error", texto: `El bot no pudo entrar. ${bot.detalle ?? ""}`.trim() });
+              setSondeoDesde(null);
+            } else if (bot.fase === "adentro") {
+              setEstado({
+                tipo: "ok",
+                texto: "El bot está adentro ✓ Grabando y transcribiendo: todo queda en tu historial.",
+              });
+              setSondeoDesde(null);
+            } else if (bot.fase === "esperando-admision") {
+              setEstado({
+                tipo: "ok",
+                texto: "El bot ya pidió entrar: aceptalo desde la reunión (en Meet: Personas → Admitir).",
+              });
+            } else if (bot.fase === "abriendo") {
+              setEstado({ tipo: "ok", texto: "El bot está abriendo la reunión…" });
+            }
+          } else if (Date.now() - sondeoDesde > 60_000) {
+            setEstado({
+              tipo: "error",
+              texto:
+                "El bot no dio señales en un minuto. El host del bot puede estar caído o con una versión vieja: probá de nuevo y, si sigue, avisanos.",
+            });
+            setSondeoDesde(null);
+          }
+        } catch {
+          // red caída un tick: el próximo lo reintenta
+        }
+      })();
+    }, 3000);
+    return () => {
+      vivo = false;
+      window.clearInterval(timer);
+    };
+  }, [sondeoDesde, roomKey]);
+
   async function mandar() {
     setMandando(true);
     setEstado(null);
+    // La marca de "antes de este intento": cualquier fase más nueva es de ESTE bot.
+    try {
+      const r = await fetch(`${SERVER_URL}/api/meet-bridge/${encodeURIComponent(roomKey)}/session`);
+      const d = r.ok ? ((await r.json()) as { bot?: { at: number } | null }) : null;
+      atPrevioRef.current = d?.bot?.at ?? 0;
+    } catch {
+      atPrevioRef.current = 0;
+    }
     const r = await dispatchBot({ url, roomKey, platform: plataformaBot });
     setMandando(false);
     if (r.error) setEstado({ tipo: "error", texto: r.error });
-    else
+    else {
       setEstado({
         tipo: "ok",
         texto:
@@ -628,6 +693,8 @@ function BotButton({ url, roomKey, platform }: { url: string; roomKey: string; p
             ? " Si Meet pide permiso para dejarlo entrar, aceptalo desde la reunión."
             : ""),
       });
+      setSondeoDesde(Date.now());
+    }
   }
 
   return (

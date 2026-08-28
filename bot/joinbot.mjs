@@ -248,11 +248,20 @@ async function esperarAdmision(page, ms) {
   const hasta = Date.now() + ms;
   while (Date.now() < hasta) {
     if (await estaEnLlamada(page)) return true;
-    if (await fueRechazado(page)) return false;
+    if (await fueRechazado(page)) {
+      motivoFallo = "La reunión rechazó al bot (lo denegaron, lo sacaron o la sala está llena).";
+      return false;
+    }
     await page.waitForTimeout(2000);
   }
+  motivoFallo = "Nadie admitió al bot: la solicitud le aparece al anfitrión dentro de la reunión.";
   return false;
 }
+
+// El PORQUÉ de un ingreso fallido, para contárselo a la persona que mandó el
+// bot (viaja por el bridge como botDetalle). Antes el bot moría en silencio
+// y el botón quedaba en "mandado" para siempre.
+let motivoFallo = null;
 
 // Jitsi acepta configuración por el fragmento de la URL: entrar YA silenciado,
 // SIN cámara, sin pantalla previa y con el nombre puesto. Es la forma robusta
@@ -321,17 +330,47 @@ const adaptadores = {
     // en muchas reuniones). Por eso conviene el perfil persistente con una
     // sesión de Google ya abierta (ver BOT_PROFILE_DIR en el README).
     await page.waitForTimeout(5000);
-    await descartarDialogos(page);
-    // Nombre sólo si Meet lo pide (invitado sin sesión).
-    const nombre = page.locator('input[aria-label*="name" i], input[placeholder*="name" i]').first();
-    if (await nombre.count()) { await nombre.fill(BOT_NAME).catch(() => {}); }
-    await apagarCamaraYMic(page);
-    await descartarDialogos(page);
-    const entrar = page.locator(
-      'button:has-text("Ask to join"), button:has-text("Pedir unirse"), button:has-text("Join now"), ' +
-      'button:has-text("Unirte ahora"), button:has-text("Unirse ahora")'
-    ).first();
-    if (await entrar.count()) { await entrar.click().catch(() => {}); }
+    // El botón, con REINTENTOS: Meet carga lento y cambia sus textos seguido.
+    // Y si en vez del prejoin hay una PARED (iniciá sesión, navegador no
+    // soportado), se dice claro en vez de esperar a ciegas hasta el timeout.
+    const BOTON =
+      'button:has-text("Ask to join"), button:has-text("Pedir unirse"), ' +
+      'button:has-text("Solicitar unirse"), button:has-text("Join now"), ' +
+      'button:has-text("Unirte ahora"), button:has-text("Unirse ahora"), ' +
+      'button:has-text("Unirme ahora")';
+    let pidio = false;
+    for (let intento = 0; intento < 8 && !pidio; intento++) {
+      await descartarDialogos(page);
+      // Nombre sólo si Meet lo pide (invitado sin sesión).
+      const nombre = page.locator(
+        'input[aria-label*="name" i], input[placeholder*="name" i], input[aria-label*="nombre" i]'
+      ).first();
+      if (await nombre.count()) { await nombre.fill(BOT_NAME).catch(() => {}); }
+      await apagarCamaraYMic(page);
+      const entrar = page.locator(BOTON).first();
+      if (await entrar.count()) {
+        await entrar.click().catch(() => {});
+        pidio = true;
+        break;
+      }
+      const cuerpo = ((await page.locator("body").textContent().catch(() => "")) || "").slice(0, 4000);
+      if (/sign in|inicia sesión|iniciá sesión|debes acceder|use your google account|usa tu cuenta de google/i.test(cuerpo)) {
+        motivoFallo =
+          "Google exigió una cuenta iniciada para dejar entrar al bot. En el host del bot hay " +
+          "que dejarle una sesión de Google (BOT_PROFILE_DIR, ver bot/README.md).";
+        return false;
+      }
+      if (/can't join|no puedes unirte|no podés unirte|check your meeting code|comprueba el código|not supported|no es compatible|update your browser|actualiza tu navegador/i.test(cuerpo)) {
+        motivoFallo = "Meet rechazó al navegador del bot o el código de la reunión.";
+        return false;
+      }
+      await page.waitForTimeout(3000);
+    }
+    if (!pidio) {
+      motivoFallo = "No apareció el botón para pedir entrar (Meet no cargó o cambió su pantalla).";
+      return false;
+    }
+    await postEstado({ botFase: "esperando-admision" });
     // Puede quedar "esperando que te dejen entrar": esperarAdmision aguanta eso.
     return esperarAdmision(page, ADMISION_MS);
   },
@@ -686,11 +725,13 @@ async function arrancarEscucha(page) {
     process.exit(0);
   }
 
+  await postEstado({ botFase: "abriendo" });
   try {
     const destino = PLATFORM === "jitsi" ? urlJitsiSilenciosa(MEETING_URL) : MEETING_URL;
     await page.goto(destino, { waitUntil: "domcontentloaded", timeout: 60_000 });
   } catch (e) {
     log("no se pudo abrir la URL:", e.message);
+    await postEstado({ botFase: "fallo", botDetalle: "No se pudo abrir el enlace de la reunión desde el host del bot." });
     await salir("url inaccesible");
     return;
   }
@@ -699,11 +740,15 @@ async function arrancarEscucha(page) {
   const adentro = await adaptador(page);
   if (!adentro) {
     log("no se pudo confirmar el ingreso a la reunión");
+    await postEstado({
+      botFase: "fallo",
+      botDetalle: motivoFallo || "La reunión no admitió al bot y no se pudo saber por qué.",
+    });
     await salir("no ingresó");
     return;
   }
   log("adentro de la reunión");
-  await postEstado({ inCall: true, participantCount: 2 });
+  await postEstado({ inCall: true, participantCount: 2, botFase: "adentro" });
 
   await arrancarEscucha(page);
 

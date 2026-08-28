@@ -95,6 +95,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   check("el bot publicó que está EN la reunión (estado en vivo)",
     estadoVivo?.inCall === true, JSON.stringify(estadoVivo));
 
+  // La FASE del bot queda sondeables en /session: es lo que el botón del
+  // cliente usa para contar el viaje en vivo (o el fallo, con su porqué).
+  {
+    const s = await fetch(`${API}/api/meet-bridge/${encodeURIComponent(ROOM_KEY)}/session`)
+      .then((x) => x.json()).catch(() => ({}));
+    check("la fase del bot se puede sondear (/session dice \"adentro\")",
+      s?.bot?.fase === "adentro", JSON.stringify(s?.bot ?? null));
+  }
+
   // En la base queda guardado (el historial de Read AI, pero nuestro).
   await sleep(1500);
   const { rows } = await pg.query(
