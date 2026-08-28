@@ -17,6 +17,8 @@ function watch(page, bag) {
   page.on("pageerror", (e) => bag.push(`JS: ${e.message.slice(0, 140)}`));
   page.on("console", (m) => {
     if (m.type() !== "error") return;
+    // Recurso externo cortado por el sandbox (proxy 502/404): no es del producto.
+    if (/Failed to load resource/i.test(m.text()) && !(m.location?.().url || "").includes("localhost")) return;
     const t = `${m.text()} ${m.location?.().url || ""}`;
     if (!IGNORABLE.test(t)) bag.push(`consola: ${m.text().slice(0, 80)} @ ${(m.location?.().url || "").slice(-60)}`);
   });

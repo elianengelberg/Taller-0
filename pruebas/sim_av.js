@@ -18,8 +18,13 @@ function watch(page, bag) {
   page.on("pageerror", (e) => bag.push(`JS: ${e.message.slice(0, 140)}`));
   page.on("console", (m) => {
     if (m.type() !== "error") return;
-    const t = `${m.text()} ${m.location?.().url || ""}`;
-    if (!IGNORABLE.test(t)) bag.push(`consola: ${m.text().slice(0, 110)}`);
+    const url = m.location?.().url || "";
+    const t = `${m.text()} ${url}`;
+    if (IGNORABLE.test(t)) return;
+    // Recursos externos que el sandbox corta (proxy con 502/404): no son
+    // errores del producto. Sólo cuentan las fallas de carga de NUESTRO stack.
+    if (/Failed to load resource/i.test(m.text()) && !url.includes("localhost")) return;
+    bag.push(`consola: ${m.text().slice(0, 110)}`);
   });
 }
 
