@@ -1737,6 +1737,8 @@ async function despacharBot(args: {
   ownerId: string | null;
   /** El idioma de la reunión (el oído del bot); vacío = el default del host. */
   lang?: string;
+  /** Paciencia del bot (sala vacía y admisión), en ms; vacío = defaults. */
+  esperaMs?: number;
 }): Promise<ResultadoDespacho> {
   const plataformaBot = BOT_PLATFORMS.has(args.platform) ? args.platform : "jitsi";
 
@@ -1759,7 +1761,13 @@ async function despacharBot(args: {
     const r = await fetch(`${BOT_HOST_URL}/despachar`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-unify-secret": BOT_HOST_SECRET },
-      body: JSON.stringify({ url: args.url, roomKey: args.roomKey, platform: plataformaBot, lang: args.lang || "" }),
+      body: JSON.stringify({
+        url: args.url,
+        roomKey: args.roomKey,
+        platform: plataformaBot,
+        lang: args.lang || "",
+        esperaMs: args.esperaMs || 0,
+      }),
       signal: AbortSignal.timeout(10_000),
     });
     const data = (await r.json().catch(() => ({}))) as { ok?: boolean; yaEstaba?: boolean };
@@ -1776,6 +1784,9 @@ async function despacharBot(args: {
       SERVER_URL: `http://localhost:${process.env.PORT || 4001}`,
       BOT_NAME: process.env.BOT_NAME || "Unify Notetaker",
       ...(args.lang ? { BOT_LANG: args.lang } : {}),
+      ...(args.esperaMs
+        ? { ESPERA_INICIO_MS: String(args.esperaMs), ADMISION_MS: String(args.esperaMs) }
+        : {}),
       PLATFORM: plataformaBot,
     },
     stdio: "ignore",

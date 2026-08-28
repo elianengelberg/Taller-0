@@ -68,6 +68,13 @@ const server = createServer((req, res) => {
       const platform = String(datos.platform || "jitsi");
       const langCrudo = String(datos.lang || "").trim();
       const lang = /^[a-z]{2,3}(-[a-zA-Z]{2,4})?$/.test(langCrudo) ? langCrudo : "";
+      // Paciencia pedida por el despacho (el bot de calendario espera hasta
+      // media hora); acotada para que un pedido roto no deje bots eternos.
+      const esperaCruda = Number(datos.esperaMs);
+      const esperaMs =
+        Number.isFinite(esperaCruda) && esperaCruda >= 60_000 && esperaCruda <= 120 * 60_000
+          ? Math.floor(esperaCruda)
+          : 0;
       if (!/^https?:\/\//.test(url) || !roomKey) {
         json(res, 400, { error: "Faltan url o roomKey." });
         return;
@@ -87,6 +94,9 @@ const server = createServer((req, res) => {
           // El oído del bot en el idioma de ESTA reunión (el que eligió
           // quien lo mandó), no en el default del host.
           ...(lang ? { BOT_LANG: lang } : {}),
+          ...(esperaMs
+            ? { ESPERA_INICIO_MS: String(esperaMs), ADMISION_MS: String(esperaMs) }
+            : {}),
         },
         // La salida del bot pasa por el agente: con el agente corriendo como
         // servicio, queda en journald (journalctl -u unify-bot-agent) y se

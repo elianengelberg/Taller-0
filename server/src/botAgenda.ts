@@ -262,11 +262,19 @@ function expandirRepeticion(
 // despacha el bot a las reuniones que están por empezar. despacharBot lo
 // inyecta index.ts (la misma función del botón de la web).
 
+// La PACIENCIA del bot de calendario, distinta a la del botón manual: a una
+// reunión programada la gente puede llegar tarde. El bot espera hasta MEDIA
+// HORA (a que llegue alguien, o a que lo admitan) y si no hay respuesta se
+// retira solo, sin dejar nada colgado.
+export const ESPERA_AGENDA_MS = 30 * 60_000;
+
 type Despachador = (args: {
   url: string;
   roomKey: string;
   platform: string;
   ownerId: string;
+  /** Cuánto esperar (vacío/llegada tarde y admisión) antes de retirarse. */
+  esperaMs?: number;
 }) => Promise<void>;
 
 // Overridable para las pruebas: de dónde bajar un .ics.
@@ -335,7 +343,13 @@ export async function repasarAgenda(despachar: Despachador, ahora = Date.now()):
       const primero = await tryMarkBotDispatch(u.id, ev.key);
       if (!primero) continue;
       try {
-        await despachar({ url: sala.url, roomKey: sala.roomKey, platform: sala.platform, ownerId: u.id });
+        await despachar({
+          url: sala.url,
+          roomKey: sala.roomKey,
+          platform: sala.platform,
+          ownerId: u.id,
+          esperaMs: ESPERA_AGENDA_MS,
+        });
         despachados++;
       } catch { /* el próximo repaso reintenta con otro evento */ }
     }

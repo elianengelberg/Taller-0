@@ -46,7 +46,7 @@ export default function BotAgendaPanel() {
           <h3 className="text-sm font-semibold text-strong">Grabá tus reuniones sin mover un dedo</h3>
           <p className="mt-1 text-xs leading-relaxed text-ink-400">
             Conectá tu calendario y el asistente entra solo a cada reunión. El video y el resumen
-            quedan acá.
+            quedan acá. Si la reunión no arranca, espera hasta 30 minutos y se retira solo.
           </p>
         </div>
         <button

@@ -165,6 +165,11 @@ const compact = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, "").
   check("lo despacha a la sala DERIVADA del link", llamadas[0]?.roomKey === SALA, llamadas[0]?.roomKey);
   check("y a nombre de quien tiene el piloto (dueño)", llamadas[0]?.ownerId === userId);
   check("con la plataforma correcta (jitsi)", llamadas[0]?.platform === "jitsi");
+  check(
+    "con la paciencia de MEDIA HORA del calendario (espera y se retira solo)",
+    llamadas[0]?.esperaMs === 30 * 60_000,
+    `esperaMs=${llamadas[0]?.esperaMs}`,
+  );
 
   // SEGUNDA pasada (el poller corre una y otra vez): NO vuelve a mandar el bot.
   const n2 = await repasarAgenda(despachador);
