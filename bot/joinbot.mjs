@@ -713,6 +713,13 @@ async function arrancarEscucha(page) {
   // funcionar la captura de pestaña. Sin pantalla, headless.
   const headless = !process.env.DISPLAY;
   if (process.env.BOT_PROFILE_DIR) {
+    // Si el Chrome anterior del perfil murió mal (o lo mataron con pkill,
+    // como en el ritual del login por VNC), quedan locks que hacen fallar
+    // el arranque con "profile is already in use". Se limpian: acá nunca
+    // hay dos bots sobre el mismo perfil a la vez.
+    for (const f of ["SingletonLock", "SingletonSocket", "SingletonCookie"]) {
+      try { unlinkSync(joinPath(process.env.BOT_PROFILE_DIR, f)); } catch { /* no estaba */ }
+    }
     ctx = await chromium.launchPersistentContext(process.env.BOT_PROFILE_DIR, {
       args,
       ...conEjecutable,
@@ -855,5 +862,12 @@ async function arrancarEscucha(page) {
   process.on("SIGINT", () => void salir("SIGINT"));
 })().catch(async (e) => {
   console.error("[bot] error fatal:", e.message);
+  // El fallo también viaja al botón de la web: un bot que muere ANTES de
+  // cualquier fase (el navegador no arrancó, el perfil trabado) dejaba a la
+  // persona esperando sin ninguna señal.
+  await postEstado({
+    botFase: "fallo",
+    botDetalle: `El bot se cayó antes de entrar: ${String(e?.message || e).slice(0, 180)}`,
+  });
   process.exit(1);
 });
