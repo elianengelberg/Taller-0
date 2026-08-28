@@ -262,6 +262,14 @@ const json = (b, extra = {}) => ({
   check("la página de la reunión abre con su transcripción",
     cuerpo.includes("lámina azul") && cuerpo.includes("presupuesto"), cuerpo.slice(0, 60).replace(/\n/g, " "));
   check("el video está en la página", (await page.locator("video").count()) === 1);
+  // En iPhone/iPad, un <video> SIN playsinline se va a pantalla completa solo
+  // apenas se toca play: el reproductor se adueña de la pantalla y tapa todo.
+  // Con el atributo, el video queda del tamaño de la tarjeta y la pantalla
+  // completa sigue estando a un toque, en los controles.
+  check(
+    "el video se reproduce ACÁ y no salta solo a pantalla completa (playsinline)",
+    await page.evaluate(() => document.querySelector("video")?.hasAttribute("playsinline")),
+  );
 
   // ── Clic en una PALABRA del medio de la línea 2 → salta a su instante ──
   {
@@ -287,11 +295,12 @@ const json = (b, extra = {}) => ({
     const linea2 = await page.locator("li.border-brand-400").textContent().catch(() => "");
     check("a los ~3,2 s la negrita ya pasó a la línea 2 (sigue al video)",
       /lámina azul/.test(linea2), linea2.slice(0, 60).replace(/\n/g, " "));
-    // El seguimiento de palabras SOBRE el video: el subtítulo aparece encima
-    // del reproductor solo, con la frase que se está diciendo, sin buscar nada.
-    const sobreVideo = await page.locator("[data-subtitulos-video]").textContent().catch(() => "");
-    check("el subtítulo va SOBRE el video mientras corre (seguimiento de palabras)",
-      /lámina azul/.test(sobreVideo), (sobreVideo || "(sin subtítulo)").slice(0, 60).replace(/\n/g, " "));
+    // El video va LIMPIO: el cartel de subtítulos que se dibujaba encima tapaba
+    // la imagen y peleaba con los controles del celular. El seguimiento de
+    // palabras vive abajo, en la transcripción (lo de recién), que para eso está.
+    const encimaDelVideo = await page.locator("[data-subtitulos-video]").count();
+    check("el video se ve LIMPIO, sin el cartel de subtítulos encima", encimaDelVideo === 0,
+      `carteles=${encimaDelVideo}`);
     await page.evaluate(() => document.querySelector("video").pause());
   }
 

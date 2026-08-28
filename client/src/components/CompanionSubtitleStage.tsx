@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { ReactNode, useEffect, useRef } from "react";
 import Avatar from "./Avatar";
 import { GlobeIcon } from "./icons";
 
@@ -36,6 +36,18 @@ interface Props {
   problem?: string | null;
   /** Vuelve a intentar el reconocimiento de voz (tras dar permiso, por ej.). */
   onRetry?: () => void;
+  /**
+   * Aclaración sobre la grabación, cuando no está corriendo por una razón que
+   * la persona merece saber (en iPhone/iPad el micrófono es de una sola cosa
+   * a la vez, así que grabar apagaría los subtítulos).
+   */
+  notaGrabacion?: string | null;
+  /**
+   * La salida cuando este aparato no puede escuchar (el sistema le dio el
+   * micrófono a la app de la llamada): mandar al bot, que graba y transcribe
+   * desde el servidor. Se ofrece mientras no haya ni una frase.
+   */
+  accionBot?: ReactNode;
   /** Cuántas personas hay en la capa de Unify. */
   participantCount: number;
 }
@@ -59,6 +71,8 @@ export default function CompanionSubtitleStage({
   listening,
   problem,
   onRetry,
+  notaGrabacion,
+  accionBot,
   participantCount,
 }: Props) {
   const endRef = useRef<HTMLDivElement>(null);
@@ -103,6 +117,12 @@ export default function CompanionSubtitleStage({
         </div>
       )}
 
+      {notaGrabacion && (
+        <div className="border-b border-ink-700 bg-ink-800/60 px-4 py-2 text-[11px] leading-snug text-ink-300">
+          {notaGrabacion}
+        </div>
+      )}
+
       {translationFailed && targetLabel && (
         <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-[11px] leading-snug text-amber-200">
           No estamos pudiendo traducir en este momento, así que ves el texto original. Si sigue
@@ -131,6 +151,10 @@ export default function CompanionSubtitleStage({
               en uno al lado), el micrófono capta todas las voces solo. En iPad podés ver la
               reunión y esto a la vez: Split View, o los subtítulos flotantes de arriba.
             </p>
+            {/* Si el aparato no presta el micrófono (la app de la llamada se
+                lo queda, que es lo que hace iOS), esta es la salida que SÍ
+                funciona: el bot escucha y graba desde el servidor. */}
+            {accionBot && <div className="w-full max-w-sm text-left">{accionBot}</div>}
           </div>
         ) : (
           <div className="mx-auto flex max-w-3xl flex-col gap-4">

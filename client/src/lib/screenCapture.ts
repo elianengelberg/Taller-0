@@ -7,6 +7,17 @@ export const screenCaptureSupported =
   typeof navigator !== "undefined" &&
   typeof navigator.mediaDevices?.getDisplayMedia === "function";
 
+// ¿iPhone o iPad? En iOS el micrófono es de UN SOLO dueño a la vez: si el
+// reconocimiento de voz (subtítulos) y una grabación por getUserMedia corren
+// juntos, el sistema les corta el audio a los dos en silencio. Quien decida
+// entre uno y otro necesita saber dónde está parado. (iPadOS se disfraza de
+// Mac en el user agent: lo delata el tacto.)
+export function esIOS(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  return /iPhone|iPad|iPod/.test(ua) || (/Mac/.test(ua) && navigator.maxTouchPoints > 1);
+}
+
 export const SHARE_UNSUPPORTED_MESSAGE =
   "Este navegador no puede capturar la pantalla: en iPhone y iPad ningún navegador lo permite. Para compartir pantalla, entrá a la reunión desde una computadora.";
 

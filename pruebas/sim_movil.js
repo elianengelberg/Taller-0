@@ -255,6 +255,53 @@ async function botonesChicos(p, minimo = 40) {
     check("sin errores de JS en el camino de flotantes", bagF.length === 0, bagF[0] || "");
     await pf.close();
 
+    // ── 4b. EL MICRÓFONO ES DE UNO SOLO (iPhone/iPad) ──
+    // En iOS el sistema le da la captura de audio a UNA cosa a la vez.
+    // Grabar el micrófono y transcribirlo al mismo tiempo no da error: los
+    // deja mudos a los dos. Eso dejaba la pantalla con "Escuchando tu
+    // micrófono" y "Grabando audio" juntos, cero subtítulos, y una grabación
+    // vacía que nunca llegaba al historial. La regla: mandan los subtítulos,
+    // la grabación por micrófono NO arranca sola, y se ofrece el bot (que
+    // graba desde el servidor, sin depender de este micrófono).
+    if (esIphone) {
+      const pm = await ctx.newPage();
+      // Safari de iPhone SÍ tiene reconocimiento de voz; el Chromium del
+      // arnés no. Se simula para probar el caso real del iPhone.
+      await pm.addInitScript(() => {
+        window.webkitSpeechRecognition = class {
+          start() {}
+          stop() {}
+          abort() {}
+        };
+        window.open = () => null;
+      });
+      await pm.goto(`${B}/externa?url=${encodeURIComponent("https://meet.google.com/mic-unic-oxx")}`, { waitUntil: "networkidle" });
+      await pm.waitForTimeout(800);
+      const nombreM = pm.getByLabel("Tu nombre");
+      if (await nombreM.count()) await nombreM.first().fill("Unico");
+      // Con el nombre ya recordado de una pantalla anterior, la app puede
+      // entrar sola desde el enlace: sólo se toca el botón si está.
+      const unirmeM = pm.getByRole("button", { name: /Unirme acá dentro/i });
+      if (!/\/externa\/reunion/.test(pm.url())) {
+        await unirmeM.first().waitFor({ state: "visible", timeout: 15000 }).catch(async () => {
+          const det = pm.getByRole("button", { name: /^Detectar$/ });
+          if (await det.count()) await det.first().tap();
+          await unirmeM.first().waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
+        });
+        if (await unirmeM.count()) await unirmeM.first().tap();
+      }
+      await pm.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
+      await pm.waitForTimeout(3000);
+      const cuerpoMic = (await pm.locator("body").textContent()) || "";
+      check("en iPhone la grabación NO le roba el micrófono a los subtítulos",
+        !/Grabando audio/i.test(cuerpoMic), cuerpoMic.slice(0, 80).replace(/\n/g, " "));
+      check("y la pantalla explica por qué la grabación está en pausa",
+        /una sola cosa a la vez/i.test(cuerpoMic));
+      check("y ofrece el bot ahí mismo, que graba sin usar este micrófono",
+        /entre el bot por mí|mandar el bot/i.test(cuerpoMic));
+      await pm.close();
+    }
+
     // ── 5. La app instalada (pantalla de inicio de iOS) no abre la sábana ──
     // En la PWA de iOS, window.open abre un navegador interno ENCIMA de
     // Unify: si la app de Meet se lleva el enlace, esa sábana queda en

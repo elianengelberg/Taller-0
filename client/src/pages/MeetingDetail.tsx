@@ -302,9 +302,17 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
                       controles nativos en el celular. El seguimiento
                       palabra por palabra vive en la transcripción de abajo,
                       que para eso está. */}
+                  {/* `playsInline` es lo que evita que iPhone/iPad se lleven
+                      el video a PANTALLA COMPLETA apenas se toca play: sin
+                      este atributo, iOS abre su reproductor a pantalla
+                      completa por su cuenta y tapa todo. Con él, el video
+                      queda acá, del tamaño de la tarjeta, y la pantalla
+                      completa sigue estando a un toque en los controles. */}
                   <video
                     ref={videoRef}
                     controls
+                    playsInline
+                    preload="metadata"
                     src={meeting.recordingUrl}
                     className="w-full rounded-lg"
                   />

@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AiChatBox from "../components/AiChatBox";
+import BotButton from "../components/BotButton";
 import IconButton from "../components/IconButton";
 import JitsiEmbed from "../components/JitsiEmbed";
 import LiveCaption from "../components/LiveCaption";
@@ -41,7 +42,7 @@ import {
 import { askMeetingAI } from "../lib/api";
 import { LANGUAGES, etiquetaDeIdioma, shortLang } from "../lib/languages";
 import { recentCaptionEntries } from "../lib/captionLines";
-import { screenCaptureSupported } from "../lib/screenCapture";
+import { esIOS, screenCaptureSupported } from "../lib/screenCapture";
 import { autoRecordEnabled, discardStashedDisplayStream, takeDisplayStream } from "../lib/autoRecord";
 import { cerrarVentanaSiQuedoEnBlanco } from "../lib/ventanaReunion";
 import { loadRoles, roleById, RoleMap, saveRoles } from "../lib/companionRoles";
@@ -172,6 +173,29 @@ function CompanionEmbedPane({
   }
 }
 
+// A qué reunión REAL mandaría el bot desde acá adentro, y bajo qué sala deja
+// lo que escuche. Sólo las plataformas donde el bot sabe entrar: en las demás
+// (Teams, un iframe suelto) ofrecerlo sería prometer algo que no pasa.
+function enlaceParaElBot(
+  embed: CompanionEmbed,
+  externalKey: string,
+): { url: string; roomKey: string; platform: string } | null {
+  switch (embed.kind) {
+    case "meet":
+      return { url: embed.meetLink, roomKey: externalKey, platform: "google-meet" };
+    case "zoom":
+      return { url: `https://zoom.us/j/${embed.meetingNumber}`, roomKey: externalKey, platform: "zoom" };
+    case "jitsi":
+      return {
+        url: `https://${embed.domain || "meet.jit.si"}/${embed.roomName}`,
+        roomKey: externalKey,
+        platform: "jitsi",
+      };
+    default:
+      return null;
+  }
+}
+
 // The Unify layer that runs ON TOP of an external meeting (Jitsi, Zoom,
 // Teams...). The external platform handles audio/video (the embedded pane, with
 // its own mic/camera/share controls); we add a fixed Unify toolbar with our
@@ -284,10 +308,40 @@ export default function ExternalMeeting() {
     document.addEventListener("visibilitychange", alVolver);
     return () => document.removeEventListener("visibilitychange", alVolver);
   }, []);
+
+  // Records the whole tab (the embedded meeting + captions) with its audio.
+  // No local mic stream here -- the external platform owns the mic -- but
+  // getDisplayMedia with "share tab audio" captures the meeting's audio.
+  //
+  // Va ANTES del reconocimiento a propósito: en iPhone/iPad hay que saber si
+  // la grabación tiene tomado el micrófono para no encender los subtítulos
+  // encima (ver abajo).
+  const recorder = useRecorder({ micStream: null, meetingDbId: meeting?.dbId ?? null });
+
+  // EL MICRÓFONO ES DE UNO SOLO (iPhone/iPad).
+  //
+  // En iOS el sistema le da la captura de audio a UNA cosa a la vez. Grabar
+  // el micrófono y transcribirlo al mismo tiempo no falla con un error: el
+  // sistema los deja mudos a los dos en silencio. Eso era exactamente lo que
+  // se veía en el celular -- "Escuchando tu micrófono" y "Grabando audio"
+  // juntos, cero subtítulos, y una grabación que terminaba vacía y sin
+  // llegar al historial.
+  //
+  // La regla, entonces: en iOS mandan los SUBTÍTULOS (a eso vino la persona;
+  // para que quede el video está el bot, que graba desde el servidor). La
+  // grabación por micrófono no arranca sola acá, y si alguien la enciende a
+  // propósito con el botón, los subtítulos se pausan mientras dure y vuelven
+  // solos al detenerla.
+  const unSoloMicrofono = esIOS();
+  const micTomadoPorGrabacion =
+    unSoloMicrofono &&
+    recorder.kind === "audio" &&
+    (recorder.status === "recording" || recorder.status === "processing");
+
   const { supported: captionsSupported, error: captionsError } = useSpeechRecognition({
     key: micAttempt,
     lang: spokenLang,
-    active: connectionStatus === "connected",
+    active: connectionStatus === "connected" && !micTomadoPorGrabacion,
     onInterim: (text) => setInterimCaption(text),
     onResult: (alternatives) => {
       setInterimCaption(null);
@@ -340,7 +394,9 @@ export default function ExternalMeeting() {
     ? "Este navegador no puede transcribir voz. Para ver subtítulos, entrá desde Chrome o Edge (en iPhone/iPad, desde la app de Chrome)."
     : micBloqueado
       ? MENSAJE_MIC_BLOQUEADO
-      : captionsError;
+      : micTomadoPorGrabacion
+        ? "Los subtítulos están en pausa mientras grabás el audio: en iPhone y iPad el micrófono es de una sola cosa a la vez. Tocá «Grabando» abajo para detener la grabación y que vuelvan los subtítulos."
+        : captionsError;
 
   // Vigía de silencio. "Escuchando tu micrófono" con CERO frases durante 20
   // segundos de reunión no es normal: casi siempre es iOS dándole el
@@ -368,18 +424,26 @@ export default function ExternalMeeting() {
     return () => window.clearInterval(t);
   }, [escuchando, micAttempt]);
   const avisoSilencio = silencioLargo
-    ? "No está llegando ninguna voz al micrófono. Si la reunión corre en su app en este mismo aparato, el sistema le da el micrófono a la llamada y Unify no escucha nada. Salidas: abrí la reunión desde el navegador con Unify al lado (en iPad: Split View), o dejá la reunión sonando en altavoz en otro aparato cercano."
+    ? "No está llegando ninguna voz al micrófono. Si la reunión corre en su app en este mismo aparato, el sistema le da el micrófono a la llamada y Unify no escucha nada. Salidas: dejá la reunión sonando en ALTAVOZ (sin auriculares) y esta pantalla al frente, abrila desde el navegador con Unify al lado (en iPad: Split View), o mandá el bot desde la pantalla de unirse: graba y transcribe todo desde el servidor, sin depender de este micrófono."
     : null;
 
   const { getTranslation, translationFailed } = useLineTranslations(meeting?.transcript ?? [], targetLang);
 
-  // Records the whole tab (the embedded meeting + captions) with its audio.
-  // No local mic stream here -- the external platform owns the mic -- but
-  // getDisplayMedia with "share tab audio" captures the meeting's audio.
-  const recorder = useRecorder({ micStream: null, meetingDbId: meeting?.dbId ?? null });
+  // El bot, ofrecido DESDE ADENTRO. La escena donde más falta hace es esta:
+  // la reunión corre en la app de este mismo teléfono, el sistema le da el
+  // micrófono a la llamada y Unify no escucha nada. El bot no depende de
+  // ningún micrófono de nadie -- entra desde el servidor, graba y transcribe.
+  const botDeSala =
+    draft?.mode === "companion" ? enlaceParaElBot(draft.embed, draft.externalKey) : null;
+
+  // El botón de grabar. Donde no existe capturar la pantalla (iPhone/iPad)
+  // grabar significa el MICRÓFONO: pedir pantalla ahí sólo daba un error. Al
+  // encenderla, los subtítulos se pausan solos mientras dure (ver arriba).
   function toggleRecording() {
     if (recorder.status === "recording") recorder.stop();
-    else if (recorder.status === "idle" || recorder.status === "error") void recorder.start();
+    else if (recorder.status === "idle" || recorder.status === "error") {
+      void recorder.start(screenCaptureSupported ? {} : { audioOnly: true });
+    }
   }
 
   // --- Las voces de LOS DEMÁS -----------------------------------------------
@@ -428,6 +492,10 @@ export default function ExternalMeeting() {
   const autoStartedRef = useRef(false);
   const startRef = useRef(recorder.start);
   startRef.current = recorder.start;
+  // ¿Cedimos la grabación automática para que anden los subtítulos? (Sólo
+  // iPhone/iPad, y sólo cuando este navegador SÍ puede transcribir: si no
+  // puede, el micrófono está libre y grabar es lo mejor que se puede hacer.)
+  const grabacionCedida = unSoloMicrofono && captionsSupported;
   useEffect(() => {
     if (autoStartedRef.current) return;
     if (connectionStatus !== "connected" || !meeting?.dbId) return;
@@ -437,8 +505,14 @@ export default function ExternalMeeting() {
       return;
     }
     const stream = takeDisplayStream();
+    // En iPhone/iPad, arrancar a grabar el micrófono acá dejaba los
+    // subtítulos mudos (el sistema no lo comparte) Y la grabación vacía: se
+    // perdían las dos cosas. Sin captura de pantalla que grabar, no se
+    // arranca sola -- manda el subtítulo, y el botón de grabar sigue ahí
+    // para quien prefiera el audio.
+    if (!stream && grabacionCedida) return;
     void startRef.current(stream ? { stream } : { audioOnly: true });
-  }, [connectionStatus, meeting?.dbId]);
+  }, [connectionStatus, meeting?.dbId, grabacionCedida]);
 
   // Si la persona apaga la grabación automática antes de entrar, la captura
   // que hubiera quedado colgada no se deja abierta.
@@ -972,6 +1046,23 @@ export default function ExternalMeeting() {
                   listening={escuchando}
                   problem={captionsProblem ?? avisoSilencio ?? avisoReunion}
                   onRetry={captionsSupported ? () => setMicAttempt((n) => n + 1) : undefined}
+                  accionBot={
+                    botDeSala ? (
+                      <BotButton
+                        url={botDeSala.url}
+                        roomKey={botDeSala.roomKey}
+                        platform={botDeSala.platform}
+                        lang={spokenLang}
+                        titulo="¿Este aparato no escucha la reunión?"
+                        descripcion="Mandá el bot: entra a la reunión, graba y transcribe todo desde el servidor. No usa el micrófono de tu teléfono, así que funciona aunque la llamada esté en este mismo aparato."
+                      />
+                    ) : null
+                  }
+                  notaGrabacion={
+                    grabacionCedida && recorder.status === "idle"
+                      ? "En iPhone y iPad el micrófono es de una sola cosa a la vez, así que la grabación automática está en pausa para que anden los subtítulos. Si querés que quede el video y la transcripción completa en el historial, mandá el bot al entrar: graba desde el servidor y no usa este micrófono. También podés tocar «Grabar» abajo para guardar el audio (mientras dure, los subtítulos se pausan)."
+                      : null
+                  }
                   participantCount={participantCount}
                 />
               }
@@ -1115,7 +1206,7 @@ export default function ExternalMeeting() {
               recording
                 ? "Detener grabación"
                 : !screenCaptureSupported
-                  ? "La grabación no está disponible en este navegador"
+                  ? "Grabar el audio por el micrófono (mientras grabás, los subtítulos se pausan)"
                   : 'Grabar la reunión (elegí "esta pestaña" y tildá compartir audio)'
             }
             caption={recording ? "Grabando" : "Grabar"}
