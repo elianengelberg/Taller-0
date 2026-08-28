@@ -222,7 +222,11 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
         let body = {};
         try { body = JSON.parse(cuerpo || "{}"); } catch {}
         vistos.push(body);
-        const sys = String(body.system ?? "");
+        // El system puede venir como string o como bloques con cache_control
+        // (la forma nueva): el doble lee las dos, como la API real.
+        const sys = Array.isArray(body.system)
+          ? body.system.map((b) => (b && b.text) || "").join("\n")
+          : String(body.system ?? "");
         const texto = /TRAD_/.test(sys)
           ? [...new Set([...sys.matchAll(/TRAD_([a-z]{2})/g)].map((m) => m[1]))]
               .map((c) => `TRAD_${c}: [${c}] the blue slide shows the sales curve`).join("\n")
