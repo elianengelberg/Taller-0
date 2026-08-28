@@ -35,7 +35,7 @@ import { useReconocimientoDePista } from "../hooks/useReconocimientoDePista";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import {
   MENSAJE_MIC_BLOQUEADO,
-  pedirCartelDeMicrofono,
+  pedirCartelDeMedios,
   usePermisoDeMicrofono,
 } from "../hooks/usePermisoDeMicrofono";
 import { askMeetingAI } from "../lib/api";
@@ -318,7 +318,7 @@ export default function ExternalMeeting() {
       } catch {
         // sin permissions.query: pedir igual
       }
-      const r = await pedirCartelDeMicrofono();
+      const r = await pedirCartelDeMedios();
       // Con el permiso recién dado, el reconocimiento se relanza ya
       // autorizado -- una sola vez, para no pedir en bucle donde el
       // navegador no sabe contarnos el estado del permiso.

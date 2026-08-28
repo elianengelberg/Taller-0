@@ -42,19 +42,30 @@ export function usePermisoDeMicrofono(reintento: number, onConcedido: () => void
 export const MENSAJE_MIC_BLOQUEADO =
   "El micrófono está bloqueado para Unify, así que no podemos subtitular. Permitilo en el navegador (en iPhone/iPad: Ajustes → Apps → Safari o la app Unify → Micrófono) y tocá Reintentar.";
 
-// Fuerza el CARTEL nativo de "¿Permitir el micrófono?". El reconocimiento de
-// voz a veces arranca sin disparar el cartel (iOS), y la persona terminaba
-// obligada a ir a Configuración sin que nadie le pidiera permiso de frente.
-// Con el permiso ya dado resuelve en silencio; con el permiso bloqueado no
-// hay cartel posible (regla del navegador) y ahí sí quedan los Ajustes.
-export async function pedirCartelDeMicrofono(): Promise<"concedido" | "bloqueado" | "sin-audio"> {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    for (const t of stream.getTracks()) t.stop();
-    return "concedido";
-  } catch (e) {
-    const nombre = (e as DOMException)?.name || "";
-    if (nombre === "NotAllowedError" || nombre === "SecurityError") return "bloqueado";
-    return "sin-audio";
+// Fuerza el CARTEL nativo de autorización. El reconocimiento de voz a veces
+// arranca sin disparar el cartel (iOS), y la persona terminaba obligada a ir
+// a Configuración sin que nadie le pidiera permiso de frente.
+//
+// Se piden micrófono Y cámara JUNTOS: un solo cartel que autoriza todo (y
+// deja la cámara lista para las reuniones propias de Unify). Si la cámara
+// falla -- bloqueada, o una compu sin webcam --, se reintenta con micrófono
+// solo: los subtítulos no dependen de la cámara y no pueden caerse por ella.
+// Con los permisos ya dados resuelve en silencio; con el permiso bloqueado
+// no hay cartel posible (regla del navegador) y ahí sí quedan los Ajustes.
+export async function pedirCartelDeMedios(): Promise<"concedido" | "bloqueado" | "sin-audio"> {
+  for (const pedido of [{ audio: true, video: true }, { audio: true }] as const) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(pedido);
+      for (const t of stream.getTracks()) t.stop();
+      return "concedido";
+    } catch (e) {
+      if (!("video" in pedido)) {
+        const nombre = (e as DOMException)?.name || "";
+        if (nombre === "NotAllowedError" || nombre === "SecurityError") return "bloqueado";
+        return "sin-audio";
+      }
+      // Falló el pedido con cámara: probar con el micrófono solo.
+    }
   }
+  return "sin-audio";
 }
