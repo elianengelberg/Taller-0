@@ -297,18 +297,16 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
                 />
               ) : (
                 <div className="relative mx-auto max-w-3xl overflow-hidden rounded-lg">
+                  {/* El video LIMPIO, sin subtítulos encima: el cartel
+                      flotante tapaba la imagen y se llevaba mal con los
+                      controles nativos en el celular. El seguimiento
+                      palabra por palabra vive en la transcripción de abajo,
+                      que para eso está. */}
                   <video
                     ref={videoRef}
                     controls
                     src={meeting.recordingUrl}
                     className="w-full rounded-lg"
-                  />
-                  {/* El seguimiento de palabras: los subtítulos van SOLOS
-                      sobre el video mientras se reproduce. */}
-                  <SubtitulosSobreVideo
-                    messages={meeting.messages}
-                    baseMs={baseMs}
-                    videoRef={videoRef}
                   />
                 </div>
               )}
@@ -654,43 +652,6 @@ function useMomentoActivo(
   }, [computeAt, videoRef]);
 
   return active;
-}
-
-// El SEGUIMIENTO DE PALABRAS: subtítulos SOBRE el video que van solos.
-// Mientras el video corre, la frase que se está diciendo aparece encima
-// (quién habla + sus palabras, rellenándose una a una). No hay que buscar
-// nada ni configurar nada: es una ayuda que está ahí y ya. Siempre oscuro
-// sobre el video (como cualquier subtítulo), en los dos temas.
-function SubtitulosSobreVideo({
-  messages,
-  baseMs,
-  videoRef,
-}: {
-  messages: MeetingHistoryMessage[];
-  baseMs: number;
-  videoRef: React.RefObject<HTMLVideoElement>;
-}) {
-  const entries = useMemo<SyncEntry[]>(() => armarEntradas(messages, baseMs), [messages, baseMs]);
-  const voice = useMemo(() => entries.filter((e) => e.kind === "transcript"), [entries]);
-  const active = useMomentoActivo(voice, videoRef);
-  const linea = voice.find((e) => e.id === active.id);
-  if (!linea) return null;
-  const words = linea.text.split(/\s+/).filter(Boolean);
-  return (
-    <div
-      data-subtitulos-video
-      className="pointer-events-none absolute inset-x-3 bottom-14 flex justify-center"
-    >
-      <p className="max-w-[94%] rounded-xl bg-slate-900/85 px-3.5 py-2 text-center text-sm font-medium leading-snug text-white shadow-soft backdrop-blur-sm sm:text-base">
-        <span className="mr-1.5 text-brand-400">{linea.senderName}:</span>
-        {words.map((w, i) => (
-          <span key={i} className={i <= active.wordIdx ? "text-white" : "text-white/40"}>
-            {w}{" "}
-          </span>
-        ))}
-      </p>
-    </div>
-  );
 }
 
 function SyncedTranscript({

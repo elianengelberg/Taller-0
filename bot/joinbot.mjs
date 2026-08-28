@@ -599,11 +599,17 @@ async function arrancarEscucha(page) {
       // --- La IMAGEN: captura de la pestaña (para el video de la grabación) --
       let s = null;
       try {
+        // 720p a propósito: con 2 vCPU, codificar 1080p30 en vivo ahoga al
+        // encoder y el video sale TRABADO (cuadros perdidos, audio a los
+        // saltos). 720p fluido gana por goleada a 1080p entrecortado.
         s = await navigator.mediaDevices.getDisplayMedia({
-          video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
           audio: true,
           preferCurrentTab: true,
         });
+        // "motion": el encoder prioriza que el MOVIMIENTO sea fluido antes
+        // que el detalle fino de cada cuadro -- es un video de reunión.
+        try { s.getVideoTracks()[0].contentHint = "motion"; } catch { /* opcional */ }
         const dim = s.getVideoTracks()[0]?.getSettings?.() ?? {};
         diag(`capturando la pestaña para el video (${dim.width || "?"}x${dim.height || "?"})`);
       } catch (e) {
@@ -635,16 +641,18 @@ async function arrancarEscucha(page) {
       // La grabación: el stream de captura MUTADO (no uno compuesto a mano,
       // que en este entorno queda mudo): su video + UNA sola pista de audio,
       // la mezcla real (reproductores de la reunión + el audio de la captura,
-      // todo junto). vp9 si el navegador puede (mejor calidad por bit), vp8
-      // si no; el bitrate se ajusta con BOT_VIDEO_KBPS.
+      // todo junto). VP8 PRIMERO a propósito: codifica mucho más liviano y
+      // en un host de 2 vCPU eso es la diferencia entre fluido y trabado
+      // (VP9 rinde más por bit, pero sólo si el encoder llega -- acá no
+      // llegaba). El bitrate se ajusta con BOT_VIDEO_KBPS.
       if (grabar && s) {
         try {
           if (mezclaTrack) { try { s.addTrack(mezclaTrack); } catch { /* ya estaba */ } }
           const opciones = { videoBitsPerSecond: kbps * 1000, audioBitsPerSecond: 128_000 };
           let mr;
-          try { mr = new MediaRecorder(s, { ...opciones, mimeType: "video/webm;codecs=vp9,opus" }); }
+          try { mr = new MediaRecorder(s, { ...opciones, mimeType: "video/webm;codecs=vp8,opus" }); }
           catch {
-            try { mr = new MediaRecorder(s, { ...opciones, mimeType: "video/webm;codecs=vp8,opus" }); }
+            try { mr = new MediaRecorder(s, { ...opciones, mimeType: "video/webm;codecs=vp9,opus" }); }
             catch { mr = new MediaRecorder(s); }
           }
           mr.ondataavailable = async (ev) => {
@@ -745,7 +753,7 @@ async function arrancarEscucha(page) {
     })();
   }, {
     grabar: GRABAR,
-    kbps: Number(process.env.BOT_VIDEO_KBPS) > 0 ? Number(process.env.BOT_VIDEO_KBPS) : 2000,
+    kbps: Number(process.env.BOT_VIDEO_KBPS) > 0 ? Number(process.env.BOT_VIDEO_KBPS) : 2500,
     lang: process.env.BOT_LANG || "es-AR",
   });
 }
@@ -762,7 +770,7 @@ async function arrancarEscucha(page) {
       log("sin pantalla: me relanzo bajo xvfb (pantalla virtual) para poder grabar video");
       const hijo = spawnHijo(
         "xvfb-run",
-        ["-a", "-s", "-screen 0 1920x1080x24", process.execPath, fileURLToPath(import.meta.url)],
+        ["-a", "-s", "-screen 0 1280x720x24", process.execPath, fileURLToPath(import.meta.url)],
         { env: { ...process.env, __UNIFY_XVFB: "1" }, stdio: "inherit" }
       );
       process.on("SIGTERM", () => hijo.kill("SIGTERM"));
@@ -816,7 +824,7 @@ async function arrancarEscucha(page) {
       ...conEjecutable,
       headless,
       permissions: ["microphone", "camera"],
-      viewport: { width: 1920, height: 1080 },
+      viewport: { width: 1280, height: 720 },
     });
   } else {
     browser = await chromium.launch({ args, ...conEjecutable, headless });
