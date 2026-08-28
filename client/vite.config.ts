@@ -110,5 +110,10 @@ export default defineConfig({
   },
   define: {
     global: "globalThis",
+    // El sello del build, visible en /instalar: la única forma honesta de
+    // responder "¿estoy en la versión nueva?" sin adivinar.
+    __UNIFY_BUILD__: JSON.stringify(
+      new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC"
+    ),
   },
 });

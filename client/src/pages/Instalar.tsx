@@ -7,6 +7,7 @@ import Logo from "../components/Logo";
 import { AppMockupDesktop, AppMockupPhone } from "../components/AppMockup";
 import { AppleIcon, WindowsIcon, AndroidIcon } from "../components/icons";
 import {
+  buscarActualizacionAhora,
   canPromptInstall,
   extensionInstalada,
   isStandalone,
@@ -115,6 +116,10 @@ export default function Instalar() {
   // Se acaba de instalar la app y sigue la extensión: para resaltar ese paso
   // y llevar la vista hasta él, en vez de dejar a la persona buscándolo.
   const [siguientePaso, setSiguientePaso] = useState(false);
+  // Estado del botón "Buscar actualización ahora" (barra de versión de arriba).
+  const [buscandoUpdate, setBuscandoUpdate] = useState<
+    "quieto" | "buscando" | "aplicando" | "al-dia" | "sin-sw"
+  >("quieto");
   const seccionExt = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const soltar = onExtensionDetectada(setExtVersion);
@@ -244,6 +249,38 @@ export default function Instalar() {
           <Link to="/" className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-strong">
             Volver al inicio
           </Link>
+        </div>
+
+        {/* La versión instalada y el botón de actualizar A PEDIDO: certeza
+            en vez de espera. La actualización automática existe, pero "¿estoy
+            en la versión nueva?" merece una respuesta de un toque. */}
+        <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-ink-700 bg-ink-800/40 px-4 py-3">
+          <p className="text-xs text-ink-400">
+            Versión instalada: <span className="font-mono text-ink-200">{__UNIFY_BUILD__}</span>
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setBuscandoUpdate("buscando");
+              void buscarActualizacionAhora().then((r) => setBuscandoUpdate(r));
+            }}
+            disabled={buscandoUpdate === "buscando" || buscandoUpdate === "aplicando"}
+            className="rounded-full border border-brand-500/50 px-3 py-1 text-xs font-semibold text-brand-200 hover:bg-brand-500/10 disabled:opacity-60"
+          >
+            {buscandoUpdate === "buscando"
+              ? "Buscando…"
+              : buscandoUpdate === "aplicando"
+                ? "Aplicando la versión nueva…"
+                : "Buscar actualización ahora"}
+          </button>
+          {buscandoUpdate === "al-dia" && (
+            <span className="text-xs font-medium text-emerald-300">✓ Estás en la última versión</span>
+          )}
+          {buscandoUpdate === "sin-sw" && (
+            <span className="text-xs text-ink-400">
+              Acá no corre la app instalable (probá desde la app o recargá la página).
+            </span>
+          )}
         </div>
 
         {/* El héroe estilo Discord: título ENORME a un lado, el mockup del

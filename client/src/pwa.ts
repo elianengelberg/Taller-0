@@ -67,6 +67,11 @@ export function onExtensionDetectada(cb: (version: string) => void): () => void 
   return () => window.removeEventListener("unify:extension", handler);
 }
 
+// El botón "Buscar actualización" de /instalar llama esto. Lo llena initPwa
+// (necesita updateSW, que vive adentro); antes de eso, responde "sin-sw".
+export let buscarActualizacionAhora: () => Promise<"aplicando" | "al-dia" | "sin-sw"> = async () =>
+  "sin-sw";
+
 export function isStandalone(): boolean {
   return (
     window.matchMedia?.("(display-mode: standalone)").matches ||
@@ -213,18 +218,23 @@ export function initPwa(): void {
     );
   };
 
-  // El botón DURANTE la reunión, una vez por versión. Antes, la versión
-  // nueva esperaba en silencio a que la reunión terminara: correcto para no
-  // recargar encima de nadie, pero quien QUERÍA lo nuevo ya no tenía forma
-  // de aplicarlo. Ahora se avisa con el botón y la persona decide.
-  let ofrecidaEnReunion = false;
-  const ofrecerEnReunion = () => {
-    if (ofrecidaEnReunion) return;
-    ofrecidaEnReunion = true;
+  // El botón cuando la versión quedó TRABADA, una vez por versión. Antes
+  // solo salía dentro de una reunión -- pero en el celular la pantalla de
+  // unirse tiene el nombre y el enlace PRECARGADOS, así que "hay texto en
+  // pantalla" era verdad siempre y la versión nueva esperaba en silencio,
+  // sin aviso y sin botón: exactamente el "nunca me tira el actualizar".
+  // Ahora, esté donde esté la persona, si la versión no se puede aplicar
+  // sola, se avisa con el botón y decide ella.
+  let ofrecida = false;
+  const ofrecerBoton = () => {
+    if (ofrecida) return;
+    ofrecida = true;
     showToast(
       {
         kind: "info",
-        text: "Hay una versión nueva de Unify. La aplicamos solos al salir de la reunión — o tocá Actualizar ahora (recarga esta pantalla).",
+        text: enReunion()
+          ? "Hay una versión nueva de Unify. La aplicamos solos al salir de la reunión — o tocá Actualizar ahora (recarga esta pantalla)."
+          : "Hay una versión nueva de Unify. Tocá Actualizar para aplicarla ya (recarga la pantalla).",
         actionLabel: "Actualizar",
         onAction: () => {
           recargarAlTomarControl();
@@ -239,7 +249,7 @@ export function initPwa(): void {
   const aplicarSiSePuede = (): boolean => {
     if (!pendiente || aplicada) return false;
     if (!momentoSeguro()) {
-      if (enReunion()) ofrecerEnReunion();
+      ofrecerBoton();
       return false;
     }
     if (autoAplicadas() >= MAX_AUTO) {
@@ -253,6 +263,26 @@ export function initPwa(): void {
     recargarAlTomarControl();
     void updateSW(true);
     return true;
+  };
+  // La búsqueda A PEDIDO (el botón "Buscar actualización" de /instalar):
+  // certeza en vez de espera. Busca ya, y si hay algo lo aplica ya.
+  buscarActualizacionAhora = async () => {
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      if (!reg) return "sin-sw";
+      await reg.update().catch(() => {});
+      // La instalación de un SW nuevo tarda unos segundos: esperarla.
+      for (let i = 0; i < 20; i++) {
+        if (reg.waiting) break;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      if (!reg.waiting) return "al-dia";
+      recargarAlTomarControl();
+      void updateSW(true);
+      return "aplicando";
+    } catch {
+      return "sin-sw";
+    }
   };
 
   const updateSW = registerSW({
