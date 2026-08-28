@@ -307,6 +307,10 @@ export default function ExternalMeeting() {
   // Configuración salvo que lo haya bloqueado "para siempre".
   const cartelListoRef = useRef(false);
   useEffect(() => {
+    // Sin reconocimiento de voz (Firefox, Safari de compu) el micrófono no
+    // sirve de nada acá: pedirlo al lado del cartel "este navegador no puede
+    // transcribir" sería un permiso sin propósito. No se pide.
+    if (!captionsSupported) return;
     let vivo = true;
     void (async () => {
       try {
@@ -330,7 +334,7 @@ export default function ExternalMeeting() {
     return () => {
       vivo = false;
     };
-  }, [micAttempt]);
+  }, [micAttempt, captionsSupported]);
 
   const captionsProblem = !captionsSupported
     ? "Este navegador no puede transcribir voz. Para ver subtítulos, entrá desde Chrome o Edge (en iPhone/iPad, desde la app de Chrome)."

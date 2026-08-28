@@ -172,6 +172,53 @@ async function detectAndJoin(page, link, { passcode } = {}) {
     await p.close();
   }
 
+  // ---- El cartel de autorización en la COMPU: se pide al entrar ----
+  // Al montar el companion con el permiso sin decidir, Unify pide micrófono
+  // y cámara JUNTOS (un solo cartel nativo del navegador), sin esperar a que
+  // nadie vaya a Configuración. Acá se espía getUserMedia para confirmar que
+  // el pedido sale solo, y con ambos medios.
+  {
+    const p = await ctx.newPage();
+    await p.addInitScript(() => {
+      // El Chromium headless del arnés no trae reconocimiento de voz, y sin
+      // él la app (con razón) no pide el micrófono. Un Chrome real lo trae:
+      // este stub deja la condición como en la compu de verdad.
+      window.webkitSpeechRecognition = class {
+        start() {}
+        stop() {}
+        abort() {}
+      };
+      // El flag fake-ui del arnés deja el permiso "granted" de entrada y la
+      // app (bien) no pediría nada. En una compu real el estado es "prompt":
+      // se fuerza esa respuesta para probar el camino del cartel.
+      const q = navigator.permissions.query.bind(navigator.permissions);
+      navigator.permissions.query = (d) =>
+        d && d.name === "microphone"
+          ? Promise.resolve({ state: "prompt", onchange: null })
+          : q(d);
+      window.__gumPedidos = [];
+      const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = (c) => {
+        window.__gumPedidos.push(c ? JSON.stringify(c) : "{}");
+        return original(c);
+      };
+      window.open = () => null;
+    });
+    await p.route("**fonts.g**", (r) => r.abort());
+    await detectAndJoin(p, "https://meet.google.com/car-telp-cpc");
+    await p.getByRole("button", { name: /Unirme acá dentro/i }).click();
+    await p.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(2500);
+    const pedidos = await p.evaluate(() => window.__gumPedidos);
+    check("al entrar, el cartel de permisos se dispara solo (getUserMedia)",
+      pedidos.length > 0, JSON.stringify(pedidos).slice(0, 120));
+    check("y pide micrófono Y cámara juntos (un solo cartel)",
+      pedidos.some((c) => {
+        try { const o = JSON.parse(c); return o.audio === true && o.video === true; } catch { return false; }
+      }));
+    await p.close();
+  }
+
   // ---- Graceful errors joining unconfigured platforms (Zoom/Teams 503) ----
   {
     const p = await ctx.newPage();
