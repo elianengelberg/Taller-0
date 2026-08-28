@@ -297,6 +297,35 @@ export default function ExternalMeeting() {
     ? "Este navegador no puede transcribir voz. Para ver subtítulos, entrá desde Chrome o Edge (en iPhone/iPad, desde la app de Chrome)."
     : captionsError;
 
+  // Vigía de silencio. "Escuchando tu micrófono" con CERO frases durante 20
+  // segundos de reunión no es normal: casi siempre es iOS dándole el
+  // micrófono a la app de la llamada (Meet/Zoom) en este MISMO aparato --
+  // el reconocimiento arranca sin error pero nunca le llega audio. Antes la
+  // pantalla mentía "Escuchando" para siempre; ahora avisa y explica las
+  // salidas reales.
+  const escuchando = connectionStatus === "connected" && captionsOn && !captionsProblem;
+  const [silencioLargo, setSilencioLargo] = useState(false);
+  const ultimaVozRef = useRef(Date.now());
+  const transcriptLargo = meeting?.transcript.length ?? 0;
+  useEffect(() => {
+    ultimaVozRef.current = Date.now();
+    setSilencioLargo(false);
+  }, [interimCaption, transcriptLargo, micAttempt]);
+  useEffect(() => {
+    if (!escuchando) {
+      setSilencioLargo(false);
+      return;
+    }
+    ultimaVozRef.current = Date.now();
+    const t = window.setInterval(() => {
+      setSilencioLargo(Date.now() - ultimaVozRef.current > 20000);
+    }, 5000);
+    return () => window.clearInterval(t);
+  }, [escuchando, micAttempt]);
+  const avisoSilencio = silencioLargo
+    ? "No está llegando ninguna voz al micrófono. Si la reunión corre en su app en este mismo aparato, el sistema le da el micrófono a la llamada y Unify no escucha nada. Salidas: abrí la reunión desde el navegador con Unify al lado (en iPad: Split View), o dejá la reunión sonando en altavoz en otro aparato cercano."
+    : null;
+
   const { getTranslation, translationFailed } = useLineTranslations(meeting?.transcript ?? [], targetLang);
 
   // Records the whole tab (the embedded meeting + captions) with its audio.
@@ -596,7 +625,8 @@ export default function ExternalMeeting() {
       pipRef.current = win;
       setPipAbierto(true);
     } catch {
-      // Permiso denegado o bloqueado: el botón simplemente no hizo nada.
+      // Permiso denegado o bloqueado: decirlo, no quedarse mudo.
+      avisarFlotantes("El navegador no dejó abrir la ventanita flotante (permiso bloqueado).");
     }
   }
   // El camino sin PiP de documento (iPad, iPhone, Android): los subtítulos
@@ -617,23 +647,47 @@ export default function ExternalMeeting() {
       video.playsInline = true;
       video.setAttribute("playsinline", "");
       video.srcObject = stream;
-      // Diminuto pero presente y no invisible del todo: iOS se niega a
-      // flotar videos que considera ocultos (display:none u opacity 0).
+      // Vista previa VISIBLE en la esquina: el toque siempre produce algo a
+      // la vista (antes, si el PiP fallaba, el botón "no hacía nada"). En
+      // iOS además un video oculto directamente no puede entrar a PiP.
       video.style.cssText =
-        "position:fixed;bottom:0;right:0;width:2px;height:2px;opacity:0.02;pointer-events:none;z-index:-1";
+        "position:fixed;right:12px;bottom:88px;width:176px;height:59px;border-radius:12px;" +
+        "border:1px solid #dbe7fb;box-shadow:0 8px 24px rgba(15,23,42,.18);background:#fff;" +
+        "object-fit:cover;pointer-events:none;z-index:60";
       document.body.appendChild(video);
       await video.play();
-      const alSalir = () => {
-        if (!videoPipRef.current) return;
-        videoPipRef.current = null;
-        if (stream) for (const t of stream.getTracks()) t.stop();
-        video?.remove();
-        setPipAbierto(false);
-      };
-      video.addEventListener("leavepictureinpicture", alSalir);
-      video.addEventListener("webkitpresentationmodechanged", () => {
-        if ((video as VideoConPip).webkitPresentationMode === "inline") alSalir();
+    } catch {
+      // Ni siquiera se pudo armar el video local: limpiar y avisar honesto.
+      if (stream) for (const t of stream.getTracks()) t.stop();
+      video?.remove();
+      avisarFlotantes("No se pudieron armar los subtítulos flotantes en este navegador.");
+      return;
+    }
+    const alSalir = () => {
+      if (!videoPipRef.current) return;
+      videoPipRef.current = null;
+      if (stream) for (const t of stream.getTracks()) t.stop();
+      video?.remove();
+      setPipAbierto(false);
+    };
+    video.addEventListener("leavepictureinpicture", alSalir);
+    video.addEventListener("webkitpresentationmodechanged", () => {
+      if ((video as VideoConPip).webkitPresentationMode === "inline") alSalir();
+    });
+    // La ventanita queda armada YA (vista previa incluida); si el PiP real
+    // no entra, el botón igual hizo algo visible y se explica el porqué.
+    videoPipRef.current = { video, canvas, stream };
+    setPipAbierto(true);
+    // iOS se niega a flotar un video sin su primer cuadro decodificado:
+    // esperarlo (con tope corto, para no perder la activación del toque).
+    if (video.readyState < 2) {
+      await new Promise<void>((res) => {
+        const listo = () => res();
+        video!.addEventListener("loadeddata", listo, { once: true });
+        window.setTimeout(listo, 1200);
       });
+    }
+    try {
       if (
         typeof video.webkitSetPresentationMode === "function" &&
         video.webkitSupportsPresentationMode?.("picture-in-picture")
@@ -644,14 +698,19 @@ export default function ExternalMeeting() {
       } else {
         throw new Error("sin PiP de video");
       }
-      videoPipRef.current = { video, canvas, stream };
-      setPipAbierto(true);
     } catch {
-      // No pudo flotar (permiso, modo ahorro, navegador raro): limpiar y
-      // dejar el botón como estaba, igual que en el camino de documento.
-      if (stream) for (const t of stream.getTracks()) t.stop();
-      video?.remove();
+      avisarFlotantes(
+        "La ventanita flotante no abrió en este navegador: te dejamos los subtítulos en la esquina de esta pantalla.",
+      );
     }
+  }
+  // Aviso corto y honesto sobre los flotantes, al lado del dock.
+  const [flotantesAviso, setFlotantesAviso] = useState<string | null>(null);
+  const avisoTimerRef = useRef<number | null>(null);
+  function avisarFlotantes(texto: string) {
+    setFlotantesAviso(texto);
+    if (avisoTimerRef.current) window.clearTimeout(avisoTimerRef.current);
+    avisoTimerRef.current = window.setTimeout(() => setFlotantesAviso(null), 7000);
   }
   // Dibuja las últimas frases (con su traducción) en el canvas del PiP de
   // video: fondo blanco Unify, quién habla en azul, el texto en oscuro.
@@ -865,8 +924,8 @@ export default function ExternalMeeting() {
                   interimAvatarUrl={user?.avatarUrl ?? null}
                   targetLabel={targetLabel}
                   translationFailed={translationFailed}
-                  listening={connectionStatus === "connected" && captionsOn && !captionsProblem}
-                  problem={captionsProblem ?? avisoReunion}
+                  listening={escuchando}
+                  problem={captionsProblem ?? avisoSilencio ?? avisoReunion}
                   onRetry={captionsSupported ? () => setMicAttempt((n) => n + 1) : undefined}
                   participantCount={participantCount}
                 />
@@ -885,6 +944,11 @@ export default function ExternalMeeting() {
             flotantesActivo={pipAbierto}
             autoLabel={etiquetaDeIdioma(spokenLang)}
           />
+          {flotantesAviso && (
+            <div className="fixed right-4 top-28 z-40 max-w-[260px] rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-snug text-amber-200 shadow-lg backdrop-blur">
+              {flotantesAviso}
+            </div>
+          )}
 
           <LiveCaption
             lines={captionLines}

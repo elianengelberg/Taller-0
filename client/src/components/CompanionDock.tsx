@@ -122,12 +122,16 @@ export default function CompanionDock({
             type="button"
             onClick={onFlotantes}
             title="Una ventanita con los subtítulos que queda SIEMPRE encima: ideal cuando comparten pantalla o la reunión está en otra app"
-            className={`whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium transition-colors ${
+            className={`flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
               flotantesActivo
-                ? "border-brand-400 bg-brand-500/20 text-brand-200"
-                : "border-ink-600 bg-ink-800 text-strong hover:border-brand-400"
+                ? "border-accent-green/50 bg-accent-green/15 text-accent-green"
+                : "border-transparent bg-brand-500 text-on-accent shadow-sm hover:bg-brand-600"
             }`}
           >
+            <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" aria-hidden>
+              <rect x="1.5" y="3.5" width="17" height="13" rx="2" stroke="currentColor" strokeWidth="1.6" />
+              <rect x="9.5" y="9.5" width="7" height="5" rx="1.2" fill="currentColor" />
+            </svg>
             {flotantesActivo ? "Flotantes ✓" : "Subtítulos flotantes"}
           </button>
         )}
