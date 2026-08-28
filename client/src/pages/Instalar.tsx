@@ -500,6 +500,21 @@ export default function Instalar() {
                       <p className="mt-2 text-xs text-ink-400">
                         Un instalador común (.exe): siguiente, siguiente, listo.
                       </p>
+                      {/* La verdad del estado de la firma, dicha ANTES del
+                          susto: sin esto la gente ve el cartel azul de
+                          Windows y piensa que Unify es un virus. */}
+                      <p className="mt-2 text-xs leading-relaxed text-ink-400">
+                        Windows puede mostrar el aviso azul de{" "}
+                        <span className="font-semibold text-ink-200">“aplicación no reconocida”</span>{" "}
+                        porque la firma digital del instalador está en trámite: tocá{" "}
+                        <span className="font-semibold text-ink-200">
+                          Más información → Ejecutar de todas formas
+                        </span>
+                        . Si tu compu tiene Smart App Control y no te deja seguir, usá mientras la
+                        versión liviana de acá abajo: para las reuniones es idéntica y se instala sin
+                        ningún aviso. Unify es código abierto con licencia MIT — el código completo es
+                        público y se puede revisar.
+                      </p>
                     </div>
                   )}
                   <p className="font-medium text-strong">

@@ -25,6 +25,17 @@ permissions:
 jobs:
   instalador:
     runs-on: windows-latest
+    env:
+      # La firma se prende SOLA cuando los secretos existen; sin ellos el
+      # build sale como hoy (sin firma) y nada se rompe. Dos vías:
+      #  - Certificado propio: WINDOWS_CERT_PFX_BASE64 (el .pfx en base64)
+      #    + WINDOWS_CERT_PASSWORD. Sirve para cualquier certificado
+      #    comprado o el de Azure Trusted Signing exportado.
+      #  - SignPath (firma gratuita para código abierto, solicitud en
+      #    trámite): SIGNPATH_API_TOKEN + SIGNPATH_ORGANIZATION_ID +
+      #    SIGNPATH_PROJECT_SLUG + SIGNPATH_POLICY_SLUG.
+      HAY_PFX: ${{ secrets.WINDOWS_CERT_PFX_BASE64 != '' }}
+      HAY_SIGNPATH: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -36,12 +47,58 @@ jobs:
         working-directory: desktop
         run: npm install
 
-      - name: Compilar el instalador NSIS
+      - name: Preparar el certificado de firma
+        if: env.HAY_PFX == 'true'
+        shell: pwsh
+        run: >
+          [IO.File]::WriteAllBytes("$env:GITHUB_WORKSPACE\desktop\certificado.pfx",
+          [Convert]::FromBase64String($env:PFX_B64))
+        env:
+          PFX_B64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+
+      - name: Compilar el instalador NSIS (firmado con el certificado)
+        if: env.HAY_PFX == 'true'
         working-directory: desktop
         # --publish never: publica el paso siguiente, no electron-builder.
         run: npx electron-builder --win nsis --publish never
         env:
+          CSC_LINK: ${{ github.workspace }}\desktop\certificado.pfx
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+
+      - name: Compilar el instalador NSIS (sin firma todavía)
+        if: env.HAY_PFX != 'true'
+        working-directory: desktop
+        run: npx electron-builder --win nsis --publish never
+        env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false" # sin certificado de firma (por ahora)
+
+      # ── Firma vía SignPath (cuando la cuenta esté aprobada) ──
+      # SignPath firma el artefacto en SU infraestructura: se le sube el
+      # instalador, firma, y se baja firmado antes de publicar.
+      - name: Subir el instalador para SignPath
+        if: env.HAY_SIGNPATH == 'true' && env.HAY_PFX != 'true'
+        id: artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: instalador-sin-firma
+          path: desktop/dist/Unify-Setup.exe
+
+      - name: Firmar con SignPath
+        if: env.HAY_SIGNPATH == 'true' && env.HAY_PFX != 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ secrets.SIGNPATH_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.artefacto.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: desktop/dist-firmado
+
+      - name: Publicar la versión firmada por SignPath
+        if: env.HAY_SIGNPATH == 'true' && env.HAY_PFX != 'true'
+        shell: pwsh
+        run: Copy-Item "desktop\dist-firmado\Unify-Setup.exe" "desktop\dist\Unify-Setup.exe" -Force
 
       - name: Publicar en Releases (queda como latest)
         uses: softprops/action-gh-release@v2
@@ -54,8 +111,9 @@ jobs:
             Detecta tus reuniones de Zoom, pregunta si las querés grabar y las
             guarda en tu historial con subtítulos, traducción e IA.
 
-            **Descarga directa:** Unify-Setup.exe (abajo). Al no estar firmado,
-            Windows puede mostrar el aviso de SmartScreen: "Más información" →
-            "Ejecutar de todas formas".
+            **Descarga directa:** Unify-Setup.exe (abajo). Si el build salió
+            sin firma digital (la firma está en trámite), Windows puede
+            mostrar el aviso de SmartScreen: "Más información" → "Ejecutar de
+            todas formas".
           files: desktop/dist/Unify-Setup.exe
           make_latest: "true"
