@@ -340,7 +340,11 @@ const adaptadores = {
       "Ask to join", "Pedir unirse", "Solicitar unirse", "Join now",
       "Unirte ahora", "Unirse ahora", "Unirme ahora", "Participar",
       "Join anyway", "Unirse de todos modos", "Join here too",
-      "Unirse aquí también", "Únete aquí también", "Unirse también",
+      // La caza de botones del journal reveló la variante REAL del caso
+      // "misma cuenta ya en la llamada": "Unirte aquí también" (con
+      // -te). Se dejan las conjugaciones hermanas por si Google alterna.
+      "Unirte aquí también", "Unirse aquí también", "Únete aquí también",
+      "Unirse también",
     ];
     // Los botones modernos de Google muchas veces NO son <button>: también
     // se buscan como [role="button"], y de última por rol accesible (que
@@ -348,7 +352,7 @@ const adaptadores = {
     const BOTON = TEXTOS_ENTRAR.map(
       (t) => `button:has-text("${t}"), [role="button"]:has-text("${t}")`
     ).join(", ");
-    const RE_ENTRAR = /ask to join|pedir unirse|solicitar unirse|join now|join here|join anyway|unirse|unirte ahora|unirme ahora|participar/i;
+    const RE_ENTRAR = /ask to join|pedir unirse|solicitar unirse|join now|join here|join anyway|unir(se|te|me)|únete|participar/i;
     let pidio = false;
     // 20 intentos ≈ un minuto de paciencia: en un host chico, el Chrome con
     // un perfil sincronizado tarda MUCHO en dejar lista la pantalla de Meet
