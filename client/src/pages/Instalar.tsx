@@ -80,6 +80,19 @@ const NOMBRE: Record<Plataforma, string> = {
   otro: "tu equipo",
 };
 
+// ¿`instalada` es anterior a `publicada`? Comparación numérica tramo a
+// tramo ("4.10.0" es más nueva que "4.9.9"; compararlas como texto miente).
+function versionMasVieja(instalada: string, publicada: string): boolean {
+  const a = instalada.split(".").map((n) => Number(n) || 0);
+  const b = publicada.split(".").map((n) => Number(n) || 0);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] ?? 0;
+    const y = b[i] ?? 0;
+    if (x !== y) return x < y;
+  }
+  return false;
+}
+
 export default function Instalar() {
   useDocumentTitle("Instalar");
   const [instalable, setInstalable] = useState(canPromptInstall());
@@ -123,7 +136,11 @@ export default function Instalar() {
       .then((d: { version?: string } | null) => setUltimaVersion(d?.version ?? null))
       .catch(() => {});
   }, []);
-  const extVieja = Boolean(extVersion && ultimaVersion && extVersion !== ultimaVersion);
+  // "Vieja" es MENOR que la publicada, no distinta: una versión de
+  // desarrollo más nueva que la servida no tiene que gritar "actualizá".
+  const extVieja = Boolean(
+    extVersion && ultimaVersion && versionMasVieja(extVersion, ultimaVersion),
+  );
 
   useEffect(() => {
     const onInstalable = () => setInstalable(true);

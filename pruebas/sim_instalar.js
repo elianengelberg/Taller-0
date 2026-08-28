@@ -230,6 +230,17 @@ const UA = {
       /está instalada en este navegador/i.test(t2) && /9\.9\.9/.test(t2));
     check("y aclara que no hace falta tener la app abierta",
       /No hace falta que tengas la app abierta/i.test(t2));
+
+    // Una versión VIEJA instalada (menor que la publicada): la página avisa
+    // de frente que hay una nueva, con el camino según cómo se instaló.
+    await page.evaluate(() => {
+      document.documentElement.dataset.unifyExtension = "0.0.1";
+      window.dispatchEvent(new CustomEvent("unify:extension", { detail: { version: "0.0.1" } }));
+    });
+    await page.waitForTimeout(600);
+    const t3 = await texto(page);
+    check("con una versión vieja instalada, avisa que hay una nueva",
+      /Hay una versión nueva/i.test(t3) && /0\.0\.1/.test(t3));
     await ctx.close();
   }
 
