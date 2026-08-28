@@ -333,18 +333,22 @@ const adaptadores = {
     // El botón, con REINTENTOS: Meet carga lento y cambia sus textos seguido.
     // Y si en vez del prejoin hay una PARED (iniciá sesión, navegador no
     // soportado), se dice claro en vez de esperar a ciegas hasta el timeout.
-    const BOTON =
-      'button:has-text("Ask to join"), button:has-text("Pedir unirse"), ' +
-      'button:has-text("Solicitar unirse"), button:has-text("Join now"), ' +
-      'button:has-text("Unirte ahora"), button:has-text("Unirse ahora"), ' +
-      'button:has-text("Unirme ahora"), button:has-text("Participar"), ' +
-      'button:has-text("Join anyway"), button:has-text("Unirse de todos modos"), ' +
-      // La cuenta del bot ya está en la llamada (es la MISMA cuenta que la
-      // persona): Meet muestra "Ya estás en esta llamada" y el botón es
-      // "Unirse aquí también". OJO: jamás tocar "Cambiar aquí"/"Switch
-      // here", que sacaría a la persona de su propia reunión.
-      'button:has-text("Join here too"), button:has-text("Unirse aquí también"), ' +
-      'button:has-text("Únete aquí también"), button:has-text("Unirse también")';
+    // Los textos con los que Meet nombra "entrar", en sus variantes. OJO:
+    // jamás "Cambiar aquí"/"Switch here" (cuando la cuenta del bot ya está
+    // en la llamada, eso sacaría a la persona de su propia reunión).
+    const TEXTOS_ENTRAR = [
+      "Ask to join", "Pedir unirse", "Solicitar unirse", "Join now",
+      "Unirte ahora", "Unirse ahora", "Unirme ahora", "Participar",
+      "Join anyway", "Unirse de todos modos", "Join here too",
+      "Unirse aquí también", "Únete aquí también", "Unirse también",
+    ];
+    // Los botones modernos de Google muchas veces NO son <button>: también
+    // se buscan como [role="button"], y de última por rol accesible (que
+    // matchea aria-labels aunque el texto viva en un span de adentro).
+    const BOTON = TEXTOS_ENTRAR.map(
+      (t) => `button:has-text("${t}"), [role="button"]:has-text("${t}")`
+    ).join(", ");
+    const RE_ENTRAR = /ask to join|pedir unirse|solicitar unirse|join now|join here|join anyway|unirse|unirte ahora|unirme ahora|participar/i;
     let pidio = false;
     // 20 intentos ≈ un minuto de paciencia: en un host chico, el Chrome con
     // un perfil sincronizado tarda MUCHO en dejar lista la pantalla de Meet
@@ -358,11 +362,29 @@ const adaptadores = {
       ).first();
       if (await nombre.count()) { await nombre.fill(BOT_NAME).catch(() => {}); }
       await apagarCamaraYMic(page);
+      // El cartel de "funciones premium" puede quedar ENCIMA del botón:
+      // si hay una X de cerrar, se toca antes de buscar.
+      const cerrarModal = page.locator('button[aria-label="Close" i], button[aria-label="Cerrar" i]').first();
+      try { if (await cerrarModal.count()) await cerrarModal.click({ timeout: 1500 }); } catch { /* no había */ }
       const entrar = page.locator(BOTON).first();
       if (await entrar.count()) {
-        await entrar.click().catch(() => {});
+        // Timeout corto: si algo lo tapa, mejor reintentar la ronda entera
+        // (que vuelve a cerrar modales) que colgarse 30s en un clic.
+        await entrar.click({ timeout: 4000 }).catch(() => {});
         pidio = true;
         break;
+      }
+      // Última red: por ROL accesible (matchea también aria-labels y los
+      // "botones" que no son <button>).
+      const porRol = page.getByRole("button", { name: RE_ENTRAR }).first();
+      if (await porRol.count()) {
+        const nombre = (await porRol.textContent().catch(() => "")) || "";
+        // Jamás "Cambiar aquí"/"Switch here": sacaría a la persona.
+        if (!/cambiar aquí|switch here/i.test(nombre)) {
+          await porRol.click({ timeout: 4000 }).catch(() => {});
+          pidio = true;
+          break;
+        }
       }
       const cuerpo = ((await page.locator("body").textContent().catch(() => "")) || "").slice(0, 4000);
       // Un pedazo de la pantalla real, para el diagnóstico: "qué vio el bot"
