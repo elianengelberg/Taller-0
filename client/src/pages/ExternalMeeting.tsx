@@ -558,6 +558,11 @@ export default function ExternalMeeting() {
       discardStashedDisplayStream();
       return;
     }
+    // En el flujo de la APP DE WINDOWS el video ya lo graba el grabador
+    // silencioso de la propia app (pantalla + audio del sistema, sin
+    // selector): duplicarlo acá daría DOS videos del mismo rato en el
+    // historial. La barra se queda con lo suyo: subtítulos, traducción e IA.
+    if (escritorioRef.current) return;
     const stream = takeDisplayStream();
     // En iPhone/iPad, arrancar a grabar el micrófono acá dejaba los
     // subtítulos mudos (el sistema no lo comparte) Y la grabación vacía: se

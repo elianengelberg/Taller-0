@@ -79,13 +79,23 @@ export async function requestDisplayStreamOnGesture(): Promise<MediaStream | nul
   }
   try {
     return await navigator.mediaDevices.getDisplayMedia({
-      video: { width: { ideal: 3840 }, height: { ideal: 2160 }, frameRate: { ideal: 30 } },
+      // `displaySurface: "monitor"` abre el selector ya parado en "Pantalla
+      // completa". La reunión suele estar en OTRA app (Zoom de escritorio) y
+      // si su ventana está minimizada ni figura en la lista de ventanas; la
+      // pantalla entera está siempre, y con ella el audio del sistema.
+      video: {
+        width: { ideal: 3840 },
+        height: { ideal: 2160 },
+        frameRate: { ideal: 30 },
+        displaySurface: "monitor",
+      },
       audio: true,
       // Tipados como opcionales: son extensiones de Chromium y los navegadores
       // que no las conocen simplemente las ignoran.
       selfBrowserSurface: "exclude",
       surfaceSwitching: "include",
       systemAudio: "include",
+      monitorTypeSurfaces: "include",
     } as DisplayMediaStreamOptions);
   } catch {
     return null;

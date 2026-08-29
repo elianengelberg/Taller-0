@@ -13,7 +13,7 @@
 // Electron: el reconocimiento de voz del navegador necesita las llaves de
 // Google que sólo trae Chrome. Electron acá sólo vigila, pregunta y coordina.
 
-const { app, BrowserWindow, Tray, Menu, ipcMain, shell, screen, nativeImage } = require("electron");
+const { app, BrowserWindow, Tray, Menu, ipcMain, shell, screen, nativeImage, desktopCapturer } = require("electron");
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -29,6 +29,9 @@ const { autoUpdater } = require("electron-updater");
 // La web de Unify. En desarrollo se puede apuntar a un build local:
 //   UNIFY_WEB=http://localhost:4174 npm start
 const WEB = process.env.UNIFY_WEB || "https://unify-meet.com";
+// La API (donde viven el bridge y las grabaciones). Separada de la web: el
+// sitio es estático; los datos van a Render.
+const SERVER = process.env.UNIFY_SERVER || "https://taller-0.onrender.com";
 
 // En Linux/macOS no hay Zoom que vigilar: la "reunión" se simula tocando y
 // borrando este archivo (y sirve para probar todo el circuito sin Zoom).
@@ -44,6 +47,13 @@ let salaActual = "";
 let navegadorHijo = null;
 
 // Un solo Unify en la bandeja; el segundo intento sólo avisa al primero.
+if (process.env.UNIFY_TEST === "1") {
+  // SOLO el arnés: micrófono falso y sin carteles del sistema, para poder
+  // ejercitar el grabador en un contenedor sin hardware.
+  app.commandLine.appendSwitch("use-fake-device-for-media-stream");
+  app.commandLine.appendSwitch("use-fake-ui-for-media-stream");
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -178,11 +188,144 @@ function reunionEmpezo() {
 }
 
 function reunionTermino() {
-  // La barra (si está abierta) ve el cambio por el puente y se encarga de
-  // cortar, subir la grabación y abrir el historial. Acá sólo se apaga la luz.
+  // La barra (si está abierta) ve el cambio por el puente y corta lo suyo.
   puente.fijarEstado(false);
   salaActual = "";
   if (cartel && !cartel.isDestroyed()) cartel.close();
+  // Y el grabador silencioso cierra y sube: la reunión terminó.
+  void detenerGrabacionEscritorio();
+}
+
+// ============================================================================
+// EL GRABADOR SILENCIOSO. "Tocás grabar y graba LA REUNIÓN", sin selector:
+// un navegador no puede saltarse el selector de getDisplayMedia (regla de
+// Chrome, sin excepciones) -- y encima las ventanas minimizadas ni aparecen
+// en la lista, que era exactamente lo que pasaba con Zoom. Esta app SÍ puede:
+// elige la fuente por código y en Windows suma el audio del sistema
+// (loopback), así que graba la reunión se vea donde se vea, sin preguntar
+// nada. Se captura LA PANTALLA (no la ventana de Zoom: minimizada se graba
+// negra; la pantalla es lo que la persona está mirando, siempre existe).
+// ============================================================================
+let grabador = null; // { win, archivo, stream, empezoEn, sala }
+
+async function iniciarGrabacionEscritorio() {
+  if (grabador) return; // ya hay una andando
+  const sala = salaActual || `zoom-${Date.now().toString(36)}`;
+  try {
+    const fuentes = await desktopCapturer.getSources({ types: ["screen"] });
+    const fuente = fuentes[0];
+    if (!fuente) throw new Error("sin pantallas para capturar");
+
+    const archivo = path.join(os.tmpdir(), `unify-grabacion-${Date.now()}.webm`);
+    const salida = fs.createWriteStream(archivo);
+
+    const win = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        // Ventana oculta que carga SOLO nuestro archivo local: puede usar
+        // ipcRenderer directo (nada remoto entra acá jamás).
+        nodeIntegration: true,
+        contextIsolation: false,
+      },
+    });
+    // La fuente la decide este handler: getDisplayMedia en la ventana oculta
+    // NO muestra ningún selector. "loopback" = el audio del sistema (las
+    // voces de la reunión) en Windows; donde no existe, cae sin audio de
+    // sistema y queda el micrófono que mezcla el grabador.
+    win.webContents.session.setDisplayMediaRequestHandler((_req, callback) => {
+      // "loopback" (audio del sistema) existe SOLO en Windows: pedirlo en
+      // Mac/Linux hace fallar la captura entera. Ahí va sin audio de sistema
+      // y queda el micrófono que mezcla el grabador.
+      if (process.platform === "win32") {
+        try {
+          callback({ video: fuente, audio: "loopback" });
+          return;
+        } catch { /* algún Windows sin WGC: sin audio de sistema */ }
+      }
+      callback({ video: fuente });
+    });
+    // El micrófono de la ventana oculta, concedido sin cartel (es nuestra).
+    win.webContents.session.setPermissionRequestHandler((_wc, permiso, callback) => {
+      callback(permiso === "media");
+    });
+
+    grabador = { win, archivo, stream: salida, empezoEn: Date.now(), sala };
+    win.on("closed", () => {
+      if (grabador && grabador.win === win) grabador = null;
+    });
+    await win.loadFile(path.join(__dirname, "grabador.html"));
+  } catch (err) {
+    grabador = null;
+    globo("Unify", `No pude arrancar la grabación automática (${String((err && err.message) || err)}).`);
+  }
+}
+
+ipcMain.on("grabador:chunk", (_ev, buf) => {
+  grabador?.stream.write(Buffer.from(buf));
+});
+ipcMain.on("grabador:listo", (_ev, info) => {
+  if (!info?.conLoopback) {
+    // Verdad por delante: sin loopback (Mac/Linux) el video lleva sólo lo
+    // que entra por el micrófono.
+    globo("Unify", "Grabando la reunión. En este sistema no hay audio interno: el sonido sale del micrófono.");
+  }
+});
+ipcMain.on("grabador:fin", (_ev, r) => {
+  void cerrarYSubirGrabacion(r);
+});
+
+function detenerGrabacionEscritorio() {
+  if (!grabador) return Promise.resolve();
+  try { grabador.win.webContents.send("grabador:parar"); } catch { /* ya cerrada */ }
+  // Si el renderer no contesta (colgado), a los 8 segundos se fuerza cierre.
+  return new Promise((resolve) => {
+    const t = setTimeout(() => { void cerrarYSubirGrabacion({ ok: true }); resolve(); }, 8000);
+    const listo = setInterval(() => {
+      if (!grabador) { clearTimeout(t); clearInterval(listo); resolve(); }
+    }, 300);
+  });
+}
+
+async function cerrarYSubirGrabacion(resultado) {
+  const g = grabador;
+  if (!g) return;
+  grabador = null;
+  const duracionMs = Date.now() - g.empezoEn;
+  try { g.win.destroy(); } catch { /* ya cerrada */ }
+  await new Promise((r) => g.stream.end(r));
+
+  const talle = (() => { try { return fs.statSync(g.archivo).size; } catch { return 0; } })();
+  if (!resultado?.ok || talle < 20_000) {
+    fs.rmSync(g.archivo, { force: true });
+    if (resultado && resultado.ok === false) {
+      globo("Unify", `La grabación no salió (${resultado.error || "sin detalle"}).`);
+    }
+    return;
+  }
+
+  try {
+    // La MISMA sala que la barra companion: el video cae en esa reunión, con
+    // su transcripción. El GET crea la reunión si la barra nunca llegó a
+    // abrirse (mejor un video huérfano de barra que un video perdido).
+    const clave = encodeURIComponent(`escritorio:${g.sala}`);
+    const ses = await fetch(`${SERVER}/api/meet-bridge/${clave}/session`).then((r) => r.json());
+    if (!ses?.dbId) throw new Error("el bridge no dio la reunión");
+    const subida = await fetch(
+      `${SERVER}/api/meetings/${ses.dbId}/recording-upload?durationMs=${Math.round(duracionMs)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "video/webm" },
+        body: fs.createReadStream(g.archivo),
+        duplex: "half",
+      }
+    );
+    if (!subida.ok) throw new Error(`HTTP ${subida.status}`);
+    globo("Unify", "La grabación de la reunión quedó guardada en tu historial.");
+  } catch (err) {
+    globo("Unify", `Grabé la reunión pero no pude subirla (${String((err && err.message) || err)}). El archivo quedó en ${g.archivo}.`);
+    return; // el archivo se conserva: peor sería borrarlo
+  }
+  fs.rmSync(g.archivo, { force: true });
 }
 
 function mostrarCartel(segundos = 15) {
@@ -208,7 +351,12 @@ function mostrarCartel(segundos = 15) {
   ipcMain.once("cartel:respuesta", (_ev, valor) => {
     if (cartel && !cartel.isDestroyed()) cartel.close();
     cartel = null;
-    if (valor === "si") abrirBarra();
+    if (valor === "si") {
+      // La barra pone los subtítulos; el grabador silencioso pone el VIDEO,
+      // sin selector ni preguntas: graba la pantalla con el audio del sistema.
+      void iniciarGrabacionEscritorio();
+      abrirBarra();
+    }
   });
   // Cerrar el cartel con la cruz/Alt+F4 (sin responder) cuenta como "no":
   // cerrar es un gesto explícito, distinto de no tocar nada.
@@ -451,6 +599,7 @@ app.on("window-all-closed", () => {});
 
 app.on("before-quit", () => {
   app.cerrandoDeVerdad = true;
+  void detenerGrabacionEscritorio();
   detector?.detener();
   void puente?.cerrar();
 });

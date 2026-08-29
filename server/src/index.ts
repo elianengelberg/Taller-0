@@ -1659,6 +1659,9 @@ const BRIDGE_PLATFORMS = new Set([
   // Cualquier web: la clave que la web y la extensión derivan de un enlace
   // que no reconocen por nombre (origen + path). Ver externalFallbackKey.
   "externa",
+  // La reunión detectada por la APP DE WINDOWS (la app de Zoom, no una web):
+  // la barra companion y el grabador silencioso de la app comparten esta sala.
+  "escritorio",
 ]);
 
 // Cómo se titula la reunión en el historial ("Reunión de Zoom", etc.).
@@ -1669,7 +1672,7 @@ const BRIDGE_LABELS: Record<string, string> = {
   ringcentral: "RingCentral", dialpad: "Dialpad", livestorm: "Livestorm",
   zoho: "Zoho Meeting", skype: "Skype", discord: "Discord", slack: "Slack",
   whatsapp: "WhatsApp", gather: "Gather", generica: "Reunión externa",
-  externa: "Reunión externa",
+  externa: "Reunión externa", escritorio: "Zoom (app de escritorio)",
 };
 
 /**

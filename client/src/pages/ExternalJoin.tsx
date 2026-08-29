@@ -260,7 +260,10 @@ export default function ExternalJoin() {
       startCompanionDraft({
         name: savedName || user?.name || "Invitado",
         language,
-        externalKey: `escritorio-${sala}`,
+        // Formato plataforma:cola, el mismo que valida el bridge: así el
+        // grabador silencioso de la app de Windows encuentra ESTA sala (y su
+        // dbId) para subirle el video.
+        externalKey: `escritorio:${sala}`,
         roomLabel: "Zoom (app de escritorio)",
         embed: { kind: "external", label: "Zoom", joinLink: "https://zoom.us/join" },
       });

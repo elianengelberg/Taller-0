@@ -83,6 +83,92 @@ async function probarCartel(check) {
   await b.close();
 }
 
+// ── 0c. EL GRABADOR SILENCIOSO, de punta a punta ───────────────────────────
+// "Tocás grabar y graba LA REUNIÓN, sin selector": la app entera corriendo de
+// verdad -- reunión simulada, cartel con su auto-sí, grabador oculto
+// capturando la pantalla, corte al terminar la reunión, y el webm subido al
+// servidor (acá, un stub que guarda los bytes para mirarlos de verdad).
+async function probarGrabadorSilencioso(check) {
+  const os = require("os");
+  const http = require("http");
+  const SIMULACION = path.join(os.tmpdir(), "unify-reunion-simulada");
+  fs.rmSync(SIMULACION, { force: true });
+
+  const capturado = { sesionKey: null, upload: null, duracion: null };
+  const stub = http.createServer((req, res) => {
+    const url = new URL(req.url, "http://x");
+    const mSes = url.pathname.match(/^\/api\/meet-bridge\/([^/]+)\/session$/);
+    if (mSes) {
+      capturado.sesionKey = decodeURIComponent(mSes[1]);
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ dbId: "prueba-escritorio", transcript: [], participants: [] }));
+      return;
+    }
+    if (url.pathname === "/api/meetings/prueba-escritorio/recording-upload") {
+      capturado.duracion = Number(url.searchParams.get("durationMs"));
+      const partes = [];
+      req.on("data", (d) => partes.push(d));
+      req.on("end", () => {
+        capturado.upload = Buffer.concat(partes);
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: true }));
+      });
+      return;
+    }
+    res.statusCode = 404;
+    res.end("{}");
+  });
+  await new Promise((r) => stub.listen(4197, "127.0.0.1", r));
+
+  const probe = path.join("/tmp", "sonda-grabador.js");
+  fs.writeFileSync(probe, `require(${JSON.stringify(path.join(DESK, "main.js"))});\n`);
+  const hijo = spawn(path.join(DESK, "node_modules/.bin/electron"), [probe, "--no-sandbox"], {
+    env: {
+      ...process.env,
+      UNIFY_TEST: "1",
+      UNIFY_WEB: "http://localhost:4174",
+      UNIFY_SERVER: "http://127.0.0.1:4197",
+      DISPLAY: process.env.DISPLAY,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  try {
+    await espera(2500);                    // la app arranca y el detector late
+    fs.writeFileSync(SIMULACION, "1");     // «entró a la reunión de Zoom»
+    // Detector (3 s) + cartel con su cuenta de 15: el auto-sí arranca TODO.
+    await espera(23_000);
+    await espera(8_000);                   // se graba un rato la pantalla
+    fs.rmSync(SIMULACION, { force: true }); // «la reunión terminó»
+    // Corte + cierre del archivo + subida al stub.
+    const hasta = Date.now() + 25_000;
+    while (!capturado.upload && Date.now() < hasta) await espera(500);
+
+    check("al terminar la reunión, el video se sube SOLO (sin tocar nada)",
+      Boolean(capturado.upload), capturado.upload ? `${capturado.upload.length} bytes` : "no llegó");
+    if (capturado.upload) {
+      check("a la MISMA sala que la barra companion (escritorio:...)",
+        /^escritorio:zoom-/.test(capturado.sesionKey ?? ""), String(capturado.sesionKey));
+      check("y es un webm de verdad (magia EBML)",
+        capturado.upload.subarray(0, 4).toString("hex") === "1a45dfa3");
+      check("codificado en VP8 (el que no se traba en vivo)",
+        capturado.upload.includes("V_VP8"), capturado.upload.includes("V_VP9") ? "V_VP9" : "V_VP8");
+      check("con un tamaño real (la pantalla de verdad, no un archivo vacío)",
+        capturado.upload.length > 20_000, `${capturado.upload.length} bytes`);
+      check("declarando su duración (para sincronizar la transcripción)",
+        Number.isFinite(capturado.duracion) && capturado.duracion > 4000 && capturado.duracion < 120_000,
+        `${capturado.duracion}ms`);
+    } else {
+      for (let i = 0; i < 4; i++) check("(sin subida: no se puede verificar)", false);
+    }
+  } finally {
+    try { hijo.kill("SIGTERM"); } catch { /* ya muerto */ }
+    fs.rmSync(SIMULACION, { force: true });
+    await new Promise((r) => stub.close(r));
+  }
+}
+
 const sonda = path.join("/tmp", "sonda-escritorio.js");
 fs.writeFileSync(sonda, `
   const { app } = require("electron");
@@ -117,6 +203,7 @@ hijo.on("exit", async (c) => {
   const check = (n, c, d = "") => { ok.push(c); console.log(`${c ? "PASS" : "FAIL"} ${n}${d ? " — " + d : ""}`); };
   await probarExtensionLocal(check).catch((e) => check("módulo de extensión local", false, String(e.message)));
   await probarCartel(check).catch((e) => check("cartel de escritorio", false, String(e.message)));
+  await probarGrabadorSilencioso(check).catch((e) => check("grabador silencioso", false, String(e.message)));
   check("la app de escritorio abre UNA ventana propia (antes no abría ninguna)", r.ventanas === 1, `ventanas=${r.ventanas}`);
   check("y se ve (no queda escondida en la bandeja)", r.visible === true);
   check("con el título de la app", r.titulo === "Unify", String(r.titulo));

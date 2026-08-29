@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8" /><title>Grabador de Unify</title></head>
+<body>
+<script>
+// El GRABADOR SILENCIOSO de la app de escritorio.
+//
+// Vive en una ventana oculta de Electron. Acá getDisplayMedia NO muestra
+// ningún selector: main.js decide la fuente (la pantalla) por código con
+// setDisplayMediaRequestHandler, y en Windows le suma el audio del sistema
+// (loopback) -- las voces de la reunión tal como suenan, sin importar en qué
+// app corra ni si su ventana está minimizada. El micrófono se mezcla aparte,
+// porque el loopback trae lo que sale por el parlante y tu voz no sale por
+// el parlante.
+const { ipcRenderer } = require("electron");
+
+let recorder = null;
+let ctx = null;
+let vivas = [];
+
+async function empezar() {
+  try {
+    // La fuente la eligió main.js: esto NO abre ningún selector. Se pide con
+    // audio (el loopback de Windows); si esta plataforma no lo tiene y el
+    // pedido falla, se reintenta sin audio -- el micrófono cubre el sonido.
+    let pantalla;
+    try {
+      pantalla = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+    } catch {
+      pantalla = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    }
+
+    // Tu voz. Best-effort: sin micrófono la reunión igual queda (loopback).
+    let mic = null;
+    try {
+      mic = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+    } catch { /* sin micrófono: queda el audio del sistema */ }
+
+    ctx = new AudioContext();
+    const mezcla = ctx.createMediaStreamDestination();
+    const limitador = ctx.createDynamicsCompressor();
+    limitador.threshold.value = -3;
+    limitador.ratio.value = 12;
+    limitador.connect(mezcla);
+    const sumar = (stream) => {
+      if (!stream || stream.getAudioTracks().length === 0) return false;
+      ctx.createMediaStreamSource(new MediaStream(stream.getAudioTracks())).connect(limitador);
+      return true;
+    };
+    const conLoopback = sumar(pantalla);
+    const conMic = sumar(mic);
+
+    const video = pantalla.getVideoTracks()[0];
+    if (video) video.contentHint = "motion";
+    const pistas = [...(video ? [video] : []), ...mezcla.stream.getAudioTracks()];
+    const combinado = new MediaStream(pistas);
+    vivas = [...pantalla.getTracks(), ...(mic ? mic.getTracks() : [])];
+
+    // VP8: lo que un vivo codifica parejo sin comerse la CPU de la reunión.
+    const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
+      ? "video/webm;codecs=vp8,opus"
+      : "video/webm";
+    recorder = new MediaRecorder(combinado, {
+      mimeType: mime,
+      videoBitsPerSecond: 2_500_000,
+      audioBitsPerSecond: 128_000,
+    });
+    recorder.ondataavailable = (e) => {
+      if (e.data.size === 0) return;
+      // Cada trozo viaja YA a main, que lo escribe a disco: nada de juntar
+      // un giga en la memoria de una ventana oculta.
+      e.data.arrayBuffer().then((buf) => ipcRenderer.send("grabador:chunk", Buffer.from(buf)));
+    };
+    recorder.onstop = () => {
+      limpiar();
+      ipcRenderer.send("grabador:fin", { ok: true });
+    };
+    recorder.onerror = () => {
+      limpiar();
+      ipcRenderer.send("grabador:fin", { ok: false, error: "se cortó la grabación" });
+    };
+    if (video) video.addEventListener("ended", () => parar());
+    recorder.start(1000);
+    ipcRenderer.send("grabador:listo", { conLoopback, conMic });
+  } catch (err) {
+    limpiar();
+    ipcRenderer.send("grabador:fin", { ok: false, error: String((err && err.message) || err) });
+  }
+}
+
+function parar() {
+  if (recorder && recorder.state !== "inactive") recorder.stop();
+  else ipcRenderer.send("grabador:fin", { ok: true });
+}
+
+function limpiar() {
+  for (const t of vivas) { try { t.stop(); } catch { /* ya muerta */ } }
+  vivas = [];
+  try { ctx && ctx.close(); } catch { /* ya cerrado */ }
+  ctx = null;
+}
+
+ipcRenderer.on("grabador:parar", () => parar());
+void empezar();
+</script>
+</body>
+</html>

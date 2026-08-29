@@ -291,11 +291,23 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
         (await navigator.mediaDevices.getDisplayMedia({
           // Without explicit ideals Chrome sometimes hands back a downscaled
           // capture; asking high keeps the surface at its native resolution.
-          video: { width: { ideal: 3840 }, height: { ideal: 2160 }, frameRate: { ideal: 30 } },
+          // `displaySurface: "monitor"` abre el selector ya parado en "Pantalla
+          // completa": la ventana de Zoom minimizada NI APARECE en la lista de
+          // ventanas, pero la pantalla entera está siempre -- y ahí se ve la
+          // reunión tal cual la persona la mira.
+          video: {
+            width: { ideal: 3840 },
+            height: { ideal: 2160 },
+            frameRate: { ideal: 30 },
+            displaySurface: "monitor",
+          },
           audio: true,
           // Saca esta misma pestaña del selector: es lo que evita el "túnel
           // infinito" de grabar la pantalla donde se ve la grabación.
           selfBrowserSurface: "exclude",
+          // Y que la pestaña "Pantalla completa" exista aunque el navegador
+          // dude (extensión de Chromium; el resto la ignora).
+          monitorTypeSurfaces: "include",
           // Que el selector ofrezca el audio del SISTEMA al compartir la
           // pantalla entera: ahí viven las voces de la reunión cuando está en
           // otra app (Zoom de escritorio). Extensión de Chromium; los
