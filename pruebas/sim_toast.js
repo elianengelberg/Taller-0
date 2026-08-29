@@ -235,6 +235,11 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     check("con un tamaño real (no un archivo vacío)", subida.bytes.length > 20_000, `${subida.bytes.length} bytes`);
     const magia = subida.bytes.subarray(0, 4).toString("hex");
     check("y es un webm de verdad (magia EBML)", magia === "1a45dfa3", magia);
+    // VP8, no VP9: codificar VP9 en vivo ahogaba la CPU y el video salía a
+    // los saltos. La cabecera del webm declara el codec: se mira el archivo.
+    check("y viene codificada en VP8 (la que no se traba en vivo)",
+      subida.bytes.includes("V_VP8") && !subida.bytes.includes("V_VP9"),
+      subida.bytes.includes("V_VP8") ? "V_VP8" : subida.bytes.includes("V_VP9") ? "V_VP9" : "sin codec");
     check("la subida declara la duración", /durationMs=\d{3,}/.test(subida.url), subida.url.slice(0, 80));
   } else {
     check("con un tamaño real (no un archivo vacío)", false, "no hubo subida");
@@ -333,6 +338,58 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     await page.waitForTimeout(2000);
     check("una página de Teams que no es reunión NO molesta",
       (await page.locator(".caja").count()) === 0);
+  }
+
+  // ═══════ 4c. LA REUNIÓN QUEDA EN TU HISTORIAL ═══════
+  // El agujero que hacía que "la grabación no se sube al historial": la
+  // reunión del bridge nacía SIN dueño, y la extensión nunca la reclamaba.
+  // El video y la transcripción subían perfectos... a una reunión huérfana
+  // que el historial de nadie listaba. Ahora el sondeo del overlay viaja con
+  // tu sesión y la reunión queda a tu nombre.
+  console.log("\n── 4c. La reunión queda en TU historial ──");
+  {
+    const reg = await fetch(`${API}/api/auth/register`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: `ext${Date.now()}@test.com`, password: "melon42Trueno", name: "Grabadora" }),
+    }).then((r) => r.json());
+    check("hay una cuenta para reclamar la reunión", Boolean(reg.token));
+    await setStorage({ serverBase: API, token: reg.token });
+
+    const zoomId3 = `9${(Date.now() + 13) % 1e9}7`;
+    await page.goto(`https://acme.zoom.us/j/${zoomId3}`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(2500);
+    await page.getByRole("button", { name: "Sí, dale" }).click();
+    await page.waitForTimeout(2500); // el overlay ya sondeó /session con el token
+
+    // Alguien dice algo en esa sala (la transcripción de la reunión).
+    await fetch(`${API}/api/meet-bridge/${encodeURIComponent(`zoom:${zoomId3}`)}/transcript`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ speaker: "Dana", text: "esta reunión tiene que quedar en el historial", lang: "es-AR" }),
+    });
+    await page.waitForTimeout(1500);
+
+    const historial = await fetch(`${API}/api/meetings`, {
+      headers: { Authorization: `Bearer ${reg.token}` },
+    }).then((r) => r.json());
+    const lista = historial.meetings ?? historial ?? [];
+    const mia = (Array.isArray(lista) ? lista : []).find((m) => (m.hostName || "").includes("Zoom"));
+    check("la reunión de Zoom aparece EN EL HISTORIAL de quien la grabó", Boolean(mia),
+      `reuniones=${Array.isArray(lista) ? lista.length : "?"}`);
+    if (mia) {
+      const detalle = await fetch(`${API}/api/meetings/${mia.id}`, {
+        headers: { Authorization: `Bearer ${reg.token}` },
+      }).then((r) => r.json());
+      const mensajes = detalle.messages ?? detalle.meeting?.messages ?? [];
+      check("y trae la TRANSCRIPCIÓN adentro (no la reunión pelada)",
+        mensajes.some((m) => /quedar en el historial/.test(m.text || "")),
+        `mensajes=${mensajes.length}`);
+    } else {
+      check("y trae la TRANSCRIPCIÓN adentro (no la reunión pelada)", false, "sin reunión");
+    }
+    // Se apaga el modo con sesión para no teñir las secciones siguientes.
+    await page.getByRole("button", { name: /Detener|Cerrar|Ahora no/ }).first().click().catch(() => {});
+    await page.waitForTimeout(2500);
+    await setStorage({ token: null });
   }
 
   // ═══════ 5. Sin responder: a los 15 segundos arranca solo ═══════

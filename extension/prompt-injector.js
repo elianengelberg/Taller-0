@@ -697,13 +697,17 @@
       return;
     }
 
-    const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
-      ? "video/webm;codecs=vp9,opus"
+    // VP8 primero: VP9 en vivo come la CPU que la reunión necesita y el video
+    // salía a los saltos (misma corrección que el carril A y el bot).
+    const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
+      ? "video/webm;codecs=vp8,opus"
       : "video/webm";
+    const pistaV = stream.getVideoTracks()[0];
+    if (pistaV) pistaV.contentHint = "motion";
     recorder = new MediaRecorder(stream, {
       mimeType: mime,
       // Misma calidad que el grabador del documento offscreen (carril A).
-      videoBitsPerSecond: 5_000_000,
+      videoBitsPerSecond: 3_500_000,
       audioBitsPerSecond: 192_000,
     });
     recorder.ondataavailable = async (e) => {
@@ -1105,7 +1109,10 @@
     const sondear = async () => {
       try {
         const res = await fetch(
-          `${cfg.serverBase}/api/meet-bridge/${encodeURIComponent(det.roomKey)}/session`
+          `${cfg.serverBase}/api/meet-bridge/${encodeURIComponent(det.roomKey)}/session`,
+          // Con tu sesión: es lo que hace que ESTA reunión (video y
+          // transcripción) quede en TU historial y no en el limbo.
+          { headers: cfg.token ? { Authorization: `Bearer ${cfg.token}` } : {} }
         );
         if (!res.ok) return;
         const s = await res.json();

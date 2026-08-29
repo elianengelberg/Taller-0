@@ -34,9 +34,13 @@ function cleanup() {
 }
 
 function pickMime() {
+  // VP8 PRIMERO, a propósito: VP9 comprime mejor pero codificar VP9 en vivo
+  // come CPU que la compu no tiene de sobra mientras corre la reunión -- el
+  // resultado eran videos a los saltos (mismo diagnóstico que ya se corrigió
+  // en el bot). VP8 en tiempo real es liviano y se ve parejo.
   const candidates = [
-    "video/webm;codecs=vp9,opus",
     "video/webm;codecs=vp8,opus",
+    "video/webm;codecs=vp9,opus",
     "video/webm",
   ];
   for (const m of candidates) if (MediaRecorder.isTypeSupported(m)) return m;
@@ -49,8 +53,23 @@ async function start({ streamId, dbId, serverBase, token, roomKey }) {
   // Audio + video de la pestaña de Meet.
   const tabStream = await navigator.mediaDevices.getUserMedia({
     audio: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId } },
-    video: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId } },
+    video: {
+      mandatory: {
+        chromeMediaSource: "tab",
+        chromeMediaSourceId: streamId,
+        // Techo de captura: una pestaña en un monitor retina entrega 4K y el
+        // codificador se ahoga (video trabado). 1080p a 30 es lo que un vivo
+        // aguanta parejo.
+        maxWidth: 1920,
+        maxHeight: 1080,
+        maxFrameRate: 30,
+      },
+    },
   });
+  // La reunión es GENTE moviéndose, no texto quieto: "motion" le dice al
+  // codificador que gaste sus bits en fluidez.
+  const pistaVideo = tabStream.getVideoTracks()[0];
+  if (pistaVideo) pistaVideo.contentHint = "motion";
 
   // Tu micrófono (best-effort: si no hay permiso, se graba igual la reunión).
   let micStream = null;
@@ -96,12 +115,12 @@ async function start({ streamId, dbId, serverBase, token, roomKey }) {
   tracks = [...tabStream.getTracks(), ...(micStream?.getTracks() ?? [])];
 
   const mimeType = pickMime();
-  // 5 Mb/s de video + 192 kb/s de audio: texto de pantallas compartidas
-  // legible y voces limpias, sin producir archivos absurdos (una hora ronda
-  // los 2,3 GB; el respaldo del servidor y R2 lo aguantan bien).
+  // 3,5 Mb/s de video (1080p VP8 parejo sin ahogar la CPU) + 192 kb/s de
+  // audio opus, que para voces es transparente. Con 5 Mb/s en VP9 el
+  // codificador no llegaba y el video salía a los saltos.
   recorder = new MediaRecorder(combined, {
     mimeType,
-    videoBitsPerSecond: 5_000_000,
+    videoBitsPerSecond: 3_500_000,
     audioBitsPerSecond: 192_000,
   });
   chunks = [];

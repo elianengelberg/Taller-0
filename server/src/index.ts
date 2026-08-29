@@ -1423,6 +1423,14 @@ app.post("/api/meetings/:id/recording-upload", uploadLimit, async (req, res) => 
     res.status(503).json({ error: "El almacenamiento de grabaciones no está configurado." });
     return;
   }
+  // Mismo criterio que el sondeo del bridge: si quien sube trae su sesión y
+  // la reunión no tiene dueño, queda a su nombre -- si no, el video viajaba
+  // entero a una reunión que su historial jamás iba a mostrar.
+  {
+    const header = req.headers.authorization;
+    const claims = verifyTokenClaims(header?.startsWith("Bearer ") ? header.slice(7) : null);
+    if (claims) void claimMeeting(req.params.id, claims.userId);
+  }
   const contentType = normalizeRecordingType(req.headers["content-type"]);
   // Reject an oversized/garbage body up front (this endpoint is unauthenticated
   // by design, like the presign one, so it must not become a free file host).
@@ -2185,6 +2193,17 @@ app.get("/api/meet-bridge/:meetId/session", bridgeLimit, (req, res) => {
     return;
   }
   const meeting = companionForRoomKey(roomKey);
+  // EL DUEÑO. La reunión del bridge nace sin dueño (ownerId null) y por acá
+  // pasan la extensión y el overlay con la sesión de la persona: si viene un
+  // token válido, la reunión queda A SU NOMBRE (sólo si nadie la reclamó
+  // antes -- claimMeeting no pisa dueños). Sin esto, la grabación y la
+  // transcripción subían PERFECTAS... a una reunión huérfana que el historial
+  // de nadie lista. "La grabación no se sube al historial" era esto.
+  {
+    const header = req.headers.authorization;
+    const claims = verifyTokenClaims(header?.startsWith("Bearer ") ? header.slice(7) : null);
+    if (claims) void claimMeeting(meeting.dbId, claims.userId);
+  }
   res.json({
     dbId: meeting.dbId,
     joinCode: meeting.id,
