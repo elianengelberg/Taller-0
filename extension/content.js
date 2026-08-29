@@ -240,17 +240,30 @@
   // nombre, y cualquier regla de "el bloque más largo es el texto" se equivoca).
   const looksLikeName = (s) => s.length > 0 && s.length <= 60 && s.split(/\s+/).length <= 6 && !/[.?!,]$/.test(s);
 
+  // Los íconos de Material se escriben como TEXTO dentro del HTML
+  // ("arrow_downward"), así que el botón «Ir al final» de Meet entraba a la
+  // transcripción como si alguien lo hubiera dicho: quedaba un participante
+  // llamado "arrow_downward" diciendo "Ir al final". Ninguna persona habla
+  // así -- se descartan las ligaduras de ícono y todo lo que viva adentro de
+  // un botón, que es controles de Meet y no lo que se está hablando.
+  const esLigaduraDeIcono = (t) => /^[a-z][a-z0-9]*(_[a-z0-9]+)+$/.test(t);
+  const esControlDeMeet = (el) => Boolean(el.closest('button, [role="button"], [role="toolbar"]'));
+
   function parseEntry(node) {
     const leaves = [];
     node.querySelectorAll("*").forEach((el) => {
       if (el.children.length === 0) {
+        if (esControlDeMeet(el)) return;
         const t = (el.textContent || "").replace(/\s+/g, " ").trim();
-        if (t) leaves.push(t);
+        if (t && !esLigaduraDeIcono(t)) leaves.push(t);
       }
     });
     if (leaves.length === 0) {
+      // Sin hojas útiles: si lo único que había era un control de Meet, no hay
+      // nada que transcribir (antes se colaba el texto del botón entero).
+      if (node.querySelector('button, [role="button"]') || esControlDeMeet(node)) return null;
       const raw = (node.textContent || "").replace(/\s+/g, " ").trim();
-      return raw ? { speaker: "", text: raw } : null;
+      return raw && !esLigaduraDeIcono(raw) ? { speaker: "", text: raw } : null;
     }
     let speaker = "";
     let body;
@@ -427,7 +440,8 @@
         <div class="badge glass" part="badge">
           <span class="live"></span>
           <span class="txt"><b>Unify</b>: <span data-el="statusTxt">Companion activo</span></span>
-          <select data-el="lang" title="Idioma de la traducción">
+          <span class="tradlbl" aria-hidden="true">Traducir</span>
+          <select class="langsel" data-el="lang" title="Traducir los subtítulos a este idioma" aria-label="Traducir los subtítulos a este idioma">
             <option value="">—</option>
             <option value="es">ES</option>
             <option value="en">EN</option>
@@ -454,8 +468,10 @@
           <div class="dhead">
             <span class="mark"></span>
             <span class="t">Unify</span>
-            <button class="iconbtn" data-el="rec" title="Grabar la reunión completa">⏺</button>
-            <button class="iconbtn" data-el="close" title="Cerrar">✕</button>
+            <button class="recbtn" data-el="rec" title="Grabar la reunión completa">
+              <span class="dot"></span><span class="lbl" data-el="recTxt">Grabar</span>
+            </button>
+            <button class="iconbtn" data-el="close" title="Cerrar el panel" aria-label="Cerrar el panel">✕</button>
           </div>
           <div class="tabs">
             <button class="tab is-on" data-tab="stream">Transcripción</button>
@@ -674,6 +690,7 @@
       state.recording = on;
       el.rec.classList.toggle("is-rec", on);
       el.rec.title = on ? "Detener la grabación" : "Grabar la reunión completa";
+      if (el.recTxt) el.recTxt.textContent = on ? "Grabando" : "Grabar";
     }
 
     function addMsg(who, text) {

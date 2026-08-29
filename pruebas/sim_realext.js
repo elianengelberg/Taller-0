@@ -180,6 +180,44 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
   check("badge de estado presente", (await page.locator(".badge").count()) > 0);
   check("cajón lateral con 3 pestañas", (await page.locator(".drawer .tab").count()) === 3);
 
+  // --- LOS CONTROLES SE TIENEN QUE VER ---------------------------------------
+  // El panel flota sobre el video de Meet: un glifo gris sin fondo (así eran
+  // los botones) directamente desaparece. Y el desplegable del idioma salía
+  // BLANCO SOBRE BLANCO -- no se leía ni una opción.
+  {
+    const medir = (sel) => page.evaluate((s) => {
+      const n = document.getElementById("unify-root")?.shadowRoot?.querySelector(s);
+      if (!n) return null;
+      const c = getComputedStyle(n);
+      const r = n.getBoundingClientRect();
+      return {
+        w: r.width, h: r.height, texto: (n.textContent || "").trim().slice(0, 20),
+        fondo: c.backgroundColor, borde: c.borderTopWidth, color: c.color,
+        esquema: c.colorScheme,
+      };
+    }, sel);
+
+    const traducir = await medir(".badge .langsel");
+    check("el control de TRADUCIR está a la vista y se entiende",
+      Boolean(traducir) && traducir.w >= 60 && traducir.h >= 26,
+      traducir ? `${Math.round(traducir.w)}x${Math.round(traducir.h)}` : "no está");
+    check("y dice «Traducir» con todas las letras (antes sólo decía «EN»)",
+      /Traducir/i.test(await page.locator(".badge").textContent() || ""));
+    check("su lista de idiomas ya NO sale blanca sobre blanco",
+      Boolean(traducir) && /dark/.test(traducir.esquema || ""), traducir?.esquema);
+
+    const grabar = await medir(".recbtn");
+    check("el botón de grabar se ve (tiene superficie, borde y nombre)",
+      Boolean(grabar) && grabar.w >= 80 && grabar.h >= 30 &&
+      grabar.fondo !== "rgba(0, 0, 0, 0)" && parseFloat(grabar.borde) > 0 && /Grabar/i.test(grabar.texto),
+      grabar ? `${Math.round(grabar.w)}x${Math.round(grabar.h)} fondo=${grabar.fondo} "${grabar.texto}"` : "no está");
+
+    const cerrar = await medir(".iconbtn");
+    check("y el de cerrar también (no un glifo suelto en gris)",
+      Boolean(cerrar) && cerrar.fondo !== "rgba(0, 0, 0, 0)" && parseFloat(cerrar.borde) > 0,
+      cerrar ? `fondo=${cerrar.fondo}` : "no está");
+  }
+
   // --- Conversación real de 3 personas ---
   await page.evaluate(() => window.__say("Ana García", "buenos días equipo, arrancamos con el presupuesto"));
   await page.waitForTimeout(2000);
@@ -187,6 +225,27 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
   await page.waitForTimeout(2000);
   await page.evaluate(() => window.__say("Carolina Díaz", "diseño necesita dos semanas más"));
   await page.waitForTimeout(2400);
+
+  // EL BOTÓN DE MEET NO ES UN PARTICIPANTE. Meet mete su propio botón "Ir al
+  // final" adentro de la región de subtítulos, y los íconos de Material se
+  // escriben como TEXTO ("arrow_downward"): la transcripción terminaba con un
+  // participante llamado "arrow_downward" diciendo "Ir al final". Pasó de
+  // verdad, en una reunión real.
+  {
+    const antes = posted.length;
+    await page.evaluate(() => {
+      const fila = document.createElement("div");
+      fila.innerHTML =
+        '<button aria-label="Ir al final"><i class="google-symbols">arrow_downward</i>' +
+        '<span>Ir al final</span></button>';
+      document.getElementById("caps").appendChild(fila);
+    });
+    await page.waitForTimeout(2500);
+    const nuevas = posted.slice(antes);
+    check("el botón «Ir al final» de Meet NO entra como si alguien lo hubiera dicho",
+      nuevas.length === 0,
+      nuevas.map((p) => `${p.speaker}: ${p.text}`).join(" | ") || "ninguna línea nueva");
+  }
 
   const speakers = [...new Set(posted.map((p) => p.speaker))];
   check("transcribe a TODOS los participantes", speakers.length === 3, speakers.join(" | "));

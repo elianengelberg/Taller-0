@@ -23,7 +23,13 @@
   color: var(--tx);
   font-size: 13px;
   line-height: 1.5;
+  /* Sin esto, la lista desplegable del idioma salía blanca sobre blanco: no
+     se leía NINGUNA opción (la dibuja el navegador, no nuestro CSS). */
+  color-scheme: dark;
 }
+
+select { color-scheme: dark; }
+option { background: #161a26; color: #e7ebf3; }
 
 *, *::before, *::after { box-sizing: border-box; }
 button { font-family: inherit; cursor: pointer; border: 0; background: none; color: inherit; }
@@ -60,16 +66,31 @@ input, select, textarea { font-family: inherit; }
 .badge.is-warn .live { background: var(--warn); box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.18); }
 .badge .txt { white-space: nowrap; font-weight: 500; }
 .badge .txt b { font-weight: 700; }
-.badge select {
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  color: var(--tx);
-  font-size: 11.5px;
-  padding: 3px 5px;
-  outline: none;
+/* "Traducir" escrito con todas las letras: el desplegable suelto decía "EN"
+   y nadie entendía que ESE era el botón de traducir. */
+.badge .tradlbl {
+  font-size: 11.5px; font-weight: 600; color: var(--mut);
+  letter-spacing: 0.01em; white-space: nowrap; margin-left: 2px;
 }
-.badge select:focus-visible { border-color: var(--violet); }
+.badge .langsel {
+  appearance: none; -webkit-appearance: none;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+  color: var(--tx);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 26px 6px 10px;
+  min-width: 66px;
+  outline: none;
+  cursor: pointer;
+  /* La flecha, dibujada acá: sin appearance no hay flecha del sistema. */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%23cbd5e1' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+}
+.badge .langsel:hover { background-color: rgba(255, 255, 255, 0.18); }
+.badge .langsel:focus-visible { border-color: var(--violet); box-shadow: 0 0 0 3px var(--violet-dim); }
 
 /* ===================== SUBTÍTULOS FLOTANTES (abajo, centrados) =========== */
 .subs {
@@ -113,8 +134,8 @@ input, select, textarea { font-family: inherit; }
   position: fixed;
   top: 0; right: 0; bottom: 0;
   z-index: 25;
-  width: 360px;
-  max-width: 92vw;
+  width: 384px;
+  max-width: 94vw;
   display: flex;
   flex-direction: column;
   border-radius: 0;
@@ -134,26 +155,53 @@ input, select, textarea { font-family: inherit; }
   background: linear-gradient(160deg, var(--violet-2), var(--violet));
 }
 .dhead .t { font-weight: 700; font-size: 15px; flex: 1; letter-spacing: -0.01em; }
+/* Antes eran dos glifos sueltos ("⏺" y "✕") en gris apagado y sin fondo:
+   sobre el video de Meet directamente NO SE VEÍAN. Ahora tienen superficie,
+   borde y contraste -- y el de grabar dice qué hace. */
 .iconbtn {
-  width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
-  color: var(--mut); font-size: 15px; flex: none;
+  width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+  color: var(--tx); font-size: 15px; flex: none;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--line-2);
 }
-.iconbtn:hover { background: rgba(255, 255, 255, 0.08); color: var(--tx); }
-.iconbtn.is-rec { color: var(--bad); background: rgba(248, 113, 113, 0.15); }
+.iconbtn:hover { background: rgba(255, 255, 255, 0.16); }
+.iconbtn:focus-visible { outline: none; border-color: var(--violet); box-shadow: 0 0 0 3px var(--violet-dim); }
 
-.tabs { display: flex; padding: 0 8px; gap: 2px; border-bottom: 1px solid var(--line); flex: none; }
-.tab {
-  flex: 1; padding: 10px 4px; font-size: 12.5px; font-weight: 600; color: var(--mut);
-  border-bottom: 2px solid transparent; margin-bottom: -1px;
+.recbtn {
+  display: inline-flex; align-items: center; gap: 7px; flex: none;
+  height: 34px; padding: 0 13px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--line-2);
+  color: var(--tx); font-size: 12.5px; font-weight: 700;
 }
-.tab:hover { color: var(--tx); }
-.tab.is-on { color: var(--violet-2); border-bottom-color: var(--violet); }
+.recbtn:hover { background: rgba(255, 255, 255, 0.16); }
+.recbtn:focus-visible { outline: none; border-color: var(--violet); box-shadow: 0 0 0 3px var(--violet-dim); }
+.recbtn .dot {
+  width: 10px; height: 10px; border-radius: 50%; flex: none;
+  background: var(--bad); box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.18);
+}
+.recbtn.is-rec {
+  background: rgba(248, 113, 113, 0.20); border-color: rgba(248, 113, 113, 0.55); color: #fecaca;
+}
+.recbtn.is-rec .dot { animation: latir 1.4s ease-in-out infinite; }
+@keyframes latir { 50% { opacity: 0.35; } }
+
+.tabs { display: flex; padding: 8px 10px 0; gap: 6px; border-bottom: 1px solid var(--line); flex: none; }
+.tab {
+  flex: 1; padding: 9px 4px; font-size: 13px; font-weight: 700; color: #b9c2d6;
+  border-radius: 10px 10px 0 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tab:hover { color: var(--tx); background: rgba(255, 255, 255, 0.06); }
+.tab.is-on {
+  color: #fff; background: var(--violet-dim); border-bottom-color: var(--violet);
+}
+.tab:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--violet-dim); }
 
 .panes { flex: 1; min-height: 0; display: flex; }
 .pane { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 12px; gap: 10px; }
 .pane[hidden] { display: none; }
 
-.hint { font-size: 11.5px; color: var(--mut); }
+.hint { font-size: 12.5px; color: #b9c2d6; }
 .hint.ok { color: var(--ok); }
 .hint a { color: var(--violet-2); }
 
@@ -163,9 +211,9 @@ input, select, textarea { font-family: inherit; }
   background: var(--glass-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px;
 }
 .entry .meta { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; flex-wrap: wrap; }
-.entry .name { font-size: 11.5px; font-weight: 700; }
+.entry .name { font-size: 12.5px; font-weight: 700; color: var(--violet-2); }
 .entry .time { font-size: 10.5px; color: var(--dim); margin-left: auto; font-variant-numeric: tabular-nums; }
-.entry .text { font-size: 13px; word-break: break-word; }
+.entry .text { font-size: 14px; word-break: break-word; }
 .entry .tr {
   margin-top: 5px; padding-top: 5px; border-top: 1px dashed var(--line);
   color: var(--violet-2); font-size: 12.4px;
