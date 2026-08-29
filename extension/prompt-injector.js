@@ -230,6 +230,22 @@
       animation: entrar .28s cubic-bezier(.2, .9, .3, 1.15); }
     @keyframes entrar { from { opacity: 0; transform: translateY(14px) scale(.97); }
       to { opacity: 1; transform: none; } }
+    /* El cartel de PREGUNTA va AL MEDIO y grande: en la esquina se perdía
+       entre los controles de la reunión y con 368px no se llegaba a leer.
+       Sólo la pregunta -- el overlay de subtítulos sigue en su esquina. */
+    .caja.centro { right: auto; bottom: auto; left: 50%; top: 50%;
+      width: 520px; padding: 26px 28px;
+      font-size: 17px;
+      transform: translate(-50%, -50%);
+      animation: entrarCentro .28s cubic-bezier(.2, .9, .3, 1.15);
+      box-shadow: 0 26px 70px rgba(15, 23, 42, .35), 0 4px 14px rgba(30, 64, 175, .14); }
+    @keyframes entrarCentro {
+      from { opacity: 0; transform: translate(-50%, -46%) scale(.97); }
+      to { opacity: 1; transform: translate(-50%, -50%); } }
+    .caja.centro .fila { margin-top: 18px; gap: 10px; }
+    .caja.centro button { font-size: 16px; min-height: 48px; padding: 12px 22px; }
+    .caja.centro .si { flex: 1; }
+    .caja.centro .pie { font-size: 13.5px; margin-top: 10px; }
     /* La firma de la marca arriba del mensaje: el punto azul de Unify. */
     .marca { display: flex; align-items: center; gap: 7px; margin-bottom: 8px;
       font-size: 12.5px; font-weight: 800; letter-spacing: .04em;
@@ -481,7 +497,7 @@
     quitarUI();
     const root = raiz();
     const caja = document.createElement("div");
-    caja.className = "caja";
+    caja.className = "caja centro";
     // Para lectores de pantalla: es un diálogo con nombre, no un div mudo.
     caja.setAttribute("role", "dialog");
     caja.setAttribute("aria-label", "Aviso de Unify");
@@ -531,15 +547,16 @@
     no.textContent = "Ahora no";
     fila.append(si, no);
 
-    // Si no contestás, a los 5 segundos es un SÍ solo: los subtítulos y la
+    // Si no contestás, a los 15 segundos es un SÍ solo: los subtítulos y la
     // transcripción arrancan sin permiso del navegador. La GRABACIÓN no puede
     // arrancar por timer -- Chrome sólo entrega la pantalla con un gesto tuyo
     // -- así que queda "armada": tu próximo clic en la página (el de "Unirse",
     // sin ir más lejos) dispara el pedido con la pestaña ya elegida.
     const cuenta = document.createElement("div");
     cuenta.className = "pie";
-    let restante = 5;
-    cuenta.textContent = `Si no respondés, en ${restante} arranco solo con los subtítulos y la transcripción.`;
+    let restante = 15;
+    const textoCuenta = (n) => `Si no respondés, en ${n} segundo${n === 1 ? "" : "s"} arranco solo con los subtítulos y la transcripción.`;
+    cuenta.textContent = textoCuenta(restante);
 
     const pie = document.createElement("div");
     pie.className = "pie";
@@ -561,7 +578,7 @@
       }
       restante -= 1;
       if (restante > 0) {
-        cuenta.textContent = `Si no respondés, en ${restante} arranco solo con los subtítulos y la transcripción.`;
+        cuenta.textContent = textoCuenta(restante);
         return;
       }
       clearInterval(toastTimer);

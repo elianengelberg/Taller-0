@@ -195,7 +195,24 @@ async function botonesChicos(p, minimo = 40) {
     await p.waitForTimeout(4500);
     check("copiar con la app a la vista hace saltar el cartel SOLO (en /soporte)",
       /enlace de Google Meet/i.test((await p.locator("body").textContent()) || "") && p.url().includes("/soporte"));
-    await p.getByRole("button", { name: /Ahora no/i }).first().tap();
+    // AL MEDIO y grande, como todos los carteles de "¿usamos Unify?".
+    {
+      const r = await p.locator("[data-cartel-enlace]").boundingBox();
+      const vp = p.viewportSize();
+      const dx = Math.abs(r.x + r.width / 2 - vp.width / 2);
+      const dy = Math.abs(r.y + r.height / 2 - vp.height / 2);
+      check("el cartel del enlace copiado está en el MEDIO de la pantalla",
+        dx < 40 && dy < 60, `desvío=(${Math.round(dx)},${Math.round(dy)})px ancho=${Math.round(r.width)}`);
+      check("y avisa que se corre solo (sin entrar a ningún lado)",
+        /se corre solo en \d+ segundo/i.test((await p.locator("body").textContent()) || ""));
+    }
+    // Y al vencer la cuenta se CIERRA solo, sin navegar (copiar un enlace no
+    // prueba que quieras entrar YA: puede ser para mandárselo a alguien).
+    await p.waitForTimeout(16_000);
+    const dondeQuedo = p.url();
+    check("al vencer, el cartel se corre solo y NO te navega a ningún lado",
+      !(await p.locator("[data-cartel-enlace]").count()) && dondeQuedo.includes("/soporte"),
+      dondeQuedo);
 
     // ── 3. Un enlace externo compartido AL teléfono ──
     await p.goto(`${B}/externa?url=${encodeURIComponent("https://us05web.zoom.us/j/91234567890")}`, { waitUntil: "networkidle" });

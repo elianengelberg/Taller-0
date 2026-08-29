@@ -25,6 +25,12 @@ export default function EnlaceCopiado() {
   const navigate = useNavigate();
   const location = useLocation();
   const [oferta, setOferta] = useState<{ url: string; nombre: string } | null>(null);
+  // La cuenta regresiva del cartel: 15 segundos a la vista y se CIERRA solo.
+  // A diferencia de los carteles de reunión (que al vencer arrancan solos),
+  // acá copiar un enlace no prueba que quieras entrar YA -- podés estar por
+  // mandárselo a alguien --, así que vencerse significa correrse del medio,
+  // nunca navegarte la app sin permiso.
+  const [restante, setRestante] = useState(15);
   // Lo ya ofrecido en esta carga: el sondeo no debe re-disparar lo mismo.
   const vistoRef = useRef<string>("");
 
@@ -71,6 +77,22 @@ export default function EnlaceCopiado() {
     };
   }, [quieta]);
 
+  useEffect(() => {
+    if (!oferta) return;
+    setRestante(15);
+    const reloj = setInterval(() => {
+      setRestante((r) => {
+        if (r <= 1) {
+          clearInterval(reloj);
+          setOferta(null); // se corre solo; el mismo enlace no re-insiste en esta carga
+          return 0;
+        }
+        return r - 1;
+      });
+    }, 1000);
+    return () => clearInterval(reloj);
+  }, [oferta]);
+
   if (!oferta || quieta) return null;
 
   const recordar = () => {
@@ -78,32 +100,52 @@ export default function EnlaceCopiado() {
   };
 
   return (
-    <div className="pointer-events-auto fixed inset-x-3 top-3 z-50 mx-auto max-w-md rounded-2xl border border-brand-500/50 bg-ink-900/95 p-4 shadow-top backdrop-blur-md">
-      <p className="text-sm font-semibold text-strong">
-        Uy, veo que copiaste un enlace de {oferta.nombre}. ¿Entramos con Unify?
-      </p>
-      <div className="mt-2.5 flex gap-2">
-        <Button
-          className="flex-1"
-          onClick={() => {
-            recordar();
-            const url = oferta.url;
-            setOferta(null);
-            navigate(`/externa?url=${encodeURIComponent(url)}`);
-          }}
-        >
-          Entrar con subtítulos y grabación
-        </Button>
-        <button
-          type="button"
-          onClick={() => {
-            recordar();
-            setOferta(null);
-          }}
-          className="rounded-xl px-4 py-2.5 text-sm font-medium text-ink-300 hover:bg-ink-800"
-        >
-          Ahora no
-        </button>
+    // AL MEDIO y grande, como todos los carteles de "¿usamos Unify?": en el
+    // borde de arriba se perdía. El contenedor no roba clics (la app sigue
+    // usable atrás); sólo la tarjeta los recibe.
+    <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center px-4">
+      <div
+        data-cartel-enlace
+        role="dialog"
+        aria-label="Aviso de Unify"
+        className="pointer-events-auto w-full max-w-lg rounded-3xl border border-brand-500/50 bg-ink-900/95 p-6 shadow-top backdrop-blur-md"
+      >
+        <p className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-widest text-brand-300">
+          <span className="h-2.5 w-2.5 rounded-full bg-brand-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]" aria-hidden />
+          Unify
+        </p>
+        <p className="mt-3 text-lg font-semibold leading-snug text-strong">
+          Uy, veo que copiaste un enlace de {oferta.nombre}. ¿Entramos con Unify?
+        </p>
+        <p className="mt-1.5 text-sm leading-relaxed text-ink-400">
+          Subtítulos en vivo con traducción, transcripción, grabación y resumen con IA.
+        </p>
+        <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+          <Button
+            className="flex-1 py-3 text-base"
+            onClick={() => {
+              recordar();
+              const url = oferta.url;
+              setOferta(null);
+              navigate(`/externa?url=${encodeURIComponent(url)}`);
+            }}
+          >
+            Entrar con subtítulos y grabación
+          </Button>
+          <button
+            type="button"
+            onClick={() => {
+              recordar();
+              setOferta(null);
+            }}
+            className="rounded-xl border border-ink-600 px-5 py-3 text-sm font-semibold text-ink-300 hover:bg-ink-800"
+          >
+            Ahora no
+          </button>
+        </div>
+        <p className="mt-3 text-xs text-ink-500">
+          Este aviso se corre solo en {restante} segundo{restante === 1 ? "" : "s"} (no entra a ningún lado sin que toques).
+        </p>
       </div>
     </div>
   );

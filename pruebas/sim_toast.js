@@ -1,5 +1,5 @@
 // La extensión v4 REAL en Chromium real (bajo xvfb): detección de reuniones
-// externas, el toast "Uy, veo que te estás uniendo…", el auto-SÍ a los 5
+// externas, el toast "Uy, veo que te estás uniendo…", el auto-SÍ a los 15
 // segundos, la grabación del carril B (getDisplayMedia con la pestaña
 // preseleccionada), el overlay en vivo y los subtítulos traducidos.
 //
@@ -162,6 +162,23 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     /Uy, veo que te estás uniendo a una reunión de Zoom/.test(texto) && /¿Querés grabarla\?/.test(texto) && /subtítulos/.test(texto),
     texto.slice(0, 80));
   check("avisa la cuenta regresiva del auto-SÍ", /arranco solo/.test(texto));
+  {
+    // EN EL MEDIO y grande: en la esquina se perdía entre los controles de la
+    // reunión (pasó de verdad en Zoom), y con 368px no se llegaba a leer.
+    // La caja vive en Shadow DOM: el locator de Playwright la atraviesa
+    // (querySelector pelado no), y el viewport se pide aparte.
+    const r = await page.locator(".caja").boundingBox();
+    const vp = page.viewportSize();
+    const caja = {
+      w: r.width,
+      desvioX: Math.abs(r.x + r.width / 2 - vp.width / 2),
+      desvioY: Math.abs(r.y + r.height / 2 - vp.height / 2),
+    };
+    check("el cartel de pregunta está en el MEDIO de la pantalla (no en la esquina)",
+      caja.desvioX < 40 && caja.desvioY < 40,
+      `desvío=(${Math.round(caja.desvioX)},${Math.round(caja.desvioY)})px`);
+    check("y es grande de verdad", caja.w >= 480, `${Math.round(caja.w)}px`);
+  }
   check("ofrece el atajo del carril A en el pie", /Ctrl\+Shift\+U/.test(texto));
   // En la página /j/ (la que abre la app de escritorio) ofrece el camino que
   // SÍ funciona: unirse desde el navegador (el cliente web /wc/join).
@@ -192,6 +209,15 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
   const overlay = await page.locator(".rec").textContent().catch(() => "");
   check("al aceptar, el overlay dice que está grabando y transcribiendo",
     /Grabando y transcribiendo/i.test(overlay), overlay.slice(0, 60));
+  // El OVERLAY (ya adentro de la reunión) sigue en la ESQUINA: acompaña la
+  // llamada, no la tapa. Sólo el cartel de PREGUNTA va al medio.
+  {
+    const r = await page.locator(".caja").boundingBox();
+    const vp = page.viewportSize();
+    const pos = { derecha: vp.width - (r.x + r.width), abajo: vp.height - (r.y + r.height) };
+    check("el overlay de la reunión sigue en la esquina (no tapa la llamada)",
+      pos.derecha < 60 && pos.abajo < 60, `a ${Math.round(pos.derecha)}px del borde`);
+  }
 
   // Grabar unos segundos de canvas animado y detener desde el overlay.
   await page.waitForTimeout(7000);
@@ -250,8 +276,8 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
       /no pudimos subirla|no pudimos subir/i.test(aviso), aviso.slice(0, 80));
   }
 
-  // ═══════ 5. Sin responder: a los 5 segundos arranca solo ═══════
-  console.log("\n── 5. Sin responder: a los 5 segundos arranca solo ──");
+  // ═══════ 5. Sin responder: a los 15 segundos arranca solo ═══════
+  console.log("\n── 5. Sin responder: a los 15 segundos arranca solo ──");
   {
     // Idioma de traducción: inglés, como lo dejaría el panel de Meet.
     await setStorage({ lang: "en" });
@@ -271,8 +297,13 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     await page.waitForTimeout(2500);
     check("aparece el toast con la cuenta regresiva", (await page.locator(".caja").count()) === 1);
 
-    // NO se toca nada: a los ~5 s tienen que arrancar los subtítulos solos.
-    await page.waitForTimeout(6000);
+    // A mitad de la cuenta (15 s) TODAVÍA espera: con 5 no se llegaba ni a
+    // leer las opciones, y menos a elegir "unirme desde el navegador".
+    await page.waitForTimeout(7000);
+    check("a los 7 segundos el cartel sigue esperando tu respuesta",
+      (await page.locator(".caja").count()) === 1);
+    // NO se toca nada: al vencer los 15 arrancan los subtítulos solos.
+    await page.waitForTimeout(9500);
     const estado = await page.locator(".rec").textContent().catch(() => "");
     check("a los 5 segundos, sin respuesta, los subtítulos arrancan SOLOS",
       /Subtítulos de Unify activos/i.test(estado), estado.slice(0, 60));
