@@ -265,6 +265,89 @@ const compact = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, "").
     await new Promise<void>((r) => calendario.close(() => r()));
   }
 
+  console.log("\n── 4. La reunión de SIEMPRE (sin calendario, la del celular) ──");
+  {
+    // Sacar la dirección iCal secreta de Google exige una computadora (en la
+    // app del iPad no existe), así que este es el camino que sí funciona
+    // desde el teléfono: el link, los días y la hora.
+    const crear = (cuerpo: any, tok = token) =>
+      fetch(`${API}/api/bot/repeticiones`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` },
+        body: JSON.stringify(cuerpo),
+      });
+
+    const malo = await crear({ url: "https://example.com/no-es-reunion", dias: [1], hora: "10:00" });
+    check("un link que no es de reunión se rechaza al guardarlo (no falla a las 10)",
+      malo.status === 400, `HTTP ${malo.status}`);
+
+    const sinDias = await crear({ url: "https://meet.jit.si/RepeDePrueba", dias: [], hora: "10:00" });
+    check("sin días elegidos, tampoco guarda", sinDias.status === 400, `HTTP ${sinDias.status}`);
+
+    const horaMala = await crear({ url: "https://meet.jit.si/RepeDePrueba", dias: [1], hora: "25:99" });
+    check("una hora imposible se rechaza", horaMala.status === 400, `HTTP ${horaMala.status}`);
+
+    // La de verdad: HOY, dentro de un minuto, en la zona de la persona.
+    const ZONA = "America/Argentina/Buenos_Aires";
+    const enUnMinuto = new Date(Date.now() + 60_000);
+    const partes = Object.fromEntries(
+      new Intl.DateTimeFormat("en-CA", {
+        timeZone: ZONA, hour12: false, weekday: "short",
+        year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+      }).formatToParts(enUnMinuto).map((x) => [x.type, x.value]),
+    );
+    const diaHoy = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(String(partes.weekday));
+    const horaLocal = `${partes.hour}:${partes.minute}`;
+
+    const ok = await crear({
+      titulo: "Mi clase de siempre", url: "https://meet.jit.si/LaDeTodosLosDias",
+      dias: [diaHoy], hora: horaLocal, zona: ZONA,
+    });
+    const creada = await ok.json();
+    check("se guarda la reunión de siempre (link + días + hora)", ok.ok && Boolean(creada.repeticion?.id),
+      `HTTP ${ok.status}`);
+    check("y prende el piloto automático sola (guardar algo que no va a pasar sería mentir)",
+      creada.pilotoEncendido === true);
+
+    const listadas = await fetch(`${API}/api/bot/repeticiones`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then((r) => r.json());
+    check("aparece en la lista de la persona", listadas.repeticiones?.length === 1 &&
+      listadas.repeticiones[0].titulo === "Mi clase de siempre");
+
+    // El poller, a la hora exacta: el calendario inyectado ya no devuelve nada
+    // nuevo, así que lo que despache sale de la repetición.
+    _setBajarICS(async () => "BEGIN:VCALENDAR\r\nEND:VCALENDAR");
+    const enHora: any[] = [];
+    const n = await repasarAgenda(async (a) => { enHora.push(a); }, Date.now() + 60_000);
+    check("a la hora, el bot sale SOLO a la reunión de siempre", n === 1 &&
+      enHora[0]?.roomKey === "jitsi:meet.jit.si/ladetodoslosdias", `despachados=${n} sala=${enHora[0]?.roomKey}`);
+    check("y con la misma paciencia de media hora del calendario",
+      enHora[0]?.esperaMs === 30 * 60_000, String(enHora[0]?.esperaMs));
+
+    const otra = await repasarAgenda(async (a) => { enHora.push(a); }, Date.now() + 60_000);
+    check("una segunda pasada NO manda un segundo bot a la misma", otra === 0, `despachados=${otra}`);
+
+    // Y a una hora que no es la suya, no sale.
+    const enTresHoras = await repasarAgenda(async () => {}, Date.now() + 3 * 3600_000);
+    check("fuera de su horario no despacha nada", enTresHoras === 0, `despachados=${enTresHoras}`);
+
+    // Sólo la dueña la ve y la borra.
+    const otroReg = await fetch(`${API}/api/auth/register`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: `ajena${Date.now()}@test.com`, password: "melon42Trueno", name: "Ajena" }),
+    }).then((r) => r.json());
+    const ajena = await fetch(`${API}/api/bot/repeticiones/${creada.repeticion.id}`, {
+      method: "DELETE", headers: { Authorization: `Bearer ${otroReg.token}` },
+    });
+    check("otra persona NO puede borrar tu reunión de siempre", ajena.status === 404, `HTTP ${ajena.status}`);
+
+    const borrada = await fetch(`${API}/api/bot/repeticiones/${creada.repeticion.id}`, {
+      method: "DELETE", headers: { Authorization: `Bearer ${token}` },
+    });
+    check("la dueña sí la borra", borrada.ok, `HTTP ${borrada.status}`);
+  }
+
   // Limpieza.
   for (const b of bots) { try { process.kill(-b.pid, "SIGTERM"); } catch { try { b.kill("SIGTERM"); } catch {} } }
   socket.close();

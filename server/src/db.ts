@@ -211,6 +211,28 @@ function migrate(): Promise<void> {
           );`
         )
       )
+      // Reuniones que se repiten SIN calendario: el link de siempre, los días
+      // y la hora. Es el camino para quien no puede sacar la dirección iCal
+      // secreta de Google (no existe en la app del celular ni del iPad) y para
+      // la reunión de todos los días que ni siquiera está en un calendario.
+      .then(() =>
+        pool.query(
+          `CREATE TABLE IF NOT EXISTS bot_repeticiones (
+            id UUID PRIMARY KEY,
+            user_id UUID NOT NULL,
+            url TEXT NOT NULL,
+            titulo TEXT NOT NULL,
+            dias TEXT NOT NULL,
+            hora TEXT NOT NULL,
+            zona TEXT NOT NULL,
+            activa BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+          );`
+        )
+      )
+      .then(() =>
+        pool.query(`CREATE INDEX IF NOT EXISTS bot_repeticiones_user ON bot_repeticiones (user_id);`)
+      )
       // Folders: organize a person's saved meetings ("Ingeniería", "Clientes"…).
       .then(() =>
         pool.query(
@@ -904,6 +926,80 @@ export function setBotAgenda(userId: string, auto: boolean, icsUrl: string | nul
       icsUrl,
     ]);
   }, undefined);
+}
+
+// --- Reuniones que se repiten (sin calendario) -------------------------------
+// "Mi reunión de todos los días a las 10": el link, los días y la hora. No
+// necesita Google Calendar -- que en el celular y el iPad ni siquiera deja
+// copiar la dirección iCal secreta.
+
+export interface RepeticionBot {
+  id: string;
+  titulo: string;
+  url: string;
+  /** Días de la semana, 0 = domingo … 6 = sábado. */
+  dias: number[];
+  /** "HH:MM" en la zona de quien la creó. */
+  hora: string;
+  /** Zona IANA, ej "America/Argentina/Buenos_Aires". */
+  zona: string;
+}
+
+const filaARepeticion = (r: Record<string, unknown>): RepeticionBot => ({
+  id: r.id as string,
+  titulo: r.titulo as string,
+  url: r.url as string,
+  dias: String(r.dias)
+    .split(",")
+    .map((d) => Number(d))
+    .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6),
+  hora: r.hora as string,
+  zona: r.zona as string,
+});
+
+export function listarRepeticiones(userId: string): Promise<RepeticionBot[]> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `SELECT id, titulo, url, dias, hora, zona FROM bot_repeticiones
+        WHERE user_id = $1 AND activa = TRUE ORDER BY created_at ASC LIMIT 50`,
+      [userId]
+    );
+    return rows.map(filaARepeticion);
+  }, []);
+}
+
+export function crearRepeticion(
+  userId: string,
+  datos: { titulo: string; url: string; dias: number[]; hora: string; zona: string }
+): Promise<RepeticionBot | null> {
+  return safe(async () => {
+    const id = randomUUID();
+    await pool!.query(
+      `INSERT INTO bot_repeticiones (id, user_id, url, titulo, dias, hora, zona)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [id, userId, datos.url, datos.titulo, datos.dias.join(","), datos.hora, datos.zona]
+    );
+    return { id, ...datos };
+  }, null);
+}
+
+export function borrarRepeticion(userId: string, id: string): Promise<boolean> {
+  return safe(async () => {
+    const r = await pool!.query(`DELETE FROM bot_repeticiones WHERE id = $1 AND user_id = $2`, [id, userId]);
+    return (r.rowCount ?? 0) > 0;
+  }, false);
+}
+
+/** Las repeticiones de quienes tienen el piloto encendido (para el poller). */
+export function listarRepeticionesDelPiloto(): Promise<(RepeticionBot & { userId: string })[]> {
+  return safe(async () => {
+    const { rows } = await pool!.query(
+      `SELECT r.id, r.user_id, r.titulo, r.url, r.dias, r.hora, r.zona
+         FROM bot_repeticiones r JOIN users u ON u.id = r.user_id
+        WHERE r.activa = TRUE AND u.bot_auto = TRUE LIMIT 500`
+    );
+    return rows.map((r) => ({ ...filaARepeticion(r), userId: r.user_id as string }));
+  }, []);
 }
 
 /** Todas las personas con el piloto automático encendido, con sus fuentes. */

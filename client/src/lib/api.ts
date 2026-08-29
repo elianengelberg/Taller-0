@@ -673,6 +673,61 @@ export async function fetchBotAgenda(): Promise<BotAgenda> {
   }
 }
 
+/** Una reunión que se repite sola, sin calendario de por medio. */
+export interface RepeticionBot {
+  id: string;
+  titulo: string;
+  url: string;
+  /** 0 = domingo … 6 = sábado. */
+  dias: number[];
+  hora: string;
+  zona: string;
+}
+
+export async function fetchRepeticiones(): Promise<RepeticionBot[]> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/bot/repeticiones`, { headers: authHeaders() });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.repeticiones) ? data.repeticiones : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function crearRepeticion(datos: {
+  titulo: string;
+  url: string;
+  dias: number[];
+  hora: string;
+}): Promise<{ ok: boolean; error?: string; repeticion?: RepeticionBot }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/bot/repeticiones`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      // La zona del APARATO: "las 10" tienen que ser las 10 de quien la crea.
+      body: JSON.stringify({ ...datos, zona: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: data.error ?? "No se pudo guardar." };
+    return { ok: true, repeticion: data.repeticion };
+  } catch {
+    return { ok: false, error: "No pudimos conectar con el servidor." };
+  }
+}
+
+export async function borrarRepeticion(id: string): Promise<boolean> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/bot/repeticiones/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Qué encontró el servidor al leer el calendario: la prueba de que quedó bien. */
 export interface PruebaCalendario {
   ok: boolean;

@@ -14,6 +14,7 @@
 
 import {
   listBotAgendaUsers,
+  listarRepeticionesDelPiloto,
   tryMarkBotDispatch,
   getMsRefreshToken,
   setMsRefreshToken,
@@ -352,13 +353,74 @@ function deOutlook(ev: CalendarEvent, ahora: number): EventoAgenda[] {
   return [{ key: `ms|${ev.id}`, subject: ev.subject, startMs: t, joinUrl: ev.joinUrl }];
 }
 
+// El instante EXACTO de una repetición para un día concreto, en la zona de
+// quien la creó. Se arma la fecha local (año-mes-día de esa zona) con la hora
+// pedida y se la traduce a epoch con el mismo mecanismo que usa el parser de
+// calendarios -- así "las 10 de la mañana" son las 10 en Buenos Aires, corra
+// el servidor donde corra.
+function instanteDeRepeticion(
+  rep: { dias: number[]; hora: string; zona: string },
+  ahora: number,
+  correrDias = 0
+): number | null {
+  const m = rep.hora.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const dia = new Date(ahora + correrDias * 86400_000);
+  // Año/mes/día TAL COMO SE VEN en la zona de la persona (no en la del server).
+  const partes = (() => {
+    try {
+      const dtf = new Intl.DateTimeFormat("en-CA", {
+        timeZone: rep.zona,
+        year: "numeric", month: "2-digit", day: "2-digit", weekday: "short",
+      });
+      const p = Object.fromEntries(dtf.formatToParts(dia).map((x) => [x.type, x.value]));
+      const semana = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(String(p.weekday));
+      return { fecha: `${p.year}${p.month}${p.day}`, semana };
+    } catch {
+      return null; // zona inválida: la repetición no dispara (mejor que disparar mal)
+    }
+  })();
+  if (!partes || partes.semana < 0) return null;
+  if (!rep.dias.includes(partes.semana)) return null;
+  return fechaAEpoch(`${partes.fecha}T${m[1].padStart(2, "0")}${m[2]}00`, rep.zona);
+}
+
+/** Las repeticiones convertidas en eventos, igual que los del calendario. */
+async function eventosDeRepeticiones(ahora: number): Promise<Map<string, EventoAgenda[]>> {
+  const porUsuario = new Map<string, EventoAgenda[]>();
+  for (const rep of await listarRepeticionesDelPiloto()) {
+    // Hoy y ayer en la zona de la persona: cerca de la medianoche del
+    // servidor, "hoy" allá puede ser otro día, y la reunión no se pierde.
+    for (const correr of [0, -1]) {
+      const startMs = instanteDeRepeticion(rep, ahora, correr);
+      if (startMs == null) continue;
+      // Sólo la que está por empezar (o recién empezó): la ventana la decide
+      // repasarAgenda, igual que con el calendario.
+      if (startMs > ahora + 15 * 60_000 || startMs < ahora - 5 * 60_000) continue;
+      const lista = porUsuario.get(rep.userId) ?? [];
+      lista.push({
+        key: `rep:${rep.id}|${new Date(startMs).toISOString().slice(0, 16)}`,
+        subject: rep.titulo,
+        startMs,
+        joinUrl: rep.url,
+      });
+      porUsuario.set(rep.userId, lista);
+    }
+  }
+  return porUsuario;
+}
+
 /** Una pasada del poller. Exportada para poder ejercerla desde las pruebas. */
 export async function repasarAgenda(despachar: Despachador, ahora = Date.now()): Promise<number> {
   const usuarios = await listBotAgendaUsers();
+  const repeticiones = await eventosDeRepeticiones(ahora);
   let despachados = 0;
   for (const u of usuarios) {
     let eventos: EventoAgenda[];
-    try { eventos = await eventosDeUsuario(u, ahora); } catch { continue; }
+    try { eventos = await eventosDeUsuario(u, ahora); } catch { eventos = []; }
+    // Las reuniones de siempre viajan por el MISMO camino que las del
+    // calendario: misma ventana, mismo dedup, misma paciencia de media hora.
+    eventos = eventos.concat(repeticiones.get(u.id) ?? []);
     for (const ev of eventos) {
       const sala = derivarSala(ev.joinUrl);
       if (!sala) continue;

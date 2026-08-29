@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import BotRepeticiones from "./BotRepeticiones";
 import { BotAgenda, fetchBotAgenda, probarBotAgenda, PruebaCalendario, saveBotAgenda } from "../lib/api";
 
 // La tarjeta del "piloto automático": el bot entra SOLO a las reuniones del
@@ -86,7 +87,14 @@ export default function BotAgendaPanel() {
         </p>
       )}
 
-      <div className="mt-3">
+      <BotRepeticiones botEnabled={cfg.botEnabled} />
+
+      <div className="mt-4 border-t border-ink-700 pt-4">
+        <h4 className="text-xs font-semibold text-ink-200">…o conectá tu calendario entero</h4>
+        <p className="mt-1 mb-2 text-xs leading-relaxed text-ink-400">
+          El bot entra a TODAS las reuniones agendadas que tengan un link adentro. Se saca de la
+          web de Google Calendar en una computadora (en la app del celular no aparece).
+        </p>
         <label className="text-xs font-medium text-ink-300">
           El link de tu calendario de Google
         </label>

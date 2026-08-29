@@ -66,10 +66,13 @@ import {
   updateUserPasswordHash,
   getBotAgenda,
   setBotAgenda,
+  listarRepeticiones,
+  crearRepeticion,
+  borrarRepeticion,
   getTrackedWords,
   setTrackedWords,
 } from "./db";
-import { arrancarAgenda, probarCalendario } from "./botAgenda";
+import { arrancarAgenda, derivarSala, probarCalendario } from "./botAgenda";
 import {
   sendGoogleOnlyResetEmail,
   sendPasswordResetEmail,
@@ -1905,6 +1908,64 @@ app.post("/api/bot/agenda/probar", requireAuth, async (req, res) => {
     return;
   }
   res.json({ ok: true, proximas: r.proximas, totalEventos: r.totalEventos });
+});
+
+// --- Reuniones que se repiten (sin calendario) -------------------------------
+// "Mi reunión de todos los días a las 10": el link, los días y la hora. Es el
+// camino para quien no puede sacar la dirección iCal secreta de Google (en la
+// app del celular y del iPad no existe) y para la reunión de siempre que ni
+// siquiera está anotada en un calendario.
+
+app.get("/api/bot/repeticiones", requireAuth, async (req, res) => {
+  res.json({ repeticiones: await listarRepeticiones((req as AuthedRequest).userId!) });
+});
+
+app.post("/api/bot/repeticiones", requireAuth, async (req, res) => {
+  const url = String(req.body?.url ?? "").trim().slice(0, 1000);
+  // La misma derivación que usa el poller: si de acá no sale una sala, el bot
+  // no tendría adónde ir -- mejor decirlo ahora que fallar en silencio a las 10.
+  const sala = derivarSala(url);
+  if (!sala) {
+    res.status(400).json({ error: "Ese enlace no parece de una reunión (Meet, Zoom o Jitsi). Pegá el link completo." });
+    return;
+  }
+  const dias = Array.isArray(req.body?.dias)
+    ? [...new Set(req.body.dias.map((d: unknown) => Number(d)).filter((d: number) => Number.isInteger(d) && d >= 0 && d <= 6))]
+    : [];
+  if (dias.length === 0) {
+    res.status(400).json({ error: "Elegí al menos un día de la semana." });
+    return;
+  }
+  const hora = String(req.body?.hora ?? "").trim();
+  if (!/^\d{1,2}:\d{2}$/.test(hora) || Number(hora.split(":")[0]) > 23 || Number(hora.split(":")[1]) > 59) {
+    res.status(400).json({ error: "Poné la hora como HH:MM (por ejemplo 10:00)." });
+    return;
+  }
+  // La zona horaria de quien la crea: "las 10" tienen que ser las 10 de ELLA,
+  // no las del servidor. Si el navegador no la manda, se asume Buenos Aires.
+  let zona = String(req.body?.zona ?? "").trim().slice(0, 60) || "America/Argentina/Buenos_Aires";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: zona });
+  } catch {
+    zona = "America/Argentina/Buenos_Aires";
+  }
+  const titulo = String(req.body?.titulo ?? "").trim().slice(0, 120) || "Mi reunión de siempre";
+  const userId = (req as AuthedRequest).userId!;
+  const creada = await crearRepeticion(userId, { titulo, url, dias: dias as number[], hora, zona });
+  if (!creada) {
+    res.status(500).json({ error: "No se pudo guardar la reunión." });
+    return;
+  }
+  // Quien agrega una reunión de siempre está pidiendo el piloto automático:
+  // dejarlo apagado sería guardar algo que no va a pasar nunca.
+  const cfg = await getBotAgenda(userId);
+  if (!cfg.auto) await setBotAgenda(userId, true, cfg.icsUrl);
+  res.json({ ok: true, repeticion: creada, pilotoEncendido: true });
+});
+
+app.delete("/api/bot/repeticiones/:id", requireAuth, async (req, res) => {
+  const ok = await borrarRepeticion((req as AuthedRequest).userId!, String(req.params.id));
+  res.status(ok ? 200 : 404).json(ok ? { ok: true } : { error: "No encontramos esa reunión." });
 });
 
 // Sacar el bot de una reunión a mano.
