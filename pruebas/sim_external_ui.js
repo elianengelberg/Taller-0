@@ -63,6 +63,16 @@ async function detectAndJoin(page, link, { passcode } = {}) {
 
     // Teams detection
     await detectAndJoin(p, "https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0");
+
+    // auto=1 (el botón «Abrir Unify al lado» de la extensión): DERECHO al
+    // companion, sin formulario -- la persona ya está en la reunión y sólo
+    // quiere Unify al lado, como en Meet.
+    await p.goto(`${BASE}/externa?url=${encodeURIComponent("https://us05web.zoom.us/j/95556667770")}&auto=1`, { waitUntil: "domcontentloaded" });
+    await p.waitForURL(/\/externa\/reunion/, { timeout: 15_000 }).catch(() => {});
+    check("con auto=1 se entra DERECHO al companion (cero formularios)",
+      p.url().includes("/externa/reunion"), p.url());
+    // Volver a la detección de Teams para los checks que siguen.
+    await detectAndJoin(p, "https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0");
     check("Teams detectado", (await p.getByText(/Microsoft Teams/i).count()) > 0);
 
     // Jitsi detection

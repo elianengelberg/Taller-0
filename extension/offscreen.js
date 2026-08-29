@@ -146,6 +146,12 @@ async function start({ streamId, dbId, serverBase, token, roomKey }) {
   if (target.roomKey) empezarVozDePestana(tabStream.getAudioTracks()[0] ?? null);
 }
 
+// El oído de la pestaña también se corrige solo: si el servidor detecta dos
+// frases seguidas en OTRO idioma, se re-arranca el reconocimiento con ese
+// (escuchar castellano con oído inglés atrapa dos palabras con suerte).
+let idiomaPestana = null;
+let rachaPestana = { codigo: null, veces: 0 };
+
 function empezarVozDePestana(track) {
   const Ctor = self.SpeechRecognition || self.webkitSpeechRecognition;
   // start(pista) llegó con available() (Chrome 139): sin eso, un Chrome viejo
@@ -154,7 +160,7 @@ function empezarVozDePestana(track) {
   let activa = true;
   let fallas = 0;
   const r = new Ctor();
-  r.lang = navigator.language || "es-AR";
+  r.lang = idiomaPestana || navigator.language || "es-AR";
   r.continuous = true;
   r.interimResults = false;
   r.maxAlternatives = 3;
@@ -168,7 +174,24 @@ function empezarVozDePestana(track) {
         const t = res[j]?.transcript?.trim();
         if (t) alts.push(t);
       }
-      if (alts.length) void publicarLineaDePestana(alts[0], alts.slice(1));
+      if (alts.length) {
+        void publicarLineaDePestana(alts[0], alts.slice(1)).then((detectado) => {
+          const actual = (r.lang || "").split("-")[0];
+          if (!detectado || detectado === actual) {
+            rachaPestana = { codigo: null, veces: 0 };
+            return;
+          }
+          rachaPestana = rachaPestana.codigo === detectado
+            ? { codigo: detectado, veces: rachaPestana.veces + 1 }
+            : { codigo: detectado, veces: 1 };
+          if (rachaPestana.veces >= 2 && track.readyState === "live") {
+            idiomaPestana = detectado;
+            rachaPestana = { codigo: null, veces: 0 };
+            vozDePestana?.stop();
+            empezarVozDePestana(track);
+          }
+        });
+      }
     }
   };
   r.onerror = (ev) => {
@@ -186,12 +209,21 @@ function empezarVozDePestana(track) {
 
 async function publicarLineaDePestana(texto, alts) {
   try {
-    await fetch(`${target.serverBase}/api/meet-bridge/${encodeURIComponent(target.roomKey)}/transcript`, {
+    const res = await fetch(`${target.serverBase}/api/meet-bridge/${encodeURIComponent(target.roomKey)}/transcript`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ speaker: "Voces de la reunión", text: texto, lang: navigator.language || "es-AR", alts }),
+      body: JSON.stringify({
+        speaker: "Voces de la reunión",
+        text: texto,
+        lang: idiomaPestana || navigator.language || "es-AR",
+        alts,
+      }),
     });
+    const datos = await res.json().catch(() => null);
+    // El idioma que el servidor DETECTÓ de verdad, si difiere del declarado.
+    return datos?.idiomaDistinto ?? null;
   } catch { /* sin red: la próxima línea reintenta sola */ }
+  return null;
 }
 
 function stop() {

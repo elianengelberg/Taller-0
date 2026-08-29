@@ -177,9 +177,10 @@ export default function ExternalJoin() {
   // `displayStream` es la captura de pantalla que pudimos pedir DURANTE el clic
   // (ver joinWithAutoRecord): se la pasamos a la pantalla de reunión para que
   // la grabación arranque sola. El navegador no deja pedirla más tarde.
-  function joinDetected(target: DetectedMeeting) {
-    if (name.trim()) localStorage.setItem("unify_external_name", name.trim());
-    const base = { name: name.trim() || "Invitado", language };
+  function joinDetected(target: DetectedMeeting, nombreForzado?: string) {
+    const quien = (nombreForzado ?? name).trim();
+    if (quien) localStorage.setItem("unify_external_name", quien);
+    const base = { name: quien || "Invitado", language };
     const embed = companionEmbedFor(target, passcode);
     if (!embed) return;
     startCompanionDraft({
@@ -277,12 +278,28 @@ export default function ExternalJoin() {
       searchParams.get("text") ??
       searchParams.get("title");
     if (!prefill) return;
+    // Con auto=1 la entrada depende de saber QUIÉN sos (el nombre de la
+    // cuenta): si la autenticación sigue resolviendo, se espera al re-corrido
+    // del efecto ANTES de marcar el deep link como consumido -- marcarlo acá
+    // lo quemaba: cuando authLoading soltaba, el efecto ya no volvía a entrar
+    // y auto=1 quedaba en el formulario, que es justo lo que evita.
+    if (searchParams.get("auto") === "1" && authLoading) return;
     deepLinkRan.current = true;
     setLink(prefill);
     if (searchParams.get("rec") === "1") sessionStorage.setItem("unify_autorec", "1");
     const result = detectMeetingPlatform(prefill, { selfHosts: [window.location.hostname] });
     setDetected(result);
     const savedName = (localStorage.getItem("unify_external_name") ?? "").trim();
+    // auto=1 es el pedido EXPLÍCITO de "Unify al lado, ya" (el botón del
+    // overlay de la extensión en Zoom, Teams y compañía): nada de formulario
+    // -- se entra derecho al companion, como en Meet. El nombre sale del que
+    // se usó la última vez, o de la cuenta, o queda "Invitado" (se cambia
+    // adentro cuando quieran). Si la plataforma no se puede acompañar,
+    // joinDetected no hace nada y el formulario queda como siempre.
+    if (searchParams.get("auto") === "1") {
+      joinDetected(result, savedName || user?.name || "Invitado");
+      return;
+    }
     if (savedName && result.platform === "google-meet" && result.meetingId && result.url) {
       // Entrada de un clic desde la extensión. La grabación NO se pide acá:
       // este `useEffect` no es un gesto del usuario, así que el navegador

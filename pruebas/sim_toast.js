@@ -340,6 +340,27 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
       (await page.locator(".caja").count()) === 0);
   }
 
+  // ═══════ 4b-bis. "Abrir Unify al lado" entra DERECHO (auto=1) ═══════
+  // El botón del overlay mandaba al formulario de la web ("iniciá la reunión
+  // desde la web"): la persona ya ESTÁ en la reunión, sólo quiere Unify al
+  // lado, como en Meet. Ahora el enlace lleva auto=1 y la web entra directo.
+  {
+    const zoomIdA = `9${(Date.now() + 21) % 1e9}1`;
+    await page.goto(`https://acme.zoom.us/j/${zoomIdA}`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(2500);
+    await page.getByRole("button", { name: "Sí, dale" }).click();
+    await page.waitForTimeout(1500);
+    const [nueva] = await Promise.all([
+      ctx.waitForEvent("page", { timeout: 10_000 }),
+      page.getByRole("button", { name: /Abrir Unify al lado/i }).click(),
+    ]);
+    check("«Abrir Unify al lado» pide la entrada DIRECTA (auto=1, sin formulario)",
+      /[?&]auto=1/.test(nueva.url()) && /\/externa\?/.test(nueva.url()), nueva.url().slice(0, 90));
+    await nueva.close().catch(() => {});
+    await page.getByRole("button", { name: /Detener|Cerrar|Ahora no/ }).first().click().catch(() => {});
+    await page.waitForTimeout(1500);
+  }
+
   // ═══════ 4c. LA REUNIÓN QUEDA EN TU HISTORIAL ═══════
   // El agujero que hacía que "la grabación no se sube al historial": la
   // reunión del bridge nacía SIN dueño, y la extensión nunca la reclamaba.

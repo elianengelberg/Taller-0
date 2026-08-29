@@ -461,13 +461,25 @@
   // próximo sondeo), el companion web si está abierto, el historial y la IA.
   async function publicarVozPropia(det, texto, lang, alts = [], speaker = "Vos") {
     try {
-      await fetch(`${cfg.serverBase}/api/meet-bridge/${encodeURIComponent(det.roomKey)}/transcript`, {
+      const res = await fetch(`${cfg.serverBase}/api/meet-bridge/${encodeURIComponent(det.roomKey)}/transcript`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ speaker, text: texto, lang, alts }),
       });
+      // La IA del servidor detecta el idioma REAL de cada frase: si difiere
+      // del que estamos usando para escuchar, lo devuelve. Es la llave del
+      // auto-arreglo de abajo: escuchar castellano con oído inglés atrapa
+      // dos palabras con suerte, y nadie encuentra el selector a tiempo.
+      const datos = await res.json().catch(() => null);
+      return datos?.idiomaDistinto ?? null;
     } catch { /* sin red: la próxima línea lo reintenta sola */ }
+    return null;
   }
+
+  // El mapa corto -> código completo del selector (para que el selector
+  // refleje el cambio y el reconocimiento reciba un código que conoce bien).
+  const CODIGO_VOZ = { es: "es-AR", en: "en-US", pt: "pt-BR", fr: "fr-FR", de: "de-DE", it: "it-IT", zh: "zh-CN", ja: "ja-JP" };
+  const NOMBRES_IDIOMA = { es: "español", en: "inglés", pt: "portugués", fr: "francés", de: "alemán", it: "italiano", zh: "chino", ja: "japonés" };
 
   // --- Toast inicial -----------------------------------------------------------
   // ¿Estamos en la página de LANZAMIENTO de Zoom (zoom.us/j/… o /w/…)? Es la
@@ -1004,7 +1016,8 @@
 
     abrir.addEventListener("click", () => {
       window.open(
-        `${cfg.appBase.replace(/\/+$/, "")}/externa?url=${encodeURIComponent(location.href)}`,
+        // auto=1: derecho al companion, sin formulario (como en Meet).
+        `${cfg.appBase.replace(/\/+$/, "")}/externa?url=${encodeURIComponent(location.href)}&auto=1`,
         "_blank"
       );
     });
@@ -1134,6 +1147,36 @@
       el.textContent = `Vos: ${textoInterino}`;
       subs.scrollTop = subs.scrollHeight;
     };
+    // EL IDIOMA SE CORRIGE SOLO. Dos frases seguidas que el servidor detecta
+    // en OTRO idioma que el del oído -> se cambia el oído, se refleja en el
+    // selector, se avisa en los subtítulos y se guarda para la próxima. Es la
+    // causa número uno de "me escucha dos palabras con suerte": el default es
+    // el idioma de Chrome, y un Chrome en inglés escucha castellano en inglés.
+    let rachaIdioma = { codigo: null, veces: 0 };
+    const aplicarIdiomaDetectado = (corto) => {
+      const completo = CODIGO_VOZ[corto] || corto;
+      cfg.langVoz = completo;
+      seguro(() => chrome.storage.local.set({ langVoz: completo }));
+      if ([...idiomaVozSel.options].some((o) => o.value === completo)) idiomaVozSel.value = completo;
+      rachaIdioma = { codigo: null, veces: 0 };
+      const nota = document.createElement("div");
+      nota.className = "ok";
+      nota.textContent = `Detecté que se habla en ${NOMBRES_IDIOMA[corto] || corto}: ya te escucho en ese idioma.`;
+      subs.appendChild(nota);
+      subs.scrollTop = subs.scrollHeight;
+      arrancarVozPropia(); // re-arranca el reconocimiento con el oído correcto
+    };
+    const anotarIdiomaDetectado = (corto, idiomaActual) => {
+      if (!corto || corto === (idiomaActual || "").split("-")[0]) {
+        rachaIdioma = { codigo: null, veces: 0 };
+        return;
+      }
+      rachaIdioma = rachaIdioma.codigo === corto
+        ? { codigo: corto, veces: rachaIdioma.veces + 1 }
+        : { codigo: corto, veces: 1 };
+      if (rachaIdioma.veces >= 2) aplicarIdiomaDetectado(corto);
+    };
+
     // Función (y no inline) para poder RE-arrancar con otro idioma cuando la
     // persona lo cambia en el selector "Se habla: …" del overlay.
     const arrancarVozPropia = () => {
@@ -1144,7 +1187,10 @@
       alTextoFinal: (texto, alts) => {
         textoInterino = "";
         pintarInterina();
-        void publicarVozPropia(det, texto, idiomaVoz, alts).then(() => sondear());
+        void publicarVozPropia(det, texto, idiomaVoz, alts).then((detectado) => {
+          anotarIdiomaDetectado(detectado, idiomaVoz);
+          sondear();
+        });
       },
       alTextoInterino: (texto) => {
         textoInterino = texto;
