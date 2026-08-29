@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import AccountMenu from "../components/AccountMenu";
 import { useState } from "react";
@@ -22,6 +22,38 @@ export default function Home() {
   // a la pantalla de detección con todo armado. Si no se puede leer o no hay
   // nada, nunca es un callejón: queda el campo de pegar a mano.
   const [pegando, setPegando] = useState<"" | "sin-enlace">("");
+
+  // ¿Esta pantalla YA corre adentro de la app instalada? (la PWA a pantalla
+  // completa, o la ventana de la app de escritorio -- Electron se delata en
+  // el user agent). El botón "Instalar Unify" ahí es una trampa: te manda a
+  // instalar lo que ya estás usando. Se deja el botón (sirve para instalar
+  // en OTRO aparato) pero con la verdad al lado.
+  const enLaApp = isStandalone() || /Electron/i.test(navigator.userAgent);
+  const [estadoApp, setEstadoApp] = useState<"ultima" | "vieja" | null>(null);
+  useEffect(() => {
+    if (!enLaApp) return;
+    let vivo = true;
+    void (async () => {
+      try {
+        const reg = await navigator.serviceWorker?.getRegistration();
+        if (!reg) {
+          if (vivo) setEstadoApp("ultima"); // sin service worker no hay "vieja" posible
+          return;
+        }
+        // Se le pregunta al servidor si hay algo más nuevo (con tope: esta
+        // consulta jamás puede colgar la portada) y se mira si quedó una
+        // versión esperando. No se aplica nada desde acá: sólo se dice.
+        await Promise.race([reg.update().catch(() => {}), new Promise((r) => setTimeout(r, 6000))]);
+        if (vivo) setEstadoApp(reg.waiting ? "vieja" : "ultima");
+      } catch {
+        if (vivo) setEstadoApp("ultima");
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   async function pegarEnlace(): Promise<void> {
     let texto = "";
     try {
@@ -228,9 +260,20 @@ export default function Home() {
                 El video con la transcripción que corre palabra por palabra, el resumen automático,
                 y una IA que responde sobre cualquier reunión. Sin tomar una sola nota.
               </p>
-              <Button className="mt-7" onClick={() => navigate("/instalar")}>
-                Instalar Unify
-              </Button>
+              <div className="mt-7 flex flex-wrap items-center gap-3">
+                <Button onClick={() => navigate("/instalar")}>Instalar Unify</Button>
+                {enLaApp && estadoApp === "ultima" && (
+                  <span className="text-xs font-semibold text-red-400">
+                    Ya lo instalaste — estás en la última versión.
+                  </span>
+                )}
+                {enLaApp && estadoApp === "vieja" && (
+                  <span className="text-xs font-semibold text-red-400">
+                    Ya lo instalaste, pero hay una versión más nueva: entrá y tocá «Buscar
+                    actualización».
+                  </span>
+                )}
+              </div>
             </div>
             <AppMockupDesktop />
           </div>
@@ -244,22 +287,25 @@ export default function Home() {
               Probalo en tu próxima reunión
             </h2>
             <p className="mx-auto mt-4 max-w-xl text-lg text-white/80">
-              Gratis, sin tarjeta. Instalás Unify y ya tenés subtítulos, traducción y resumen.
+              Gratis, sin tarjeta. Creá una reunión o sumate a una externa y ya tenés subtítulos,
+              traducción y resumen.
             </p>
+            {/* Acciones de USAR, no de instalar: quien llegó hasta acá quiere
+                probarlo -- y quien lee esto desde la app ya lo tiene puesto. */}
             <div className="mt-8 flex flex-wrap justify-center gap-3">
               <button
                 type="button"
-                onClick={() => navigate("/instalar")}
+                onClick={() => navigate("/crear")}
                 className="rounded-full bg-white px-8 py-3.5 text-base font-bold text-brand-700 shadow-md transition-transform hover:-translate-y-0.5"
               >
-                Instalar Unify
+                Crear una reunión
               </button>
               <button
                 type="button"
-                onClick={() => navigate("/crear")}
+                onClick={() => navigate("/externa")}
                 className="rounded-full bg-white/15 px-8 py-3.5 text-base font-bold text-white ring-1 ring-white/30 transition-colors hover:bg-white/25"
               >
-                Crear una reunión
+                Unirme a una reunión externa
               </button>
             </div>
           </div>

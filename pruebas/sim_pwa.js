@@ -246,6 +246,63 @@ self.addEventListener("fetch", (e) => {
     }
   }
 
+  // ── 6. La portada le dice la verdad a quien YA está en la app ──
+  // El botón "Instalar Unify" adentro de la app instalada era una trampa: te
+  // mandaba a instalar lo que ya estabas usando. Queda el botón (sirve para
+  // otro aparato) con el avisito al lado; y la banda de cierre invita a USAR
+  // (crear reunión / unirse a una externa), no a instalar.
+  {
+    // Contexto PROPIO: el de arriba viene de la danza de versiones del
+    // service worker y cualquier resto (una versión esperando, una recarga
+    // automática a mitad del chequeo) contamina lo que se quiere medir.
+    const ctxApp = await browser.newContext();
+    const pApp = await ctxApp.newPage();
+    pApp.on("pageerror", (e) => errs.push(e.message.slice(0, 140)));
+    // Se simula estar DENTRO de la app instalada: display-mode standalone,
+    // que es exactamente lo que isStandalone() mira.
+    await pApp.emulateMedia({ media: null });
+    await pApp.addInitScript(() => {
+      const original = window.matchMedia.bind(window);
+      window.matchMedia = (q) =>
+        q.includes("display-mode: standalone")
+          ? { matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false }
+          : original(q);
+    });
+    // domcontentloaded: con el service worker recién cambiado, networkidle
+    // puede no llegar nunca; el aviso igual se espera con su propio sondeo.
+    await pApp.goto(`${B}/`, { waitUntil: "domcontentloaded" });
+    await pApp.evaluate(() => navigator.serviceWorker.ready);
+    const cuerpo = () => pApp.locator("body").textContent().then((t) => t || "");
+    const conAviso = await (async () => {
+      for (let i = 0; i < 20; i++) {
+        if (/Ya lo instalaste/i.test(await cuerpo())) return true;
+        await pApp.waitForTimeout(500);
+      }
+      return false;
+    })();
+    check("dentro de la app, al lado de «Instalar Unify» dice que ya lo instalaste", conAviso,
+      (await cuerpo()).match(/Ya lo instalaste[^.]*\./)?.[0] ?? "(sin aviso)");
+    check("y siendo la última versión, lo dice con todas las letras",
+      /estás en la última versión/i.test(await cuerpo()));
+    check("la banda de cierre invita a USAR (crear o unirse), no a instalar",
+      (await pApp.getByRole("button", { name: /Unirme a una reunión externa/i }).count()) === 1 &&
+      (await pApp.getByRole("button", { name: /Crear una reunión/i }).count()) >= 1);
+    const botonesInstalar = await pApp.getByRole("button", { name: /^Instalar Unify$/ }).count();
+    check("queda UN solo «Instalar Unify» (el de la sección, con su aviso al lado)",
+      botonesInstalar === 1, `botones=${botonesInstalar}`);
+    await ctxApp.close();
+
+    // Y en un navegador COMÚN (sin app instalada), el avisito no aparece:
+    // sería mentirle a quien todavía no instaló nada.
+    const ctxComun = await browser.newContext();
+    const pComun = await ctxComun.newPage();
+    await pComun.goto(`${B}/`, { waitUntil: "domcontentloaded" });
+    await pComun.waitForTimeout(2500);
+    check("en un navegador común el avisito NO aparece (ahí no instaló nada)",
+      !/Ya lo instalaste/i.test((await pComun.locator("body").textContent()) || ""));
+    await ctxComun.close();
+  }
+
   check("sin errores de JavaScript", errs.length === 0, errs.slice(0, 2).join(" | "));
   await browser.close();
   const failed = results.filter((r) => !r).length;
