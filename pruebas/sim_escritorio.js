@@ -55,6 +55,48 @@ async function probarExtensionLocal(check) {
   fs.rmSync(base, { recursive: true, force: true });
 }
 
+// ── 0a. El detector de reuniones: Zoom Y Teams (puro Node, lógica real) ────
+// Teams no tiene un proceso que viva sólo durante la reunión: la señal es el
+// registro de Windows de "quién usa el micrófono" (LastUsedTimeStop = 0
+// mientras está tomado). Acá se prueba el intérprete de ese registro con
+// salidas reales de `reg query`, y la sonda de archivo que simula ambas apps.
+async function probarDetector(check) {
+  const { teamsUsaElMicrofono, sondaArchivo } = require(path.join(DESK, "detector.js"));
+  const os = require("os");
+  const base = "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone";
+
+  const enLlamada = `\r\n${base}\\MSTeams_8wekyb3d8bbwe!MSTeams\r\n    LastUsedTimeStop    REG_QWORD    0x0\r\n\r\n`;
+  check("Teams con el micrófono tomado (reunión en curso) se detecta",
+    teamsUsaElMicrofono(enLlamada) === true);
+
+  const colgado = `\r\n${base}\\MSTeams_8wekyb3d8bbwe!MSTeams\r\n    LastUsedTimeStop    REG_QWORD    0x1dbdd47e0e37e26\r\n\r\n`;
+  check("Teams con el micrófono ya soltado (reunión terminada) NO se detecta",
+    teamsUsaElMicrofono(colgado) === false);
+
+  const clasico = `\r\n${base}\\NonPackaged\\C:#Users#x#AppData#Local#Microsoft#Teams#current#Teams.exe\r\n    LastUsedTimeStop    REG_QWORD    0x0\r\n\r\n`;
+  check("el Teams clásico (Teams.exe suelto) también se detecta",
+    teamsUsaElMicrofono(clasico) === true);
+
+  // La trampa: TeamSpeak contiene "teams" en el nombre. Un micrófono tomado
+  // por TeamSpeak NO es una reunión de Teams (dispararía el cartel jugando).
+  const teamspeak = `\r\n${base}\\NonPackaged\\C:#Program Files#TeamSpeak#TeamSpeak.exe\r\n    LastUsedTimeStop    REG_QWORD    0x0\r\n\r\n`;
+  check("TeamSpeak con el micrófono NO dispara el cartel (no es Teams)",
+    teamsUsaElMicrofono(teamspeak) === false);
+
+  // La sonda simulada distingue la app por el contenido del archivo.
+  const ruta = path.join(os.tmpdir(), `unify-sonda-prueba-${Date.now()}`);
+  const sonda = sondaArchivo(ruta);
+  const sinArchivo = await sonda();
+  fs.writeFileSync(ruta, "teams");
+  const conTeams = await sonda();
+  fs.writeFileSync(ruta, "1");
+  const conZoom = await sonda();
+  fs.rmSync(ruta, { force: true });
+  check("la sonda simulada dice QUÉ app está en reunión (teams/zoom/nada)",
+    sinArchivo === null && conTeams === "teams" && conZoom === "zoom",
+    `${String(sinArchivo)}/${conTeams}/${conZoom}`);
+}
+
 // ── 0b. El cartel de Zoom: 15 segundos y automático (Playwright, HTML real) ─
 // El cartel de la app da tiempo a LEER (con 8 segundos no llegabas a elegir
 // entre grabar, subtítulos y demás) y, si nadie toca nada, cuenta como SÍ.
@@ -80,6 +122,13 @@ async function probarCartel(check) {
   await p2.waitForTimeout(3200);
   check("si nadie toca nada, al vencer cuenta como SÍ (graba solo)",
     await p2.evaluate(() => window.__respuesta === "si"));
+  // Y nombra a la app detectada: en una reunión de Teams, el cartel dice
+  // Teams (hablar de Zoom ahí sonaría a error de la app).
+  const p3 = await b.newPage();
+  await p3.goto("file://" + path.join(DESK, "cartel.html") + "?seg=15&app=Microsoft%20Teams");
+  const titulo = await p3.locator("#titulo").textContent();
+  check("el cartel nombra a la app detectada (reunión de Microsoft Teams)",
+    /reunión de Microsoft Teams/.test(titulo || ""), String(titulo));
   await b.close();
 }
 
@@ -88,7 +137,11 @@ async function probarCartel(check) {
 // verdad -- reunión simulada, cartel con su auto-sí, grabador oculto
 // capturando la pantalla, corte al terminar la reunión, y el webm subido al
 // servidor (acá, un stub que guarda los bytes para mirarlos de verdad).
-async function probarGrabadorSilencioso(check) {
+// Corre para AMBAS apps: la simulación dice cuál ("1" = Zoom, "teams" =
+// Teams) y la sala subida tiene que llevar ese prefijo -- así el título del
+// historial dice la app correcta.
+async function probarGrabadorSilencioso(check, opciones = {}) {
+  const { contenido = "1", clavePrefijo = /^escritorio:zoom-/, etiqueta = "Zoom" } = opciones;
   const os = require("os");
   const http = require("http");
   const SIMULACION = path.join(os.tmpdir(), "unify-reunion-simulada");
@@ -136,7 +189,7 @@ async function probarGrabadorSilencioso(check) {
 
   try {
     await espera(2500);                    // la app arranca y el detector late
-    fs.writeFileSync(SIMULACION, "1");     // «entró a la reunión de Zoom»
+    fs.writeFileSync(SIMULACION, contenido); // «entró a la reunión»
     // Detector (3 s) + cartel con su cuenta de 15: el auto-sí arranca TODO.
     await espera(23_000);
     await espera(8_000);                   // se graba un rato la pantalla
@@ -145,25 +198,40 @@ async function probarGrabadorSilencioso(check) {
     const hasta = Date.now() + 25_000;
     while (!capturado.upload && Date.now() < hasta) await espera(500);
 
-    check("al terminar la reunión, el video se sube SOLO (sin tocar nada)",
+    check(`al terminar la reunión de ${etiqueta}, el video se sube SOLO (sin tocar nada)`,
       Boolean(capturado.upload), capturado.upload ? `${capturado.upload.length} bytes` : "no llegó");
     if (capturado.upload) {
-      check("a la MISMA sala que la barra companion (escritorio:...)",
-        /^escritorio:zoom-/.test(capturado.sesionKey ?? ""), String(capturado.sesionKey));
-      check("y es un webm de verdad (magia EBML)",
-        capturado.upload.subarray(0, 4).toString("hex") === "1a45dfa3");
-      check("codificado en VP8 (el que no se traba en vivo)",
-        capturado.upload.includes("V_VP8"), capturado.upload.includes("V_VP9") ? "V_VP9" : "V_VP8");
-      check("con un tamaño real (la pantalla de verdad, no un archivo vacío)",
-        capturado.upload.length > 20_000, `${capturado.upload.length} bytes`);
-      check("declarando su duración (para sincronizar la transcripción)",
-        Number.isFinite(capturado.duracion) && capturado.duracion > 4000 && capturado.duracion < 120_000,
-        `${capturado.duracion}ms`);
+      check(`a la MISMA sala que la barra companion, con la app en la clave (${etiqueta})`,
+        clavePrefijo.test(capturado.sesionKey ?? ""), String(capturado.sesionKey));
+      if (!opciones.soloClave) {
+        check("y es un webm de verdad (magia EBML)",
+          capturado.upload.subarray(0, 4).toString("hex") === "1a45dfa3");
+        check("codificado en VP8 (el que no se traba en vivo)",
+          capturado.upload.includes("V_VP8"), capturado.upload.includes("V_VP9") ? "V_VP9" : "V_VP8");
+        check("con un tamaño real (la pantalla de verdad, no un archivo vacío)",
+          capturado.upload.length > 20_000, `${capturado.upload.length} bytes`);
+        check("declarando su duración (para sincronizar la transcripción)",
+          Number.isFinite(capturado.duracion) && capturado.duracion > 4000 && capturado.duracion < 120_000,
+          `${capturado.duracion}ms`);
+      }
     } else {
-      for (let i = 0; i < 4; i++) check("(sin subida: no se puede verificar)", false);
+      const faltan = opciones.soloClave ? 1 : 5;
+      for (let i = 0; i < faltan; i++) check("(sin subida: no se puede verificar)", false);
     }
   } finally {
-    try { hijo.kill("SIGTERM"); } catch { /* ya muerto */ }
+    // Esperar la MUERTE real del Electron: kill() vuelve al instante, y si el
+    // proceso sigue vivo cuando arranca la corrida siguiente, el candado de
+    // instancia única hace que la nueva app se cierre sola (¡y la prueba de
+    // Teams fallaría por un fantasma, no por el código!).
+    await new Promise((r) => {
+      if (hijo.exitCode !== null) return r();
+      const forzar = setTimeout(() => {
+        try { hijo.kill("SIGKILL"); } catch { /* ya muerto */ }
+        setTimeout(r, 500);
+      }, 4000);
+      hijo.once("exit", () => { clearTimeout(forzar); setTimeout(r, 300); });
+      try { hijo.kill("SIGTERM"); } catch { /* ya muerto */ }
+    });
     fs.rmSync(SIMULACION, { force: true });
     await new Promise((r) => stub.close(r));
   }
@@ -201,9 +269,18 @@ hijo.on("exit", async (c) => {
   const r = JSON.parse(m[1]);
   const ok = [];
   const check = (n, c, d = "") => { ok.push(c); console.log(`${c ? "PASS" : "FAIL"} ${n}${d ? " — " + d : ""}`); };
+  await probarDetector(check).catch((e) => check("detector Zoom/Teams", false, String(e.message)));
   await probarExtensionLocal(check).catch((e) => check("módulo de extensión local", false, String(e.message)));
   await probarCartel(check).catch((e) => check("cartel de escritorio", false, String(e.message)));
   await probarGrabadorSilencioso(check).catch((e) => check("grabador silencioso", false, String(e.message)));
+  // La MISMA película, pero la reunión simulada es de TEAMS: la sala subida
+  // tiene que decirlo en el prefijo (de ahí sale el título del historial).
+  await probarGrabadorSilencioso(check, {
+    contenido: "teams",
+    clavePrefijo: /^escritorio:teams-/,
+    etiqueta: "Microsoft Teams",
+    soloClave: true,
+  }).catch((e) => check("grabador silencioso (Teams)", false, String(e.message)));
   check("la app de escritorio abre UNA ventana propia (antes no abría ninguna)", r.ventanas === 1, `ventanas=${r.ventanas}`);
   check("y se ve (no queda escondida en la bandeja)", r.visible === true);
   check("con el título de la app", r.titulo === "Unify", String(r.titulo));

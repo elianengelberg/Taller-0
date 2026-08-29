@@ -1,7 +1,8 @@
 // La app de escritorio de Unify.
 //
 // Qué hace: vive en la bandeja (al lado del reloj), y cuando la app de Zoom
-// entra a una reunión muestra NUESTRO cartel al medio de la pantalla:
+// o la de Microsoft Teams entra a una reunión muestra NUESTRO cartel al medio
+// de la pantalla:
 // "¿querés grabarla?". Si la respuesta es sí (o no se toca nada en unos
 // segundos), abre la barra acompañante de Unify -- la página web en una
 // ventanita del navegador -- que pone subtítulos en vivo, traducción, IA y
@@ -44,7 +45,11 @@ let avisoDeBandejaDado = false;
 let puente = null;
 let detector = null;
 let salaActual = "";
+let plataformaActual = "zoom"; // qué app disparó la reunión en curso
 let navegadorHijo = null;
+
+// Cómo se le dice a cada app en los carteles y avisos.
+const NOMBRES_APP = { zoom: "Zoom", teams: "Microsoft Teams" };
 
 // Un solo Unify en la bandeja; el segundo intento sólo avisa al primero.
 if (process.env.UNIFY_TEST === "1") {
@@ -181,8 +186,11 @@ function esRutaDeReunion(url) {
   }
 }
 
-function reunionEmpezo() {
-  salaActual = `zoom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+function reunionEmpezo(plataforma) {
+  // El detector dice QUÉ app entró ("zoom"/"teams"); la sala lo lleva en el
+  // prefijo, y de ahí salen el título del historial y el texto del cartel.
+  plataformaActual = NOMBRES_APP[plataforma] ? plataforma : "zoom";
+  salaActual = `${plataformaActual}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   puente.fijarEstado(true);
   mostrarCartel();
 }
@@ -210,7 +218,7 @@ let grabador = null; // { win, archivo, stream, empezoEn, sala }
 
 async function iniciarGrabacionEscritorio() {
   if (grabador) return; // ya hay una andando
-  const sala = salaActual || `zoom-${Date.now().toString(36)}`;
+  const sala = salaActual || `${plataformaActual}-${Date.now().toString(36)}`;
   try {
     const fuentes = await desktopCapturer.getSources({ types: ["screen"] });
     const fuente = fuentes[0];
@@ -330,6 +338,7 @@ async function cerrarYSubirGrabacion(resultado) {
 
 function mostrarCartel(segundos = 15) {
   if (cartel && !cartel.isDestroyed()) return; // ya hay uno abierto
+  const nombreApp = NOMBRES_APP[plataformaActual] || "Zoom";
   cartel = new BrowserWindow({
     width: 470,
     height: 240,
@@ -346,7 +355,11 @@ function mostrarCartel(segundos = 15) {
       nodeIntegration: false,
     },
   });
-  cartel.loadFile(path.join(__dirname, "cartel.html"), { search: `seg=${segundos}` });
+  // El cartel nombra a la app detectada ("tu reunión de Microsoft Teams"):
+  // decir siempre «Zoom» cuando la reunión es de Teams sonaría a error.
+  cartel.loadFile(path.join(__dirname, "cartel.html"), {
+    search: `seg=${segundos}&app=${encodeURIComponent(nombreApp)}`,
+  });
   cartel.once("ready-to-show", () => cartel.show());
   ipcMain.once("cartel:respuesta", (_ev, valor) => {
     if (cartel && !cartel.isDestroyed()) cartel.close();
@@ -369,7 +382,7 @@ function mostrarCartel(segundos = 15) {
 // pestañas), abajo a la derecha, sobre la reunión. Sin Chrome, el navegador
 // que haya -- la barra funciona igual, sólo que en una pestaña común.
 function abrirBarra() {
-  const sala = salaActual || `zoom-${Date.now().toString(36)}`;
+  const sala = salaActual || `${plataformaActual}-${Date.now().toString(36)}`;
   // AL MEDIO y con lugar. Antes abría 560x460 en la esquina de abajo a la
   // derecha, y justo al entrar hay que decidir varias cosas (el permiso del
   // micrófono, si grabar, los subtítulos flotantes, el idioma): en ese rincón

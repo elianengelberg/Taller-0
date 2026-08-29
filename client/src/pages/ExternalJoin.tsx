@@ -252,6 +252,10 @@ export default function ExternalJoin() {
       const sala =
         cruda.replace(/[^a-z0-9-]/gi, "").slice(0, 48) ||
         `zoom-${Date.now().toString(36)}`;
+      // La app mete la plataforma detectada en el prefijo de la sala
+      // ("teams-..." / "zoom-..."): de ahí sale cómo se nombra la reunión.
+      const esTeams = sala.startsWith("teams");
+      const nombreApp = esTeams ? "Microsoft Teams" : "Zoom";
       // La barra acompañante arranca grabando sola y sabe que la vigila el
       // puente local de la app (ver ExternalMeeting).
       sessionStorage.setItem("unify_autorec", "1");
@@ -264,8 +268,12 @@ export default function ExternalJoin() {
         // grabador silencioso de la app de Windows encuentra ESTA sala (y su
         // dbId) para subirle el video.
         externalKey: `escritorio:${sala}`,
-        roomLabel: "Zoom (app de escritorio)",
-        embed: { kind: "external", label: "Zoom", joinLink: "https://zoom.us/join" },
+        roomLabel: `${nombreApp} (app de escritorio)`,
+        embed: {
+          kind: "external",
+          label: nombreApp,
+          joinLink: esTeams ? "https://teams.microsoft.com" : "https://zoom.us/join",
+        },
       });
       navigate("/externa/reunion", { replace: true });
       return;

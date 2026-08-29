@@ -1659,8 +1659,9 @@ const BRIDGE_PLATFORMS = new Set([
   // Cualquier web: la clave que la web y la extensión derivan de un enlace
   // que no reconocen por nombre (origen + path). Ver externalFallbackKey.
   "externa",
-  // La reunión detectada por la APP DE WINDOWS (la app de Zoom, no una web):
-  // la barra companion y el grabador silencioso de la app comparten esta sala.
+  // La reunión detectada por la APP DE WINDOWS (la app de Zoom o de Teams,
+  // no una web): la barra companion y el grabador silencioso comparten esta
+  // sala. La cola dice cuál app fue ("zoom-...", "teams-...").
   "escritorio",
 ]);
 
@@ -1674,6 +1675,20 @@ const BRIDGE_LABELS: Record<string, string> = {
   whatsapp: "WhatsApp", gather: "Gather", generica: "Reunión externa",
   externa: "Reunión externa", escritorio: "Zoom (app de escritorio)",
 };
+
+// El título para una clave entera. Para "escritorio" la app que detectó la
+// reunión viene en el prefijo de la cola (escritorio:teams-... es Teams):
+// titular "Zoom" una reunión de Teams era mentirle al historial.
+function bridgeLabelFor(roomKey: string): string {
+  const sep = roomKey.indexOf(":");
+  const platform = sep > 0 ? roomKey.slice(0, sep) : roomKey;
+  if (platform === "escritorio") {
+    const tail = sep > 0 ? roomKey.slice(sep + 1) : "";
+    if (tail.startsWith("teams")) return "Microsoft Teams (app de escritorio)";
+    return "Zoom (app de escritorio)";
+  }
+  return BRIDGE_LABELS[platform] ?? "Reunión externa";
+}
 
 /**
  * Normaliza el id que llega por la URL a una clave de sala, o null si no es
@@ -2087,11 +2102,10 @@ const roomFor = (meetingId: string) => `meeting:${meetingId}`;
 function companionForRoomKey(roomKey: string) {
   const { meeting, created } = getOrCreateCompanionMeeting(roomKey);
   if (created) {
-    const platform = roomKey.split(":")[0];
     void createMeetingRecord({
       id: meeting.dbId,
       joinCode: meeting.id,
-      hostName: BRIDGE_LABELS[platform] ?? "Reunión externa",
+      hostName: bridgeLabelFor(roomKey),
       roles: [],
       ownerId: null,
     });

@@ -56,7 +56,7 @@
 <body>
   <div class="caja">
     <div class="marca"><span class="marcaPunto"></span>Unify</div>
-    <p class="titulo">Uy, veo que te estás uniendo a una reunión. ¿Querés grabarla?</p>
+    <p class="titulo" id="titulo">Uy, veo que te estás uniendo a una reunión. ¿Querés grabarla?</p>
     <p class="detalle">Subtítulos, traducción y resumen incluidos. Si no elegís nada, la grabo igual.</p>
     <div class="botones">
       <button id="si" type="button">Sí, grabala (<span id="cuenta">15</span>)</button>
@@ -70,6 +70,14 @@
   // si no está (pruebas en un navegador pelado), la respuesta queda en
   // window.__respuesta para poder verificar la lógica igual.
   const parametros = new URLSearchParams(location.search);
+  // La app que disparó el cartel ("Zoom", "Microsoft Teams"): nombrarla evita
+  // el efecto "¿por qué me habla de Zoom si estoy en Teams?". Va por
+  // textContent: el parámetro jamás se interpreta como HTML.
+  const app = (parametros.get("app") || "").trim().slice(0, 40);
+  if (app) {
+    document.getElementById("titulo").textContent =
+      `Uy, veo que te estás uniendo a una reunión de ${app}. ¿Querés grabarla?`;
+  }
   let restante = Math.max(1, parseInt(parametros.get("seg") || "15", 10) || 15);
   const cuenta = document.getElementById("cuenta");
   cuenta.textContent = String(restante);

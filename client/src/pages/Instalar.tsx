@@ -524,8 +524,11 @@ export default function Instalar() {
                       </p>
                       <p className="mt-1 text-sm leading-relaxed text-ink-200">
                         Se instala como cualquier programa y queda al lado del reloj. Cuando te unís
-                        a una reunión <span className="font-semibold text-strong">desde la app de Zoom</span>,
-                        te pregunta si la querés grabar — con subtítulos, traducción e IA — y al
+                        a una reunión{" "}
+                        <span className="font-semibold text-strong">
+                          desde la app de Zoom o de Microsoft Teams
+                        </span>
+                        , te pregunta si la querés grabar — con subtítulos, traducción e IA — y al
                         terminar te abre todo en tu historial.
                       </p>
                       <a href={DESCARGA_WINDOWS} className="mt-3 inline-block">
