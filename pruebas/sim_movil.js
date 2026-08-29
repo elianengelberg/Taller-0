@@ -264,6 +264,11 @@ async function botonesChicos(p, minimo = 40) {
     // la grabación por micrófono NO arranca sola, y se ofrece el bot (que
     // graba desde el servidor, sin depender de este micrófono).
     if (esIphone) {
+      // El bloque del portapapeles (más arriba) reemplaza los permisos de este
+      // origen y deja el micrófono DENEGADO. Se lo devolvemos: si no, esta
+      // sección probaría un teléfono sin micrófono -- y "no grabó sola" daría
+      // verde por el motivo equivocado.
+      await ctx.grantPermissions(["microphone", "camera", "clipboard-read", "clipboard-write"], { origin: B });
       const pm = await ctx.newPage();
       // Safari de iPhone SÍ tiene reconocimiento de voz; el Chromium del
       // arnés no. Se simula para probar el caso real del iPhone.
@@ -299,6 +304,31 @@ async function botonesChicos(p, minimo = 40) {
         /una sola cosa a la vez/i.test(cuerpoMic));
       check("y ofrece el bot ahí mismo, que graba sin usar este micrófono",
         /entre el bot por mí|mandar el bot/i.test(cuerpoMic));
+
+      // Y si igual quiere grabar el audio: el traspaso del micrófono. Los
+      // subtítulos lo SUELTAN primero y recién ahí graba (pedirlo de una era
+      // el mismo choque: ni subtítulos ni grabación).
+      const grabar = pm.getByRole("button", { name: /Grabar el audio por el micrófono/i });
+      check("en iPhone el botón ofrece grabar el AUDIO (no una pantalla que no existe)",
+        (await grabar.count()) > 0);
+      if (await grabar.count()) {
+        await grabar.first().tap();
+        await pm.waitForTimeout(3000);
+        const grabando = (await pm.locator("body").textContent()) || "";
+        check("tocarlo SÍ graba (el traspaso del micrófono funciona)",
+          /Grabando audio/i.test(grabando), grabando.slice(0, 70).replace(/\n/g, " "));
+        check("y mientras graba, la pantalla dice que los subtítulos están en pausa",
+          /subtítulos están en pausa/i.test(grabando));
+        // Y al detenerla, los subtítulos vuelven solos.
+        const detener = pm.getByRole("button", { name: /Detener grabación/i });
+        if (await detener.count()) {
+          await detener.first().tap();
+          await pm.waitForTimeout(2500);
+          const luego = (await pm.locator("body").textContent()) || "";
+          check("al detenerla, los subtítulos vuelven solos",
+            !/subtítulos están en pausa/i.test(luego));
+        }
+      }
       await pm.close();
     }
 

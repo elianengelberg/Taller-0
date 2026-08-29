@@ -21,6 +21,7 @@ import {
   impersonatedDomain,
   PLATFORM_REGISTRY,
 } from "../lib/meetingPlatforms";
+import { esIOS } from "../lib/screenCapture";
 import { cardClass, inputClass, labelClass, nameInputProps, urlInputProps } from "../lib/ui";
 import { abrirVentanaReunion } from "../lib/ventanaReunion";
 import { CompanionEmbed } from "../types";
@@ -620,11 +621,24 @@ function RecordingNotice() {
         }}
         className="mt-0.5 h-4 w-4 shrink-0 accent-brand-500"
       />
-      <span>
-        <span className="font-medium text-ink-200">Grabar esta reunión automáticamente.</span> Al
-        entrar te vamos a pedir qué pantalla grabar; si cancelás, grabamos igual el audio. Podés
-        detenerla en cualquier momento desde el botón Grabar.
-      </span>
+      {/* En iPhone y iPad esto NO puede cumplirse: no existe grabar la
+          pantalla, y grabar el micrófono apagaría los subtítulos (el sistema
+          se lo da a una sola cosa a la vez). Prometerlo igual era mentir: ahí
+          se cuenta lo que de verdad pasa, y cuál es la salida. */}
+      {esIOS() ? (
+        <span>
+          <span className="font-medium text-ink-200">Grabar esta reunión automáticamente.</span> En
+          iPhone y iPad el micrófono es de una sola cosa a la vez, así que adentro mandan los
+          subtítulos y la grabación queda a un toque del botón Grabar. Para que quede el video
+          completo sin resignar nada, mandá el bot: graba desde el servidor.
+        </span>
+      ) : (
+        <span>
+          <span className="font-medium text-ink-200">Grabar esta reunión automáticamente.</span> Al
+          entrar te vamos a pedir qué pantalla grabar; si cancelás, grabamos igual el audio. Podés
+          detenerla en cualquier momento desde el botón Grabar.
+        </span>
+      )}
     </label>
   );
 }

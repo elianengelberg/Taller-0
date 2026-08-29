@@ -184,7 +184,15 @@ function enlaceParaElBot(
     case "meet":
       return { url: embed.meetLink, roomKey: externalKey, platform: "google-meet" };
     case "zoom":
-      return { url: `https://zoom.us/j/${embed.meetingNumber}`, roomKey: externalKey, platform: "zoom" };
+      // Sólo las salas SIN contraseña. Acá tenemos la contraseña en texto
+      // plano, y un enlace de Zoom no la lleva así (lleva un token cifrado
+      // que no podemos rehacer); el bot tampoco sabe tipearla. Ofrecerlo
+      // igual sería mandarlo a golpear una puerta cerrada. Con contraseña, el
+      // camino que sí funciona es el bot de la pantalla de entrada, que usa
+      // el enlace original completo.
+      return embed.passcode
+        ? null
+        : { url: `https://zoom.us/j/${embed.meetingNumber}`, roomKey: externalKey, platform: "zoom" };
     case "jitsi":
       return {
         url: `https://${embed.domain || "meet.jit.si"}/${embed.roomName}`,
@@ -333,10 +341,16 @@ export default function ExternalMeeting() {
   // propósito con el botón, los subtítulos se pausan mientras dure y vuelven
   // solos al detenerla.
   const unSoloMicrofono = esIOS();
+  // `cediendoMic` es el traspaso en curso: alguien tocó Grabar y los
+  // subtítulos tienen que SOLTAR el micrófono antes de que el grabador lo
+  // pida. Sin este paso los dos lo piden a la vez y el sistema no se lo da a
+  // ninguno -- el mismo choque que dejaba la pantalla muda y el archivo vacío.
+  const [cediendoMic, setCediendoMic] = useState(false);
   const micTomadoPorGrabacion =
     unSoloMicrofono &&
-    recorder.kind === "audio" &&
-    (recorder.status === "recording" || recorder.status === "processing");
+    (cediendoMic ||
+      (recorder.kind === "audio" &&
+        (recorder.status === "recording" || recorder.status === "processing")));
 
   const { supported: captionsSupported, error: captionsError } = useSpeechRecognition({
     key: micAttempt,
@@ -442,7 +456,20 @@ export default function ExternalMeeting() {
   function toggleRecording() {
     if (recorder.status === "recording") recorder.stop();
     else if (recorder.status === "idle" || recorder.status === "error") {
-      void recorder.start(screenCaptureSupported ? {} : { audioOnly: true });
+      if (screenCaptureSupported) {
+        // Grabar la pantalla no toca el micrófono: arranca derecho.
+        void recorder.start({});
+      } else if (unSoloMicrofono) {
+        // Donde el micrófono es de uno solo, PRIMERO se lo sueltan los
+        // subtítulos y recién después lo pide el grabador. Pedirlo de una
+        // (como hacía este botón) era caer en el mismo choque que dejaba
+        // sin subtítulos Y con la grabación vacía. El reset deja el estado
+        // en "idle" para que el traspaso arranque igual después de un fallo.
+        recorder.reset();
+        setCediendoMic(true);
+      } else {
+        void recorder.start({ audioOnly: true });
+      }
     }
   }
 
@@ -513,6 +540,32 @@ export default function ExternalMeeting() {
     if (!stream && grabacionCedida) return;
     void startRef.current(stream ? { stream } : { audioOnly: true });
   }, [connectionStatus, meeting?.dbId, grabacionCedida]);
+
+  // El traspaso del micrófono, de los subtítulos a la grabación. Cuando este
+  // efecto corre, el reconocimiento YA quedó apagado en este mismo render
+  // (micTomadoPorGrabacion pasó a true): el respiro es para que el sistema
+  // termine de largar el micrófono antes de que el grabador lo pida.
+  const traspasoPedidoRef = useRef(false);
+  useEffect(() => {
+    if (!cediendoMic) {
+      traspasoPedidoRef.current = false;
+      return;
+    }
+    // Desenlace: el grabador ya tomó el micrófono, o no pudo. En los dos
+    // casos el traspaso terminó (y si falló, los subtítulos vuelven).
+    if (recorder.status !== "idle") {
+      setCediendoMic(false);
+      return;
+    }
+    // El pedido ya salió: se espera su desenlace, no se dispara de nuevo
+    // (si no, un permiso denegado dejaba el botón reintentando para siempre).
+    if (traspasoPedidoRef.current) return;
+    traspasoPedidoRef.current = true;
+    const t = window.setTimeout(() => {
+      void startRef.current({ audioOnly: true });
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [cediendoMic, recorder.status]);
 
   // Si la persona apaga la grabación automática antes de entrar, la captura
   // que hubiera quedado colgada no se deja abierta.
