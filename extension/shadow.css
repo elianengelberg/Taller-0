@@ -113,10 +113,20 @@ input, select, textarea { font-family: inherit; }
   font-size: 10.5px; color: var(--dim); text-transform: uppercase;
   letter-spacing: 0.07em; border: 1px solid var(--line); border-radius: 5px; padding: 2px 5px;
 }
-.subs .orig { font-size: 17px; line-height: 1.38; }
+/* TECHO DE VERDAD. Un subtítulo es una idea, no la reunión entera: sin límite
+   de alto, un texto largo estiraba esta caja hasta tapar media pantalla por
+   encima del video (pasó en una reunión real). Con el recorte a tres
+   renglones, ninguna línea puede volver a hacerlo -- venga de donde venga. */
+.subs .orig {
+  font-size: 17px; line-height: 1.38;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+  overflow: hidden;
+}
 .subs .tr {
   margin-top: 7px; padding-top: 7px; border-top: 1px dashed var(--line-2);
   font-size: 15px; color: var(--violet-2);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 /* Badge de rol: el color lo pone el JS con --role */

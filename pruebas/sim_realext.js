@@ -268,6 +268,26 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
   const stream = await page.locator(".stream").textContent();
   check("la transcripción del panel muestra a los tres", ["Ana", "Bruno", "Carolina"].every((n) => (stream || "").includes(n)));
 
+  // EL CARTEL SOBRE EL VIDEO NO PUEDE TAPAR LA PANTALLA. Sin techo de alto,
+  // un texto largo lo estiraba hasta cubrir media reunión por encima del
+  // video. Es un subtítulo: entra una idea, no la charla entera.
+  {
+    await page.evaluate(async () => {
+      const largo = ("esto es una frase larguísima que sigue y sigue sin parar y no termina nunca jamás ")
+        .repeat(14);
+      await window.__say("Lucía Vera", largo);
+    });
+    await page.waitForTimeout(2000);
+    const caja = await page.evaluate(() => {
+      const n = document.getElementById("unify-root").shadowRoot.querySelector(".subs");
+      const r = n.getBoundingClientRect();
+      return { alto: r.height, pantalla: window.innerHeight };
+    });
+    check("el cartel sobre el video se mantiene chico (no tapa la reunión)",
+      caja.alto <= caja.pantalla * 0.35,
+      `${Math.round(caja.alto)}px de ${caja.pantalla}px de pantalla`);
+  }
+
   // LA IA CORRIGE Y EL PANEL LO MUESTRA. El servidor reconstruye la frase más
   // probable, pero antes esa versión sólo iba al historial: en pantalla
   // quedaba la lectura cruda del reconocimiento. Se veía la peor de las dos.
