@@ -259,6 +259,56 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
   const stream = await page.locator(".stream").textContent();
   check("la transcripción del panel muestra a los tres", ["Ana", "Bruno", "Carolina"].every((n) => (stream || "").includes(n)));
 
+  // LA REPETICIÓN, que es lo que arruinaba la transcripción en una reunión de
+  // verdad: Meet reescribe la MISMA fila mientras hablás y corrige palabras ya
+  // escritas. Cuando eso pasaba, se remandaba la fila entera y cada línea
+  // nueva arrastraba todo lo anterior (se veían párrafos repetidos tres veces).
+  {
+    const antes = posted.length;
+    await page.evaluate(async () => {
+      const caps = document.getElementById("caps");
+      const row = document.createElement("div");
+      row.innerHTML = '<img alt=""><div class="n"></div><div class="t"></div>';
+      caps.appendChild(row);
+      row.querySelector(".n").textContent = "Diego Ruiz";
+      const t = row.querySelector(".t");
+      const pasos = [
+        "contame un poco como andas",
+        "contame un poco cómo andás todo bien",           // Meet CORRIGE acentos
+        "contame un poco cómo andás todo bien bueno a ver",
+      ];
+      for (const p of pasos) { t.textContent = p; await new Promise((r) => setTimeout(r, 700)); }
+    });
+    await page.waitForTimeout(3000);
+    const nuevas = posted.slice(antes);
+    const todo = nuevas.map((p) => p.text).join(" ");
+    const vecesQueAparece = (todo.match(/contame un poco/gi) || []).length;
+    check("una corrección de Meet NO hace que se remande todo lo dicho",
+      vecesQueAparece === 1,
+      `«contame un poco» aparece ${vecesQueAparece} vez/veces en: ${nuevas.map((p) => `"${p.text}"`).join(" + ")}`);
+  }
+
+  // Y la red de seguridad: si Meet recicla su fila y reaparece texto viejo, no
+  // se transcribe dos veces la misma frase.
+  {
+    const antes = posted.length;
+    await page.evaluate(async () => {
+      const caps = document.getElementById("caps");
+      const row = document.createElement("div");
+      row.innerHTML = '<img alt=""><div class="n"></div><div class="t"></div>';
+      caps.appendChild(row);
+      row.querySelector(".n").textContent = "Diego Ruiz";
+      row.querySelector(".t").textContent =
+        "contame un poco cómo andás todo bien bueno a ver. esto sí es nuevo del todo.";
+    });
+    await page.waitForTimeout(3000);
+    const texto = posted.slice(antes).map((p) => p.text).join(" ");
+    check("una frase que ya se dijo no vuelve a entrar en la transcripción",
+      !/contame un poco/i.test(texto) && /esto sí es nuevo/i.test(texto),
+      `"${texto}"`);
+  }
+
+
   // ═══════ El enlace que te mandan por WhatsApp ═══════
   //
   // El caso de todos los días: te pasan un link de Meet, lo abrís y caés en

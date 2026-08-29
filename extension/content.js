@@ -82,6 +82,7 @@
     state.speakers.add(name);
     const last = state.lines[state.lines.length - 1];
     if (last && last.speaker === name && at - last.at < 8000 && last.text.length < 400) {
+      if (last.text.includes(text)) return last; // ya está adentro: no repetir
       last.text = `${last.text} ${text}`.trim();
       last.at = at;
       if (translate) void translateLine(last);
@@ -110,9 +111,34 @@
     }
   }
 
+  // Memoria corta de lo ya transcripto, para no repetir frases. Meet recicla
+  // los nodos de sus subtítulos y a veces reaparece texto viejo: sin esto, la
+  // transcripción se llenaba de la misma frase una y otra vez.
+  const yaDicho = new Map(); // frase normalizada -> cuándo
+  const normalizar = (t) =>
+    t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9ñ ]/g, " ").replace(/\s+/g, " ").trim();
+
+  function sacarLoYaDicho(texto) {
+    const ahora = Date.now();
+    for (const [k, t] of yaDicho) if (ahora - t > 5 * 60_000) yaDicho.delete(k);
+    // Se parte en frases: repetir "hola" es normal, repetir una frase larga
+    // entera no lo es.
+    const frases = texto.split(/(?<=[.?!])\s+/).filter(Boolean);
+    const nuevas = frases.filter((f) => {
+      const clave = normalizar(f);
+      if (clave.split(" ").length < 4) return true; // muy corta para juzgarla
+      if (yaDicho.has(clave)) return false;
+      yaDicho.set(clave, ahora);
+      return true;
+    });
+    return nuevas.join(" ").trim();
+  }
+
   async function emit(speaker, text, alts = []) {
     const code = meetCode();
     if (!code || !text) return;
+    text = sacarLoYaDicho(text);
+    if (!text) return; // era todo repetido: no ensucia la transcripción
     const line = pushLocal(speaker, text);
     ui.renderStream();
     ui.renderRoles();
@@ -279,12 +305,24 @@
 
   // Meet reescribe la MISMA fila mientras la persona habla, así que guardamos
   // qué parte ya se envió y mandamos únicamente lo nuevo.
+  // Cuánto coinciden dos textos desde el principio. Es lo que permite mandar
+  // SÓLO lo nuevo aunque Meet haya corregido alguna palabra del medio.
+  function largoDelPrefijoComun(a, b) {
+    const n = Math.min(a.length, b.length);
+    let i = 0;
+    while (i < n && a[i] === b[i]) i++;
+    return i;
+  }
+
   function finalizeEntry(node) {
     const rec = caps.entries.get(node);
     if (!rec) return;
     clearTimeout(rec.timer);
     rec.timer = null;
-    const pending = rec.text.startsWith(rec.emitted) ? rec.text.slice(rec.emitted.length).trim() : rec.text.trim();
+    // Sólo la parte que todavía no mandamos. Si Meet corrigió algo de lo ya
+    // enviado, esa corrección se pierde -- y está bien: es una palabra, no la
+    // conversación entera repetida.
+    const pending = rec.text.slice(largoDelPrefijoComun(rec.emitted, rec.text)).trim();
     if (pending) {
       rec.emitted = rec.text;
       void emit(rec.speaker || "Participante", pending);
@@ -300,16 +338,23 @@
       caps.entries.set(node, rec);
     } else {
       if (parsed.speaker) rec.speaker = parsed.speaker;
-      if (parsed.text === rec.text) return;
+      if (parsed.text === rec.text) return; // nada cambió: ni tocar el cartel
       if (!parsed.text.startsWith(rec.emitted)) {
+        // Meet corrigió algo. Lo ya enviado sigue enviado: se conserva la
+        // parte en común (antes se ponía en cero y se remandaba todo).
         finalizeEntry(node);
-        rec.emitted = "";
+        rec.emitted = rec.emitted.slice(0, largoDelPrefijoComun(rec.emitted, parsed.text));
       }
       rec.text = parsed.text;
     }
     clearTimeout(rec.timer);
     rec.timer = setTimeout(() => finalizeEntry(node), SETTLE_MS);
-    ui.showSubtitle({ speaker: rec.speaker || "Participante", text: rec.text, translated: null });
+    // Lo que se está diciendo AHORA: la cola de la fila, no todo el historial.
+    const enCurso = rec.text.slice(largoDelPrefijoComun(rec.emitted, rec.text)).trim() || rec.text;
+    if (enCurso !== rec.ultimoCartel) {
+      rec.ultimoCartel = enCurso;
+      ui.showSubtitle({ speaker: rec.speaker || "Participante", text: enCurso, translated: null });
+    }
   }
 
   function scanCaptions(region) {
@@ -512,6 +557,11 @@
         chrome.storage.local.set({ lang: cfg.lang });
         state.lines.forEach((l) => (l.translated = null));
         renderStream();
+        // Y se vuelven a pedir: antes se borraban y nadie las pedía de nuevo,
+        // así que elegir un idioma DEJABA la transcripción sin traducir.
+        if (cfg.lang) {
+          for (const l of state.lines.slice(-40)) void translateLine(l);
+        }
       });
       el.aiSend.addEventListener("click", ask);
       el.aiInput.addEventListener("keydown", (e) => e.key === "Enter" && ask());
@@ -547,8 +597,13 @@
     }
 
     function setCaptionsReady(ok) {
-      el.capHint.textContent = ok
-        ? "Escuchando a todos los participantes desde los subtítulos de Meet."
+      // Las palabras las escribe MEET, no Unify: si sus subtítulos están en
+      // otro idioma que el que se habla, salen frases sin sentido ("cómo
+      // andás" -> "Commanders") y no hay IA que lo arregle después. Decir
+      // dónde se cambia es lo único que de verdad lo soluciona.
+      el.capHint.innerHTML = ok
+        ? 'Escuchando a todos los participantes desde los subtítulos de Meet. ' +
+          '<span class="tip">¿Salen palabras raras? Los escribe Meet: revisá su idioma en <b>CC → ⚙</b>.</span>'
         : state.usingMic
           ? "Meet no está dando subtítulos: por ahora solo se transcribe tu micrófono. Activá el botón CC de Meet para capturar a todos."
           : "Activá los subtítulos de Meet (botón CC) para transcribir a todos.";
