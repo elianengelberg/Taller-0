@@ -532,7 +532,10 @@ export default function Instalar() {
                         <Button>Descargar Unify para Windows</Button>
                       </a>
                       <p className="mt-2 text-xs text-ink-400">
-                        Un instalador común (.exe): siguiente, siguiente, listo.
+                        Un instalador común (.exe): siguiente, siguiente, listo. De ahí en más se
+                        actualiza sola: cuando hay versión nueva se baja en silencio y te ofrece
+                        «Reiniciar y actualizar» en el menú de Unify, al lado del reloj — y también
+                        mantiene al día la extensión de Chrome cargada por zip.
                       </p>
                       {/* La verdad del estado de la firma, dicha ANTES del
                           susto: sin esto la gente ve el cartel azul de

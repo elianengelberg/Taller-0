@@ -100,6 +100,27 @@ jobs:
         shell: pwsh
         run: Copy-Item "desktop\dist-firmado\Unify-Setup.exe" "desktop\dist\Unify-Setup.exe" -Force
 
+      # Firmar cambió los bytes del .exe, así que el sha512 que latest.yml
+      # declara ya no coincide -- y el actualizador automático rechaza (bien)
+      # una descarga cuyo hash no cierra. Se recalcula sobre el exe firmado.
+      - name: Recalcular el hash de latest.yml (exe firmado)
+        if: env.HAY_SIGNPATH == 'true' && env.HAY_PFX != 'true'
+        shell: pwsh
+        run: |
+          $exe = "desktop\dist\Unify-Setup.exe"
+          $yml = "desktop\dist\latest.yml"
+          $bytes = [IO.File]::ReadAllBytes($exe)
+          $sha = [Security.Cryptography.SHA512]::Create().ComputeHash($bytes)
+          $b64 = [Convert]::ToBase64String($sha)
+          $size = (Get-Item $exe).Length
+          $texto = Get-Content $yml -Raw
+          $texto = $texto -replace "sha512: .+", "sha512: $b64"
+          $texto = $texto -replace "size: \d+", "size: $size"
+          Set-Content $yml $texto -NoNewline
+          # El blockmap (descarga diferencial) también quedó desfasado: mejor
+          # no publicarlo que publicarlo mentiroso; sin él se baja el exe entero.
+          Remove-Item "desktop\dist\*.blockmap" -ErrorAction SilentlyContinue
+
       - name: Publicar en Releases (queda como latest)
         uses: softprops/action-gh-release@v2
         with:
@@ -115,5 +136,8 @@ jobs:
             sin firma digital (la firma está en trámite), Windows puede
             mostrar el aviso de SmartScreen: "Más información" → "Ejecutar de
             todas formas".
-          files: desktop/dist/Unify-Setup.exe
+          files: |
+            desktop/dist/Unify-Setup.exe
+            desktop/dist/latest.yml
+            desktop/dist/*.blockmap
           make_latest: "true"

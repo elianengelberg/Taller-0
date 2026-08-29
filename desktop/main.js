@@ -20,6 +20,11 @@ const path = require("path");
 const os = require("os");
 const { crearDetector, sondaWindows, sondaArchivo } = require("./detector");
 const { crearPuente } = require("./puente");
+const { refrescarExtension } = require("./extensionLocal");
+// electron-updater es quien mira GitHub Releases (latest.yml), baja el
+// instalador nuevo y lo deja listo. Acá sólo se decide CUÁNDO mirar y cómo
+// contarlo; el trabajo sucio es de él.
+const { autoUpdater } = require("electron-updater");
 
 // La web de Unify. En desarrollo se puede apuntar a un build local:
 //   UNIFY_WEB=http://localhost:4174 npm start
@@ -73,6 +78,7 @@ function arrancar() {
   });
 
   armarBandeja();
+  arrancarActualizador();
 
   // LA APP TIENE VENTANA. Antes esto era sólo un ícono al lado del reloj y
   // todo lo demás abría el navegador: se instalaba y no pasaba nada visible
@@ -263,15 +269,140 @@ function rutaDeChrome() {
   return candidatos.find((c) => c && fs.existsSync(c)) || null;
 }
 
+// ============================================================================
+// ACTUALIZACIONES: la app entera se mantiene sola.
+//
+//  - La parte WEB (lo que se ve adentro de la ventana) ya se actualiza sola:
+//    es la misma web con su service worker.
+//  - El PROGRAMA (esta app: ventana, bandeja, detector de Zoom) se busca en
+//    GitHub Releases, se baja solo, y ofrece "Reiniciar y actualizar" en la
+//    bandeja. Si nadie toca nada, igual se instala al cerrar la app.
+//  - La EXTENSIÓN cargada por ZIP vive en la carpeta de datos de la app y se
+//    refresca acá mismo (la de la Web Store se actualiza sola con Chrome).
+// ============================================================================
+let estadoUpdate = { fase: "quieto", version: null }; // quieto|buscando|descargando|listo|error
+let busquedaManual = false;
+
+function globo(titulo, cuerpo) {
+  try {
+    tray?.displayBalloon?.({ title: titulo, content: cuerpo });
+  } catch {
+    /* Linux/Mac sin globos: el estado igual queda en el menú */
+  }
+}
+
+function etiquetaDeUpdate() {
+  switch (estadoUpdate.fase) {
+    case "buscando": return "Buscando actualización…";
+    case "descargando": return `Bajando la versión ${estadoUpdate.version || "nueva"}…`;
+    case "listo": return `Reiniciar y actualizar (v${estadoUpdate.version})`;
+    case "error": return "Buscar actualización (falló la última vez)";
+    default: return "Buscar actualización";
+  }
+}
+
+function clicEnUpdate() {
+  if (estadoUpdate.fase === "listo") {
+    app.cerrandoDeVerdad = true;
+    autoUpdater.quitAndInstall();
+    return;
+  }
+  busquedaManual = true;
+  buscarActualizacion();
+  // La extensión por ZIP viaja en el mismo gesto: un solo botón, todo al día.
+  void refrescarExtensionLocal(true);
+}
+
+function buscarActualizacion() {
+  if (!app.isPackaged) return; // en desarrollo no hay release que mirar
+  if (estadoUpdate.fase === "buscando" || estadoUpdate.fase === "descargando") return;
+  estadoUpdate = { fase: "buscando", version: null };
+  armarBandeja();
+  autoUpdater.checkForUpdates().catch(() => {});
+}
+
+function arrancarActualizador() {
+  // Si el update quedó bajado y nadie reinició, se instala al salir igual.
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on("update-available", (info) => {
+    estadoUpdate = { fase: "descargando", version: info?.version || null };
+    armarBandeja();
+  });
+  autoUpdater.on("update-not-available", () => {
+    estadoUpdate = { fase: "quieto", version: null };
+    armarBandeja();
+    if (busquedaManual) globo("Unify", "Ya estás en la última versión.");
+    busquedaManual = false;
+  });
+  autoUpdater.on("update-downloaded", (info) => {
+    estadoUpdate = { fase: "listo", version: info?.version || null };
+    armarBandeja();
+    globo(
+      "Unify se actualizó",
+      `La versión ${info?.version || "nueva"} está lista: tocá «Reiniciar y actualizar» en el menú de Unify (al lado del reloj). Si no, se instala sola al cerrar.`
+    );
+    busquedaManual = false;
+  });
+  autoUpdater.on("error", () => {
+    estadoUpdate = { fase: "error", version: null };
+    armarBandeja();
+    if (busquedaManual) globo("Unify", "No pudimos buscar la actualización (¿sin internet?). Probá de nuevo más tarde.");
+    busquedaManual = false;
+  });
+
+  // Al arrancar (con un respiro para no pelearle el arranque a la ventana) y
+  // después cada 6 horas: nadie tiene que acordarse de nada.
+  setTimeout(buscarActualizacion, 30_000);
+  const timer = setInterval(buscarActualizacion, 6 * 60 * 60_000);
+  if (typeof timer.unref === "function") timer.unref();
+
+  // Y la extensión local, si la persona la usa: al día en silencio.
+  setTimeout(() => void refrescarExtensionLocal(false), 45_000);
+}
+
+// La carpeta donde la app mantiene la extensión para "Cargar descomprimida".
+function carpetaBaseExtension() {
+  return app.getPath("userData");
+}
+
+async function refrescarExtensionLocal(avisar) {
+  const baseDir = carpetaBaseExtension();
+  const carpeta = path.join(baseDir, "extension");
+  // Silencioso salvo pedido expreso: sólo refresca solo si YA existe (la
+  // persona eligió ese camino); crearla sin que nadie la pida sería basura.
+  if (!avisar && !fs.existsSync(carpeta)) return;
+  const r = await refrescarExtension({ baseDir, web: WEB });
+  if (!avisar) return;
+  if (r.estado === "error") {
+    globo("Extensión de Unify", `No se pudo actualizar la extensión (${r.detalle || "sin detalle"}). La que está sigue andando.`);
+  } else if (r.estado === "al-dia") {
+    globo("Extensión de Unify", `Ya está en la última versión (${r.version}).`);
+  } else {
+    globo(
+      "Extensión de Unify",
+      `Versión ${r.version} lista en la carpeta de Unify. Chrome la toma al reiniciarse (o recargala en chrome://extensions).`
+    );
+    shell.openPath(carpeta).catch(() => {});
+  }
+}
+
 function armarBandeja() {
-  tray = new Tray(iconoBandeja());
-  tray.setToolTip("Unify — atento a tus reuniones");
-  // Un clic en el ícono abre la app: es lo que todo el mundo intenta primero.
-  tray.on("click", () => abrirVentana());
+  // Se rearma entero cada vez que cambia el estado del actualizador (los
+  // menús de Tray no se editan en el lugar). Crear el Tray una sola vez.
+  if (!tray) {
+    tray = new Tray(iconoBandeja());
+    tray.setToolTip("Unify — atento a tus reuniones");
+    // Un clic en el ícono abre la app: es lo que todo el mundo intenta primero.
+    tray.on("click", () => abrirVentana());
+  }
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Abrir Unify", click: () => abrirVentana("/") },
       { label: "Mi historial", click: () => abrirVentana("/historial") },
+      { type: "separator" },
+      // Un solo botón para todo: el programa Y la extensión por zip.
+      { label: etiquetaDeUpdate(), click: clicEnUpdate },
+      { label: "Actualizar la extensión de Chrome (zip)", click: () => void refrescarExtensionLocal(true) },
       { type: "separator" },
       // Para probar el circuito sin esperar una reunión real.
       { label: "Probar el cartel", click: () => mostrarCartel() },
