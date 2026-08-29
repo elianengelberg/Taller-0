@@ -38,6 +38,11 @@ interface Props {
   /** Vuelve a intentar el reconocimiento de voz (tras dar permiso, por ej.). */
   onRetry?: () => void;
   /**
+   * El arreglo de UN TOQUE cuando el problema tiene solución directa (por
+   * ejemplo: se detectó que hablás en otro idioma -> "Escuchar en inglés").
+   */
+  accionExtra?: { texto: string; onClick: () => void } | null;
+  /**
    * Aclaración sobre la grabación, cuando no está corriendo por una razón que
    * la persona merece saber (en iPhone/iPad el micrófono es de una sola cosa
    * a la vez, así que grabar apagaría los subtítulos).
@@ -72,6 +77,7 @@ export default function CompanionSubtitleStage({
   listening,
   problem,
   onRetry,
+  accionExtra,
   notaGrabacion,
   accionBot,
   participantCount,
@@ -109,6 +115,15 @@ export default function CompanionSubtitleStage({
       {problem && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-[11px] leading-snug text-amber-200">
           <span className="min-w-0 flex-1">{problem}</span>
+          {accionExtra && (
+            <button
+              type="button"
+              onClick={accionExtra.onClick}
+              className="shrink-0 rounded-lg bg-amber-400 px-2.5 py-1 font-semibold text-ink-950 hover:bg-amber-300"
+            >
+              {accionExtra.texto}
+            </button>
+          )}
           {onRetry && (
             <button
               type="button"

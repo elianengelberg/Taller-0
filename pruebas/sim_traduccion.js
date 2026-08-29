@@ -109,7 +109,7 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
     const autoInj = [...new Set([...(inj.match(/const IDIOMAS = \[[^\]]+\]/)?.[0] ?? "").matchAll(/"([a-z]{2})"/g)].map((m) => m[1]))].sort();
 
     const cnt = fs.readFileSync("/home/user/Taller-0/extension/content.js", "utf8");
-    const selCnt = cnt.match(/<select data-el="lang"[\s\S]*?<\/select>/)?.[0] ?? "";
+    const selCnt = cnt.match(/<select[^>]*data-el="lang"[\s\S]*?<\/select>/)?.[0] ?? "";
     const codigosCnt = [...new Set([...selCnt.matchAll(/<option value="([a-z]{2})">/g)].map((m) => m[1]))].sort();
     const autoCnt = [...new Set([...(cnt.match(/const IDIOMAS = \[[^\]]+\]/)?.[0] ?? "").matchAll(/"([a-z]{2})"/g)].map((m) => m[1]))].sort();
 

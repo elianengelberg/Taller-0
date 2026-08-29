@@ -2123,20 +2123,26 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
   // y el contexto reciente -- el reconocimiento confunde palabras que suenan
   // parecido -- y las traducciones a los idiomas de los PRESENTES se calculan
   // en paralelo y se emparchan sobre la línea apenas están listas.
-  const recentContext = meeting.transcript.slice(-4).map((l) => `${l.speakerName}: ${l.text}`);
+  // Seis líneas de contexto (eran cuatro) y el ORDEN correcto: primero la IA
+  // reconstruye la frase, después se traduce ESA frase. Traducir en paralelo
+  // las lecturas crudas ganaba un segundo y costaba la calidad entera: se
+  // traducían los errores del reconocimiento.
+  const recentContext = meeting.transcript.slice(-6).map((l) => `${l.speakerName}: ${l.text}`);
   const candidatas = [text, ...alts.filter((a) => a !== text)];
-  const targetLangs = Array.from(
-    new Set(
-      Array.from(meeting.participants.values())
-        .map((p) => shortLang(p.language ?? ""))
-        .filter((c) => c && c !== shortLang(lang))
-    )
-  );
-  const traduccionesPromise = translateFragmentToAll(candidatas, recentContext, targetLangs, lang);
   const cleanup = await cleanTranscriptFragment(candidatas, recentContext, lang);
   const textoFinal = cleanup.text || text;
   const mismatch = cleanup.detectedLang !== null && cleanup.detectedLang !== shortLang(lang);
   const sourceLang = mismatch ? cleanup.detectedLang! : lang;
+  // Los destinos, contra el idioma DETECTADO: si se habló en otro idioma que
+  // el declarado, quienes "compartían idioma" también reciben su traducción.
+  const targetLangs = Array.from(
+    new Set(
+      Array.from(meeting.participants.values())
+        .map((p) => shortLang(p.language ?? ""))
+        .filter((c) => c && c !== shortLang(sourceLang))
+    )
+  );
+  const traduccionesPromise = translateFragmentToAll([textoFinal], recentContext, targetLangs, sourceLang);
 
   const line = addNamedTranscriptLine(meeting, speaker, textoFinal, sourceLang);
   io.to(roomFor(meeting.id)).emit("transcript-line", { line });

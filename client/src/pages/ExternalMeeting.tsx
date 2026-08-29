@@ -448,6 +448,26 @@ export default function ExternalMeeting() {
     ? `No está llegando ninguna voz al micrófono. Si la reunión corre en su app en este mismo aparato, el sistema le da el micrófono a la llamada y Unify no escucha nada. Salidas: dejá la reunión sonando en ALTAVOZ (sin auriculares) y esta pantalla al frente; ${comoVerLosDosALaVez(aparato)} O mandá el bot: graba y transcribe todo desde el servidor, sin depender de este micrófono.`
     : null;
 
+  // EL IDIOMA EQUIVOCADO, detectado y corregible en un toque. La causa número
+  // uno de "no entiende nada de lo que digo" es hablar en un idioma distinto
+  // del configurado: el reconocimiento intenta encajar castellano en inglés y
+  // salen palabras inventadas. El SERVIDOR ya detecta el idioma real de cada
+  // frase (la IA correctora lo devuelve en sourceLang); acá se mira si las
+  // últimas frases propias vienen en otro idioma y se ofrece el arreglo.
+  const idiomaDetectado = (() => {
+    if (!self) return null;
+    const mias = (meeting?.transcript ?? []).filter((l) => l.speakerId === self.id).slice(-4);
+    const distintas = mias.filter(
+      (l) => l.sourceLang && shortLang(l.sourceLang) !== shortLang(spokenLang),
+    );
+    // Dos frases seguidas en otro idioma ya no son casualidad.
+    if (distintas.length < 2) return null;
+    return shortLang(distintas[distintas.length - 1].sourceLang);
+  })();
+  const avisoIdioma = idiomaDetectado
+    ? `Unify te está escuchando en ${etiquetaDeIdioma(spokenLang)}, pero hablás en ${etiquetaDeIdioma(idiomaDetectado)} — por eso las palabras salen mal.`
+    : null;
+
   const { getTranslation, translationFailed } = useLineTranslations(meeting?.transcript ?? [], targetLang);
 
   // El bot, ofrecido DESDE ADENTRO. La escena donde más falta hace es esta:
@@ -693,8 +713,14 @@ export default function ExternalMeeting() {
     if (!escritorioRef.current || connectionStatus !== "connected") return;
     let terminadas = 0;
     let hecho = false;
+    // Gracia inicial: en los primeros segundos el puente puede estar
+    // levantándose (o la app ocupada); despedirse en ese ratito cortaría una
+    // grabación recién nacida. Después de la gracia, dos lecturas de
+    // "terminó" seguidas y recién ahí se cierra todo.
+    const nacido = Date.now();
+    const GRACIA_PUENTE_MS = 15_000;
     const timer = setInterval(async () => {
-      if (hecho) return;
+      if (hecho || Date.now() - nacido < GRACIA_PUENTE_MS) return;
       try {
         const res = await fetch("http://127.0.0.1:47125/estado", { cache: "no-store" });
         const est = (await res.json()) as { enReunion?: boolean };
@@ -1128,8 +1154,16 @@ export default function ExternalMeeting() {
                   targetLabel={targetLabel}
                   translationFailed={translationFailed}
                   listening={escuchando}
-                  problem={captionsProblem ?? avisoSilencio ?? avisoReunion}
+                  problem={captionsProblem ?? avisoIdioma ?? avisoSilencio ?? avisoReunion}
                   onRetry={captionsSupported ? () => setMicAttempt((n) => n + 1) : undefined}
+                  accionExtra={
+                    idiomaDetectado
+                      ? {
+                          texto: `Escuchar en ${etiquetaDeIdioma(idiomaDetectado)}`,
+                          onClick: () => setSelfLanguage(idiomaDetectado),
+                        }
+                      : null
+                  }
                   accionBot={
                     botDeSala ? (
                       <BotButton

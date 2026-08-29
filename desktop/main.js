@@ -410,8 +410,12 @@ function armarBandeja() {
       { label: etiquetaDeUpdate(), click: clicEnUpdate },
       { label: "Actualizar la extensión de Chrome (zip)", click: () => void refrescarExtensionLocal(true) },
       { type: "separator" },
-      // Para probar el circuito sin esperar una reunión real.
-      { label: "Probar el cartel", click: () => mostrarCartel() },
+      // Para probar el circuito sin esperar una reunión real. OJO: tiene que
+      // pasar por reunionEmpezo() como una reunión de verdad -- si sólo
+      // mostrara el cartel, el puente quedaría en "no hay reunión" y la barra,
+      // al abrirse, se despediría sola a los cinco segundos CON la grabación
+      // adentro (pasó: "la grabación no funciona").
+      { label: "Probar el cartel", click: () => reunionEmpezo() },
       { type: "separator" },
       { label: "Salir", click: () => { app.cerrandoDeVerdad = true; app.quit(); } },
     ])

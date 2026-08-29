@@ -17,7 +17,7 @@ import {
   scheduleMeetingCleanupIfEmpty,
 } from "./meetingStore";
 import { cleanTranscriptFragment, translateFragmentToAll } from "./transcriptCleanup";
-import { shortLang, translateText } from "./translate";
+import { shortLang } from "./translate";
 import { ChatMode, Meeting, MODERATION_RANK, ModerationRole, Participant, SharePolicy, toSnapshot, TranscriptLine } from "./types";
 
 const MAX_NAME_LENGTH = 60;
@@ -545,15 +545,17 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       // así que se traduce al idioma de TODOS los presentes (el de la persona
       // que comparte incluido) y la interfaz oculta las idénticas.
       if (payload?.screen === true) {
-        const recentContext = meeting.transcript.slice(-4).map((l) => `${l.speakerName}: ${l.text}`);
+        const recentContext = meeting.transcript.slice(-6).map((l) => `${l.speakerName}: ${l.text}`);
         const assumedLang = payload?.lang || speaker.language;
         const targets = new Set<string>();
         for (const p of meeting.participants.values()) targets.add(shortLang(p.language));
-        const translationsPromise = translateFragmentToAll(
-          alternatives, recentContext, Array.from(targets), assumedLang
-        );
+        // Corregir primero, traducir lo corregido: traducir las lecturas
+        // crudas era traducir los errores del reconocimiento.
         const cleanup = await cleanTranscriptFragment(alternatives, recentContext, assumedLang);
         if (!cleanup.text) return;
+        const translationsPromise = translateFragmentToAll(
+          [cleanup.text], recentContext, Array.from(targets), assumedLang
+        );
         const still = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
         if (!still || still !== meeting || !meeting.participants.has(socket.id)) return;
         const mismatch = cleanup.detectedLang !== null && cleanup.detectedLang !== shortLang(assumedLang);
@@ -603,7 +605,10 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       // is folded directly into the alternatives themselves (below) instead
       // of staying in "context", so it isn't duplicated in the prompt.
       const baseTranscript = mergeTarget ? meeting.transcript.slice(0, -1) : meeting.transcript;
-      const recentContext = baseTranscript.slice(-4).map((l) => `${l.speakerName}: ${l.text}`);
+      // Seis líneas de contexto (eran cuatro): con más conversación previa el
+      // modelo desambigua mejor una palabra mal oída -- de qué se viene
+      // hablando es la mejor pista para "¿dijo 'banda' o 'venda'?".
+      const recentContext = baseTranscript.slice(-6).map((l) => `${l.speakerName}: ${l.text}`);
       const effectiveAlternatives = mergeTarget
         ? alternatives.map((a) => `${mergeTarget.text} ${a}`.trim())
         : alternatives;
@@ -614,31 +619,13 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       // change the setting, or is just being tested with foreign audio).
       const assumedSourceLang = payload?.lang || speaker.language;
 
-      // Kick off the original-language cleanup AND a single combined
-      // translate-to-every-*assumed*-target-language call at the same time,
-      // instead of translating only after cleanup finishes -- they're
-      // independent Claude calls working from the same raw alternatives, so
-      // running them in parallel instead of back-to-back roughly halves the
-      // time before a translated caption shows up. This is "optimistic"
-      // because it's built on `assumedSourceLang`; if cleanup later detects
-      // the speaker was actually using a different language, one corrective
-      // call fills the gap below instead of redoing everything.
-      // Deduped to short codes: someone on "en-US" and someone on "en-GB"
-      // both just need "en" -- asking for the same translation twice would
-      // waste a chunk of the batched call for no benefit.
-      const optimisticTargetLangs = new Set<string>();
-      for (const p of meeting.participants.values()) {
-        if (shortLang(p.language) !== shortLang(assumedSourceLang)) optimisticTargetLangs.add(shortLang(p.language));
-      }
-      const cleanupPromise = cleanTranscriptFragment(effectiveAlternatives, recentContext, assumedSourceLang);
-      const optimisticTranslationsPromise = translateFragmentToAll(
-        effectiveAlternatives,
-        recentContext,
-        Array.from(optimisticTargetLangs),
-        assumedSourceLang
-      );
-
-      const cleanup = await cleanupPromise;
+      // PRIMERO se corrige, DESPUÉS se traduce. Antes las dos llamadas
+      // corrían en paralelo sobre las lecturas CRUDAS del reconocimiento
+      // (ganaba ~1 segundo), pero eso significaba traducir los errores:
+      // "commanders" traducido con toda seriedad en vez de "cómo andás".
+      // La traducción llega igual como parche posterior sobre la línea, así
+      // que ese segundo no le costaba nada a nadie -- y la calidad, todo.
+      const cleanup = await cleanTranscriptFragment(effectiveAlternatives, recentContext, assumedSourceLang);
       if (!cleanup.text) return;
 
       // The meeting (or this participant) may have disappeared while we were
@@ -695,30 +682,20 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       }
       io.to(roomName(meeting.id)).emit("transcript-line", { line });
 
-      // If the speaker turned out to be using a different language than
-      // assumed, the group we skipped translating for (because we thought
-      // they shared the speaker's language) actually needs a translation
-      // too -- fetch that one now instead of leaving them with an untranslated
-      // caption in a language they don't understand. Unlike the optimistic
-      // batch above, this can translate straight from `cleanup.text` (already
-      // corrected, no ASR disambiguation needed) via the plain translator,
-      // which is simpler and shares its own cache with chat/REST translation.
-      const correctivePromise: Promise<readonly [string, string] | null> = mismatch
-        ? translateText(cleanup.text, sourceLang, assumedSourceLang)
-            .then((translated) => [shortLang(assumedSourceLang), translated] as const)
-            .catch(() => null)
-        : Promise.resolve(null);
-
-      const [optimisticTranslations, correctiveEntry] = await Promise.all([
-        optimisticTranslationsPromise,
-        correctivePromise,
-      ]);
-
-      const translations: Record<string, string> = { ...optimisticTranslations };
-      if (correctiveEntry) {
-        const [lang, translated] = correctiveEntry;
-        if (translated) translations[lang] = translated;
+      // Los destinos se calculan con el idioma DETECTADO (no el supuesto):
+      // si la persona habló en otro idioma que el configurado, el grupo que
+      // se creía "del mismo idioma" también recibe su traducción -- sin
+      // llamada correctiva aparte, porque acá ya se sabe la verdad.
+      const targetLangs = new Set<string>();
+      for (const p of meeting.participants.values()) {
+        if (shortLang(p.language) !== shortLang(sourceLang)) targetLangs.add(shortLang(p.language));
       }
+      const translations = await translateFragmentToAll(
+        [cleanup.text],
+        recentContext,
+        Array.from(targetLangs),
+        sourceLang
+      );
       if (Object.keys(translations).length === 0) return;
 
       const stillThere = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
