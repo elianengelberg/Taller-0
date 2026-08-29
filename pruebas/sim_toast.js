@@ -124,7 +124,7 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
       `--disable-extensions-except=${EXT}`,
       `--load-extension=${EXT}`,
       "--ignore-certificate-errors",
-      '--host-resolver-rules=MAP *.zoom.us 127.0.0.1, MAP zoom.us 127.0.0.1, MAP meet.jit.si 127.0.0.1, MAP whereby.com 127.0.0.1, MAP *.webex.com 127.0.0.1, MAP global.gotomeeting.com 127.0.0.1, MAP bluejeans.com 127.0.0.1, MAP discord.com 127.0.0.1, MAP v.ringcentral.com 127.0.0.1, MAP app.chime.aws 127.0.0.1',
+      '--host-resolver-rules=MAP *.zoom.us 127.0.0.1, MAP zoom.us 127.0.0.1, MAP meet.jit.si 127.0.0.1, MAP whereby.com 127.0.0.1, MAP *.webex.com 127.0.0.1, MAP global.gotomeeting.com 127.0.0.1, MAP bluejeans.com 127.0.0.1, MAP discord.com 127.0.0.1, MAP v.ringcentral.com 127.0.0.1, MAP app.chime.aws 127.0.0.1, MAP teams.live.com 127.0.0.1, MAP teams.microsoft.com 127.0.0.1',
       // Acepta solo el pedido de captura de ESTA pestaña (preferCurrentTab),
       // que es exactamente lo que hace el carril B.
       "--auto-accept-this-tab-capture",
@@ -274,6 +274,65 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     const aviso = await page.locator(".aviso").textContent().catch(() => "");
     check("sin almacenamiento configurado, la falla de subida SE DICE",
       /no pudimos subirla|no pudimos subir/i.test(aviso), aviso.slice(0, 80));
+  }
+
+  // ═══════ 4b. MICROSOFT TEAMS, el circuito entero ═══════
+  // Teams tiene DOS casas (el corporativo en teams.microsoft.com y el
+  // personal en teams.live.com) y las dos tienen que dar lo mismo que Zoom:
+  // cartel al medio, sala estable, y la línea del bridge pintada en vivo.
+  console.log("\n── 4b. Microsoft Teams (corporativo y personal) ──");
+  {
+    // Personal: teams.live.com/meet/<número>.
+    const meetId = `94${Date.now() % 1e8}`;
+    await page.goto(`https://teams.live.com/meet/${meetId}`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(2500);
+    check("en Teams PERSONAL el cartel aparece", (await page.locator(".caja").count()) === 1);
+    const textoT = (await page.locator(".caja").textContent().catch(() => "")) || "";
+    check("y nombra a Microsoft Teams", /Microsoft Teams/.test(textoT), textoT.slice(0, 70));
+    {
+      const r = await page.locator(".caja").boundingBox();
+      const vp = page.viewportSize();
+      check("el cartel de Teams también está al MEDIO",
+        Math.abs(r.x + r.width / 2 - vp.width / 2) < 40 && Math.abs(r.y + r.height / 2 - vp.height / 2) < 40,
+        `desvío=(${Math.round(Math.abs(r.x + r.width / 2 - vp.width / 2))},${Math.round(Math.abs(r.y + r.height / 2 - vp.height / 2))})px`);
+    }
+    await page.getByRole("button", { name: "Sí, dale" }).click();
+    await page.waitForTimeout(2000);
+
+    // La MISMA sala en el bridge real: quien esté en la web de Unify con ese
+    // enlace y este overlay tienen que verse entre sí.
+    const r2 = await fetch(`${API}/api/meet-bridge/${encodeURIComponent(`teams:${meetId}`)}/transcript`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ speaker: "Carla Web", text: "hola desde la web, ¿se ve en Teams?", lang: "es-AR" }),
+    });
+    check("el bridge real acepta la sala de Teams", r2.status === 200, `HTTP ${r2.status}`);
+    await page.waitForTimeout(6000);
+    const subsT = (await page.locator(".subs").textContent().catch(() => "")) || "";
+    check("el overlay de Teams la pinta EN VIVO con su hablante",
+      subsT.includes("Carla Web") && subsT.includes("hola desde la web"), subsT.slice(0, 80));
+    await page.getByRole("button", { name: /Detener|Cerrar|Ahora no/ }).first().click();
+    await page.waitForTimeout(1500);
+
+    // Corporativo: el thread id del path ES la sala (estable aunque cambien
+    // los parámetros de la invitación de cada persona).
+    const hilo = "19:meeting_NzAxOWQ4YTk@thread.v2";
+    await page.goto(
+      `https://teams.microsoft.com/l/meetup-join/${encodeURIComponent(hilo)}/0?context=x`,
+      { waitUntil: "domcontentloaded" },
+    );
+    await page.waitForTimeout(2500);
+    check("en Teams CORPORATIVO (meetup-join) el cartel también aparece",
+      (await page.locator(".caja").count()) === 1);
+    await page.getByRole("button", { name: /Ahora no/ }).first().click();
+    await page.waitForTimeout(500);
+
+    // Y una página de Teams que NO es una reunión (el chat, el calendario):
+    // silencio absoluto -- avisar ahí sería spam.
+    await page.goto("https://teams.microsoft.com/v2/inicio", { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(2000);
+    check("una página de Teams que no es reunión NO molesta",
+      (await page.locator(".caja").count()) === 0);
   }
 
   // ═══════ 5. Sin responder: a los 15 segundos arranca solo ═══════
