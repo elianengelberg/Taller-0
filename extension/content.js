@@ -77,11 +77,62 @@
     }
   }
 
+  // CÓMO SE ARMA CADA TARJETA DE LA TRANSCRIPCIÓN.
+  //
+  // Antes: todo lo que dijera la misma persona en 8 segundos se pegaba en una
+  // sola línea, hasta 400 caracteres... medidos ANTES de pegar, así que una
+  // tarjeta terminaba con muros de texto imposibles de leer -- párrafos
+  // enteros sin respiro, sin hora propia, y con la frase de hace diez minutos
+  // enganchada a la de recién.
+  //
+  // Ahora se juntan sólo los PEDACITOS de una misma idea: se corta al cerrar
+  // una frase, cuando hay una pausa, o al llegar al largo de un párrafo
+  // cómodo. El resultado se lee como una conversación, no como un volcado.
+  const CORTE_PAUSA_MS = 2500;   // una pausa así ya es otra idea
+  const LARGO_COMODO = 220;      // dos renglones y medio en el panel
+
+  const cierraFrase = (t) => /[.?!…]["')\]]?$/.test(t.trim());
+
+  // Parte un texto largo en frases (sin perder nada) para que no entre como
+  // un ladrillo. Si no hay puntuación, corta por palabras al largo cómodo.
+  function partirEnFrases(texto) {
+    const frases = texto.split(/(?<=[.?!…])\s+/).filter(Boolean);
+    const salida = [];
+    for (const f of frases) {
+      if (f.length <= LARGO_COMODO * 1.6) { salida.push(f); continue; }
+      let actual = "";
+      for (const palabra of f.split(/\s+/)) {
+        if (actual && (actual + " " + palabra).length > LARGO_COMODO) {
+          salida.push(actual);
+          actual = palabra;
+        } else {
+          actual = actual ? `${actual} ${palabra}` : palabra;
+        }
+      }
+      if (actual) salida.push(actual);
+    }
+    return salida.length ? salida : [texto];
+  }
+
   function pushLocal(speaker, text, { translate = true, at = Date.now() } = {}) {
     const name = speaker || "Participante";
     state.speakers.add(name);
+    let ultima = null;
+    for (const pedazo of partirEnFrases(text.trim())) {
+      ultima = agregarPedazo(name, pedazo, translate, at);
+    }
+    return ultima;
+  }
+
+  function agregarPedazo(name, text, translate, at) {
     const last = state.lines[state.lines.length - 1];
-    if (last && last.speaker === name && at - last.at < 8000 && last.text.length < 400) {
+    const sePuedeJuntar =
+      last &&
+      last.speaker === name &&
+      at - last.at < CORTE_PAUSA_MS &&
+      !cierraFrase(last.text) &&
+      (last.text.length + text.length) <= LARGO_COMODO;
+    if (sePuedeJuntar) {
       if (last.text.includes(text)) return last; // ya está adentro: no repetir
       last.text = `${last.text} ${text}`.trim();
       last.at = at;
@@ -149,6 +200,22 @@
         body: JSON.stringify({ speaker: line.speaker, text, lang: navigator.language || "es-AR", alts }),
       });
       if (r?.dbId) state.session.dbId = r.dbId;
+      // La IA del servidor reconstruye la frase más probable (el
+      // reconocimiento confunde palabras que suenan parecido). Acá se adopta
+      // esa versión: antes el historial guardaba la buena y el panel seguía
+      // mostrando la cruda -- la persona veía la peor de las dos.
+      if (r?.text && r.text !== text && line.text.includes(text)) {
+        const i = line.text.lastIndexOf(text);
+        line.text = (line.text.slice(0, i) + r.text + line.text.slice(i + text.length)).trim();
+        line.translated = null;
+        ui.renderStream();
+        ui.showSubtitle(line);
+        if (cfg.lang) void translateLine(line);
+      }
+      // Y si Meet está escribiendo en OTRO idioma que el que se habla, se
+      // dice con nombre y apellido: es la causa número uno de que salgan
+      // frases sin sentido, y no hay IA que las recupere después.
+      if (r?.idiomaDistinto) ui.avisarIdiomaDeMeet(r.idiomaDistinto);
       ui.setStatus("live");
     } catch {
       ui.setStatus("offline");
@@ -596,7 +663,22 @@
         kind === "off" ? "Fuera de la llamada" : kind === "offline" ? "Sin conexión" : "Companion activo";
     }
 
+    // Meet escribiendo en un idioma que no es el que se habla: se avisa una
+    // sola vez y con el idioma detectado, no con una sospecha genérica.
+    let idiomaAvisado = null;
+    function avisarIdiomaDeMeet(codigo) {
+      if (!el.capHint || idiomaAvisado === codigo) return;
+      idiomaAvisado = codigo;
+      const nombres = { en: "inglés", es: "español", pt: "portugués", fr: "francés", de: "alemán", it: "italiano" };
+      el.capHint.innerHTML =
+        `Los subtítulos de Meet están saliendo en <b>${nombres[codigo] || codigo}</b>, y por eso las ` +
+        `palabras salen mal. Cambiá el idioma en <b>CC → ⚙</b> de Meet.`;
+      el.capHint.classList.remove("ok");
+      el.capHint.classList.add("aviso");
+    }
+
     function setCaptionsReady(ok) {
+      if (idiomaAvisado) return; // no pisar el aviso que sí explica el problema
       // Las palabras las escribe MEET, no Unify: si sus subtítulos están en
       // otro idioma que el que se habla, salen frases sin sentido ("cómo
       // andás" -> "Commanders") y no hay IA que lo arregle después. Decir
@@ -680,7 +762,10 @@
       el.subRole.hidden = !r.id;
       el.subName.textContent = line.speaker;
       el.subLang.textContent = (cfg.lang || navigator.language || "es").slice(0, 2).toUpperCase();
-      el.subText.textContent = line.text;
+      // Sobre el video entra una idea, no un párrafo: se muestra el final,
+      // que es lo que se está diciendo ahora.
+      const visible = line.text.length > 160 ? "…" + line.text.slice(-160) : line.text;
+      el.subText.textContent = visible;
       if (line.translated) {
         el.subTr.textContent = line.translated;
         el.subTr.hidden = false;
@@ -792,7 +877,7 @@
       mount,
       unmount() { host?.remove(); host = null; shadow = null; el = {}; },
       get mounted() { return Boolean(host && document.body.contains(host)); },
-      toggleDrawer, setStatus, setCaptionsReady, setRecording,
+      toggleDrawer, setStatus, setCaptionsReady, setRecording, avisarIdiomaDeMeet,
       renderStream, renderRoles, renderMicCard, showSubtitle, refreshAccount,
       // El idioma puede resolverse DESPUÉS de montar la interfaz (el storage
       // es asíncrono): esto empareja el selector con cfg.lang cuando llega.

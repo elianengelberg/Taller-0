@@ -98,11 +98,20 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
   // El content script vive en un mundo aislado: hay que interceptar en el
   // navegador, no pisando window.fetch de la página.
   const posted = [];
+  // Lo que el servidor de VERDAD contesta: el texto ya corregido por la IA y,
+  // si Meet está escribiendo en otro idioma, cuál. `respuestaIA` deja que una
+  // prueba puntual encienda ese comportamiento.
+  let respuestaIA = null;
   await ctx.route("**/api/meet-bridge/**", async (route) => {
     const url = route.request().url();
     if (url.endsWith("/transcript")) {
-      try { posted.push(JSON.parse(route.request().postData() || "{}")); } catch {}
-      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, dbId: "fake" }) });
+      let cuerpo = {};
+      try { cuerpo = JSON.parse(route.request().postData() || "{}"); posted.push(cuerpo); } catch {}
+      const extra = respuestaIA ? respuestaIA(cuerpo) : null;
+      return route.fulfill({
+        status: 200, contentType: "application/json",
+        body: JSON.stringify({ ok: true, dbId: "fake", ...(extra || {}) }),
+      });
     }
     if (url.endsWith("/session")) {
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ dbId: "fake", transcript: [], participants: [] }) });
@@ -258,6 +267,63 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
 
   const stream = await page.locator(".stream").textContent();
   check("la transcripción del panel muestra a los tres", ["Ana", "Bruno", "Carolina"].every((n) => (stream || "").includes(n)));
+
+  // LA IA CORRIGE Y EL PANEL LO MUESTRA. El servidor reconstruye la frase más
+  // probable, pero antes esa versión sólo iba al historial: en pantalla
+  // quedaba la lectura cruda del reconocimiento. Se veía la peor de las dos.
+  {
+    respuestaIA = (cuerpo) => ({
+      text: cuerpo.text.replace(/comandantes/i, "cómo andás"),
+      idiomaDistinto: "en",
+    });
+    await page.evaluate(() => window.__say("Nadia Sosa", "contame un poco comandantes todo bien"));
+    await page.waitForTimeout(3200);
+    const enPantalla = await page.evaluate(() =>
+      [...document.getElementById("unify-root").shadowRoot.querySelectorAll(".entry .text")]
+        .map((n) => n.textContent).join(" | "));
+    check("el panel adopta la frase corregida por la IA (no la lectura cruda)",
+      /cómo andás/i.test(enPantalla) && !/comandantes/i.test(enPantalla),
+      (enPantalla.match(/[^|]*(cómo andás|comandantes)[^|]*/i)?.[0] ?? "").trim().slice(0, 70));
+
+    // Y si Meet escribe en otro idioma, se dice con nombre: es LA causa de
+    // que las palabras salgan mal, y ninguna IA la arregla después.
+    const aviso = await page.evaluate(() =>
+      document.getElementById("unify-root").shadowRoot.querySelector(".hint")?.textContent ?? "");
+    check("y avisa, con el idioma detectado, por qué salen palabras raras",
+      /inglés/i.test(aviso) && /CC/.test(aviso), aviso.trim().slice(0, 90));
+    respuestaIA = null;
+  }
+
+  // NADA DE MUROS DE TEXTO. En una reunión de verdad el panel terminaba con
+  // UNA tarjeta de miles de caracteres: todo lo dicho en minutos pegado, sin
+  // hora propia y sin dónde apoyar el ojo. La transcripción tiene que leerse
+  // como una conversación.
+  {
+    await page.evaluate(async () => {
+      const caps = document.getElementById("caps");
+      const decir = async (texto) => {
+        const row = document.createElement("div");
+        row.innerHTML = '<img alt=""><div class="n"></div><div class="t"></div>';
+        caps.appendChild(row);
+        row.querySelector(".n").textContent = "Sofía Lema";
+        row.querySelector(".t").textContent = texto;
+        await new Promise((r) => setTimeout(r, 2200));
+      };
+      await decir("Arrancamos con el informe del trimestre. Las ventas subieron un quince por ciento contra el año pasado. El equipo de soporte cerró todos los tickets pendientes.");
+      await decir("Ahora bien, hay un tema con los plazos de entrega que quiero discutir con ustedes porque viene arrastrándose desde marzo y ya nos costó dos clientes importantes.");
+    });
+    await page.waitForTimeout(3000);
+    const tarjetas = await page.evaluate(() =>
+      [...document.getElementById("unify-root").shadowRoot.querySelectorAll(".entry .text")].map((n) => n.textContent.trim()));
+    const deSofia = tarjetas.filter((t) => /trimestre|ventas|soporte|plazos|clientes/i.test(t));
+    const masLarga = Math.max(0, ...deSofia.map((t) => t.length));
+    check("un discurso largo se parte en tarjetas legibles (no un muro de texto)",
+      deSofia.length >= 3 && masLarga <= 260,
+      `${deSofia.length} tarjetas, la más larga de ${masLarga} caracteres`);
+    check("y cada frase queda entera (no cortada al medio de una palabra)",
+      deSofia.every((t) => !/\s$/.test(t) && t.length > 0),
+      deSofia.map((t) => `«${t.slice(0, 38)}…»`).join(" "));
+  }
 
   // LA REPETICIÓN, que es lo que arruinaba la transcripción en una reunión de
   // verdad: Meet reescribe la MISMA fila mientras hablás y corrige palabras ya

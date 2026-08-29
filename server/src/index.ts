@@ -2154,7 +2154,20 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
     line.translations = translations;
     io.to(roomFor(meeting.id)).emit("transcript-line-translations", { lineId: line.id, translations });
   });
-  res.json({ ok: true, dbId: meeting.dbId, lineId: line.id });
+  // Se devuelve el texto YA CORREGIDO por la IA (y en qué idioma venía de
+  // verdad). Sin esto, el panel de la extensión seguía mostrando la lectura
+  // cruda del reconocimiento mientras el historial guardaba la buena: la
+  // persona veía la peor de las dos versiones.
+  res.json({
+    ok: true,
+    dbId: meeting.dbId,
+    lineId: line.id,
+    text: line.text,
+    sourceLang: line.sourceLang,
+    // El idioma en el que Meet está escribiendo, cuando NO es el esperado:
+    // es la causa número uno de "las palabras salen mal".
+    idiomaDistinto: mismatch ? cleanup.detectedLang : null,
+  });
 });
 
 // Lets the extension panel bootstrap: which saved meeting backs this Meet code,

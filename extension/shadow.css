@@ -207,6 +207,13 @@ input, select, textarea { font-family: inherit; }
    competirle al estado. */
 .hint .tip { display: block; margin-top: 4px; color: var(--mut); font-size: 11.5px; }
 .hint .tip b { color: var(--tx); }
+/* Cuando el problema tiene nombre (Meet escribiendo en otro idioma), el aviso
+   se ve como aviso y no como una nota al pie. */
+.hint.aviso {
+  color: #fde68a; background: rgba(251, 191, 36, 0.10);
+  border: 1px solid rgba(251, 191, 36, 0.34); border-radius: 10px; padding: 9px 11px;
+}
+.hint.aviso b { color: #fff; }
 .hint a { color: var(--violet-2); }
 
 /* --- Transcripción --- */
