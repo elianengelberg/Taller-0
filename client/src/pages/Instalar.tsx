@@ -526,7 +526,7 @@ export default function Instalar() {
                         Se instala como cualquier programa y queda al lado del reloj. Cuando te unís
                         a una reunión{" "}
                         <span className="font-semibold text-strong">
-                          desde la app de Zoom o de Microsoft Teams
+                          desde la app de Zoom, Microsoft Teams, Webex, Jitsi, Slack, Discord y más
                         </span>
                         , te pregunta si la querés grabar — con subtítulos, traducción e IA — y al
                         terminar te abre todo en tu historial.

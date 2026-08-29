@@ -1,8 +1,8 @@
 {
   "name": "unify-escritorio",
   "productName": "Unify",
-  "version": "1.5.0",
-  "description": "Unify para Windows: detecta tus reuniones de Zoom y Microsoft Teams y las graba con subtítulos, traducción e IA.",
+  "version": "1.6.0",
+  "description": "Unify para Windows: detecta tus reuniones de Zoom, Microsoft Teams, Webex, Jitsi y más apps, y las graba con subtítulos, traducción e IA.",
   "main": "main.js",
   "author": "Unify",
   "license": "MIT",

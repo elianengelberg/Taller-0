@@ -1676,6 +1676,14 @@ const BRIDGE_LABELS: Record<string, string> = {
   externa: "Reunión externa", escritorio: "Zoom (app de escritorio)",
 };
 
+// Las apps que la app de Windows sabe detectar: el prefijo con el que arma la
+// cola de la sala (escritorio:webex-...) y cómo se titula cada una.
+const ESCRITORIO_APPS: Record<string, string> = {
+  zoom: "Zoom", teams: "Microsoft Teams", webex: "Webex", jitsi: "Jitsi",
+  chime: "Amazon Chime", goto: "GoTo Meeting", ringcentral: "RingCentral",
+  slack: "Slack", discord: "Discord",
+};
+
 // El título para una clave entera. Para "escritorio" la app que detectó la
 // reunión viene en el prefijo de la cola (escritorio:teams-... es Teams):
 // titular "Zoom" una reunión de Teams era mentirle al historial.
@@ -1684,8 +1692,8 @@ function bridgeLabelFor(roomKey: string): string {
   const platform = sep > 0 ? roomKey.slice(0, sep) : roomKey;
   if (platform === "escritorio") {
     const tail = sep > 0 ? roomKey.slice(sep + 1) : "";
-    if (tail.startsWith("teams")) return "Microsoft Teams (app de escritorio)";
-    return "Zoom (app de escritorio)";
+    const app = ESCRITORIO_APPS[tail.split("-")[0]] ?? "Zoom";
+    return `${app} (app de escritorio)`;
   }
   return BRIDGE_LABELS[platform] ?? "Reunión externa";
 }

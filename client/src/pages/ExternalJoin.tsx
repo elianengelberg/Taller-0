@@ -253,9 +253,22 @@ export default function ExternalJoin() {
         cruda.replace(/[^a-z0-9-]/gi, "").slice(0, 48) ||
         `zoom-${Date.now().toString(36)}`;
       // La app mete la plataforma detectada en el prefijo de la sala
-      // ("teams-..." / "zoom-..."): de ahí sale cómo se nombra la reunión.
-      const esTeams = sala.startsWith("teams");
-      const nombreApp = esTeams ? "Microsoft Teams" : "Zoom";
+      // ("teams-...", "webex-...", "jitsi-..."): de ahí sale cómo se nombra
+      // la reunión y a dónde apunta el enlace de respaldo. La tabla espeja
+      // NOMBRES_APP del detector de la app de Windows.
+      const APPS_ESCRITORIO: Record<string, { nombre: string; enlace: string }> = {
+        zoom: { nombre: "Zoom", enlace: "https://zoom.us/join" },
+        teams: { nombre: "Microsoft Teams", enlace: "https://teams.microsoft.com" },
+        webex: { nombre: "Webex", enlace: "https://www.webex.com" },
+        jitsi: { nombre: "Jitsi", enlace: "https://meet.jit.si" },
+        chime: { nombre: "Amazon Chime", enlace: "https://app.chime.aws" },
+        goto: { nombre: "GoTo Meeting", enlace: "https://www.goto.com" },
+        ringcentral: { nombre: "RingCentral", enlace: "https://www.ringcentral.com" },
+        slack: { nombre: "Slack", enlace: "https://slack.com" },
+        discord: { nombre: "Discord", enlace: "https://discord.com" },
+      };
+      const infoApp = APPS_ESCRITORIO[sala.split("-")[0]] ?? APPS_ESCRITORIO.zoom;
+      const nombreApp = infoApp.nombre;
       // La barra acompañante arranca grabando sola y sabe que la vigila el
       // puente local de la app (ver ExternalMeeting).
       sessionStorage.setItem("unify_autorec", "1");
@@ -272,7 +285,7 @@ export default function ExternalJoin() {
         embed: {
           kind: "external",
           label: nombreApp,
-          joinLink: esTeams ? "https://teams.microsoft.com" : "https://zoom.us/join",
+          joinLink: infoApp.enlace,
         },
       });
       navigate("/externa/reunion", { replace: true });

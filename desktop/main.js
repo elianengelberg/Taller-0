@@ -1,8 +1,9 @@
 // La app de escritorio de Unify.
 //
-// Qué hace: vive en la bandeja (al lado del reloj), y cuando la app de Zoom
-// o la de Microsoft Teams entra a una reunión muestra NUESTRO cartel al medio
-// de la pantalla:
+// Qué hace: vive en la bandeja (al lado del reloj), y cuando una app de
+// reuniones entra a una reunión (Zoom, Microsoft Teams, Webex, Jitsi, Chime,
+// GoTo, RingCentral, Slack, Discord) muestra NUESTRO cartel al medio de la
+// pantalla:
 // "¿querés grabarla?". Si la respuesta es sí (o no se toca nada en unos
 // segundos), abre la barra acompañante de Unify -- la página web en una
 // ventanita del navegador -- que pone subtítulos en vivo, traducción, IA y
@@ -48,8 +49,19 @@ let salaActual = "";
 let plataformaActual = "zoom"; // qué app disparó la reunión en curso
 let navegadorHijo = null;
 
-// Cómo se le dice a cada app en los carteles y avisos.
-const NOMBRES_APP = { zoom: "Zoom", teams: "Microsoft Teams" };
+// Cómo se le dice a cada app en los carteles y avisos. Las claves son las
+// plataformas que el detector sabe reconocer (ver detector.js).
+const NOMBRES_APP = {
+  zoom: "Zoom",
+  teams: "Microsoft Teams",
+  webex: "Webex",
+  jitsi: "Jitsi",
+  chime: "Amazon Chime",
+  goto: "GoTo Meeting",
+  ringcentral: "RingCentral",
+  slack: "Slack",
+  discord: "Discord",
+};
 
 // Un solo Unify en la bandeja; el segundo intento sólo avisa al primero.
 if (process.env.UNIFY_TEST === "1") {

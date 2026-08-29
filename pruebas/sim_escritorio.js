@@ -61,27 +61,56 @@ async function probarExtensionLocal(check) {
 // mientras está tomado). Acá se prueba el intérprete de ese registro con
 // salidas reales de `reg query`, y la sonda de archivo que simula ambas apps.
 async function probarDetector(check) {
-  const { teamsUsaElMicrofono, sondaArchivo } = require(path.join(DESK, "detector.js"));
+  const { teamsUsaElMicrofono, appUsandoElMicrofono, sondaArchivo } = require(path.join(DESK, "detector.js"));
   const os = require("os");
   const base = "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone";
+  const bloque = (clave, valor = "0x0") =>
+    `\r\n${base}\\${clave}\r\n    LastUsedTimeStop    REG_QWORD    ${valor}\r\n\r\n`;
 
-  const enLlamada = `\r\n${base}\\MSTeams_8wekyb3d8bbwe!MSTeams\r\n    LastUsedTimeStop    REG_QWORD    0x0\r\n\r\n`;
   check("Teams con el micrófono tomado (reunión en curso) se detecta",
-    teamsUsaElMicrofono(enLlamada) === true);
+    teamsUsaElMicrofono(bloque("MSTeams_8wekyb3d8bbwe!MSTeams")) === true);
 
-  const colgado = `\r\n${base}\\MSTeams_8wekyb3d8bbwe!MSTeams\r\n    LastUsedTimeStop    REG_QWORD    0x1dbdd47e0e37e26\r\n\r\n`;
   check("Teams con el micrófono ya soltado (reunión terminada) NO se detecta",
-    teamsUsaElMicrofono(colgado) === false);
+    teamsUsaElMicrofono(bloque("MSTeams_8wekyb3d8bbwe!MSTeams", "0x1dbdd47e0e37e26")) === false);
 
-  const clasico = `\r\n${base}\\NonPackaged\\C:#Users#x#AppData#Local#Microsoft#Teams#current#Teams.exe\r\n    LastUsedTimeStop    REG_QWORD    0x0\r\n\r\n`;
   check("el Teams clásico (Teams.exe suelto) también se detecta",
-    teamsUsaElMicrofono(clasico) === true);
+    teamsUsaElMicrofono(bloque("NonPackaged\\C:#Users#x#AppData#Local#Microsoft#Teams#current#Teams.exe")) === true);
 
   // La trampa: TeamSpeak contiene "teams" en el nombre. Un micrófono tomado
   // por TeamSpeak NO es una reunión de Teams (dispararía el cartel jugando).
-  const teamspeak = `\r\n${base}\\NonPackaged\\C:#Program Files#TeamSpeak#TeamSpeak.exe\r\n    LastUsedTimeStop    REG_QWORD    0x0\r\n\r\n`;
   check("TeamSpeak con el micrófono NO dispara el cartel (no es Teams)",
-    teamsUsaElMicrofono(teamspeak) === false);
+    appUsandoElMicrofono(bloque("NonPackaged\\C:#Program Files#TeamSpeak#TeamSpeak.exe")) === null);
+
+  // Y las demás apps de reuniones de las empresas, cada una por su exe real.
+  const esperadas = [
+    ["Webex (app moderna)", "NonPackaged\\C:#Program Files#Cisco Spark#CiscoCollabHost.exe", "webex"],
+    ["Webex Meetings clásico (atmgr.exe)", "NonPackaged\\C:#Users#x#AppData#Local#WebEx#atmgr.exe", "webex"],
+    ["Jitsi Meet (la app de escritorio)", "NonPackaged\\C:#Users#x#AppData#Local#Programs#jitsi-meet#Jitsi Meet.exe", "jitsi"],
+    ["Amazon Chime", "NonPackaged\\C:#Users#x#AppData#Local#AmazonChime#Amazon Chime.exe", "chime"],
+    ["GoTo (app nueva)", "NonPackaged\\C:#Users#x#AppData#Local#GoTo#GoTo.exe", "goto"],
+    ["GoToMeeting clásico (g2mcomm.exe)", "NonPackaged\\C:#Users#x#AppData#Local#GoToMeeting#19842#g2mcomm.exe", "goto"],
+    ["RingCentral", "NonPackaged\\C:#Users#x#AppData#Local#Programs#RingCentral#RingCentral.exe", "ringcentral"],
+    ["Slack (huddle)", "NonPackaged\\C:#Users#x#AppData#Local#slack#slack.exe", "slack"],
+    ["Discord (canal de voz)", "NonPackaged\\C:#Users#x#AppData#Local#Discord#app-1.0.9#Discord.exe", "discord"],
+  ];
+  for (const [nombre, clave, plataforma] of esperadas) {
+    check(`${nombre} en reunión se detecta como «${plataforma}»`,
+      appUsandoElMicrofono(bloque(clave)) === plataforma,
+      String(appUsandoElMicrofono(bloque(clave))));
+  }
+
+  // Prioridad: Discord de fondo (un canal de voz abierto hace horas) + la
+  // reunión de verdad en Teams => gana Teams, no el ruido de fondo.
+  const dosALaVez =
+    bloque("NonPackaged\\C:#Users#x#AppData#Local#Discord#app-1.0.9#Discord.exe") +
+    bloque("MSTeams_8wekyb3d8bbwe!MSTeams");
+  check("con Discord de fondo Y Teams en reunión, gana Teams",
+    appUsandoElMicrofono(dosALaVez) === "teams", String(appUsandoElMicrofono(dosALaVez)));
+
+  // Un navegador con el micrófono NO es detectable como reunión (podría ser
+  // cualquier página: de eso se encarga la extensión, que ve QUÉ página es).
+  check("Chrome con el micrófono NO dispara el cartel (eso es de la extensión)",
+    appUsandoElMicrofono(bloque("NonPackaged\\C:#Program Files#Google#Chrome#Application#chrome.exe")) === null);
 
   // La sonda simulada distingue la app por el contenido del archivo.
   const ruta = path.join(os.tmpdir(), `unify-sonda-prueba-${Date.now()}`);
@@ -89,12 +118,14 @@ async function probarDetector(check) {
   const sinArchivo = await sonda();
   fs.writeFileSync(ruta, "teams");
   const conTeams = await sonda();
+  fs.writeFileSync(ruta, "webex");
+  const conWebex = await sonda();
   fs.writeFileSync(ruta, "1");
   const conZoom = await sonda();
   fs.rmSync(ruta, { force: true });
-  check("la sonda simulada dice QUÉ app está en reunión (teams/zoom/nada)",
-    sinArchivo === null && conTeams === "teams" && conZoom === "zoom",
-    `${String(sinArchivo)}/${conTeams}/${conZoom}`);
+  check("la sonda simulada dice QUÉ app está en reunión (teams/webex/zoom/nada)",
+    sinArchivo === null && conTeams === "teams" && conWebex === "webex" && conZoom === "zoom",
+    `${String(sinArchivo)}/${conTeams}/${conWebex}/${conZoom}`);
 }
 
 // ── 0b. El cartel de Zoom: 15 segundos y automático (Playwright, HTML real) ─
@@ -281,6 +312,14 @@ hijo.on("exit", async (c) => {
     etiqueta: "Microsoft Teams",
     soloClave: true,
   }).catch((e) => check("grabador silencioso (Teams)", false, String(e.message)));
+  // Y una vez más con JITSI: la plataforma nueva del pedido «que detecte
+  // jitsi y más apps de reuniones» pasa entera por la app real.
+  await probarGrabadorSilencioso(check, {
+    contenido: "jitsi",
+    clavePrefijo: /^escritorio:jitsi-/,
+    etiqueta: "Jitsi",
+    soloClave: true,
+  }).catch((e) => check("grabador silencioso (Jitsi)", false, String(e.message)));
   check("la app de escritorio abre UNA ventana propia (antes no abría ninguna)", r.ventanas === 1, `ventanas=${r.ventanas}`);
   check("y se ve (no queda escondida en la bandeja)", r.visible === true);
   check("con el título de la app", r.titulo === "Unify", String(r.titulo));
