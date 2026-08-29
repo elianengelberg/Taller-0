@@ -41,7 +41,7 @@ export default function RecordingBanner({
         </div>
         {kind === "audio" ? (
           <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl bg-black/70 px-3 py-1.5 text-[11px] text-ink-200 shadow-soft">
-            <span>Estamos grabando el audio. ¿Querés que también quede el video?</span>
+            <span>Estamos grabando el audio. ¿Querés que quede el video y escuchar a TODOS (no sólo tu voz)?</span>
             {onAddScreen && (
               <button
                 type="button"

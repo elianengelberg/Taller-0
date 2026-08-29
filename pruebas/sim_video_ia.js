@@ -139,7 +139,8 @@ const json = (b, extra = {}) => ({
       bloques[bloques.length - 1]?.type === "text" && /lámina/.test(bloques[bloques.length - 1].text ?? ""));
     check("y el system prompt sigue trayendo la transcripción",
       /presupuesto del tercer trimestre/.test(ll?.system ?? ""));
-    check("con la regla de mirar los fotogramas", /fotogramas del video/i.test(ll?.system ?? ""));
+    check("con la regla de mirar los fotogramas (citar el minuto)",
+      /citá el minuto del fotograma/i.test(ll?.system ?? ""));
   }
 
   // ═══════ 2. Los topes son de verdad ═══════
@@ -190,7 +191,28 @@ const json = (b, extra = {}) => ({
   // webm de MediaRecorder, declara duración Infinity -- exactamente el caso
   // que la captura de fotogramas tiene que saber manejar.
   {
-    await page.goto(`${B}/`, { waitUntil: "domcontentloaded" });
+    // ── La IA contesta AUNQUE la reunión esté vacía ──
+  // "No hay mensajes para contestar" era un rechazo fijo ANTES de llamar al
+  // modelo: con los subtítulos recién arrancando, la IA parecía rota. Ahora
+  // el modelo recibe la pregunta igual (el prompt le enseña a decir que aún
+  // no escuchó nada y a ayudar con lo que sea).
+  console.log("\n── 0b. La IA con la reunión VACÍA ──");
+  {
+    const sesVacia = await api(`/api/meet-bridge/${encodeURIComponent(`zoom:9${Date.now() % 1e9}9`)}/session`);
+    const dbVacia = sesVacia.body.dbId;
+    await api(`/api/meetings/${dbVacia}/claim`, { method: "POST", headers: auth });
+    llamadas.length = 0;
+    const rVacia = await api(`/api/meetings/${dbVacia}/ask`, json({ question: "¿qué podés hacer por mí?" }, auth));
+    check("la IA contesta con la reunión VACÍA (sin el rechazo fijo)",
+      rVacia.status === 200 && /RESPUESTA-STUB/.test(rVacia.body.answer ?? ""),
+      `HTTP ${rVacia.status} ${(rVacia.body.answer ?? rVacia.body.error ?? "").slice(0, 60)}`);
+    check("con el prompt que le enseña el caso (aún sin transcripción)",
+      llamadas.some((l) => /TODAVÍA no tiene ni una línea/i.test(String(l.system ?? ""))));
+    check("y el cerebro de la reunión es Sonnet 5",
+      llamadas[llamadas.length - 1]?.model === "claude-sonnet-5", String(llamadas[llamadas.length - 1]?.model));
+  }
+
+  await page.goto(`${B}/`, { waitUntil: "domcontentloaded" });
     const b64 = await page.evaluate(async () => {
       const canvas = document.createElement("canvas");
       canvas.width = 640; canvas.height = 360;

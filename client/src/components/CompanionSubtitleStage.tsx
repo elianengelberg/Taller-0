@@ -43,6 +43,14 @@ interface Props {
    */
   accionExtra?: { texto: string; onClick: () => void } | null;
   /**
+   * El botón que hace que el micrófono deje de ser la única oreja: compartir
+   * la pantalla CON audio del sistema mete las voces de toda la reunión al
+   * reconocimiento (y de paso queda el video grabado). Sólo tiene sentido
+   * donde la reunión vive AFUERA (Meet, la app de Zoom) y el navegador puede
+   * capturar pantalla.
+   */
+  accionEscucharTodos?: (() => void) | null;
+  /**
    * Aclaración sobre la grabación, cuando no está corriendo por una razón que
    * la persona merece saber (en iPhone/iPad el micrófono es de una sola cosa
    * a la vez, así que grabar apagaría los subtítulos).
@@ -78,6 +86,7 @@ export default function CompanionSubtitleStage({
   problem,
   onRetry,
   accionExtra,
+  accionEscucharTodos,
   notaGrabacion,
   accionBot,
   participantCount,
@@ -181,6 +190,28 @@ export default function CompanionSubtitleStage({
             <p className="max-w-sm rounded-xl border border-dashed border-ink-600 px-3 py-2 text-xs leading-relaxed text-ink-400">
               {verLosDos}
             </p>
+            {/* LA OREJA GRANDE. El micrófono escucha lo que llega al aire;
+                compartir la pantalla con el audio del sistema escucha a la
+                reunión ENTERA, directo del parlante digital -- y de paso el
+                video queda grabado. Es el botón que convierte "me escucha a
+                mí" en "escucha a todos". */}
+            {accionEscucharTodos && (
+              <div className="w-full max-w-sm">
+                <button
+                  type="button"
+                  onClick={accionEscucharTodos}
+                  className="w-full rounded-xl bg-brand-500 px-4 py-3 text-sm font-semibold text-on-accent hover:bg-brand-600"
+                >
+                  Escuchar a TODA la reunión
+                </button>
+                <p className="mt-1.5 text-[11px] leading-relaxed text-ink-500">
+                  Elegí <b className="text-ink-300">Toda la pantalla</b> y tildá{" "}
+                  <b className="text-ink-300">Compartir audio del sistema</b>: así transcribo a
+                  todos (no sólo tu voz) y la reunión queda grabada en video. En Mac el audio del
+                  sistema no existe: ahí elegí la pestaña de la reunión, o usá el altavoz.
+                </p>
+              </div>
+            )}
             {/* Si el aparato no presta el micrófono (la app de la llamada se
                 lo queda, que es lo que hace iOS), esta es la salida que SÍ
                 funciona: el bot escucha y graba desde el servidor. */}

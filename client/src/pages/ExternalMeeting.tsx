@@ -1156,6 +1156,21 @@ export default function ExternalMeeting() {
                   listening={escuchando}
                   problem={captionsProblem ?? avisoIdioma ?? avisoSilencio ?? avisoReunion}
                   onRetry={captionsSupported ? () => setMicAttempt((n) => n + 1) : undefined}
+                  accionEscucharTodos={
+                    screenCaptureSupported &&
+                    draft?.mode === "companion" &&
+                    (draft.embed.kind === "meet" || draft.embed.kind === "external") &&
+                    !(recorder.status === "recording" && recorder.kind === "screen")
+                      ? () => {
+                          // El clic ES el gesto que getDisplayMedia exige. Si
+                          // venía grabando sólo audio, se cierra ese tramo y
+                          // arranca el de pantalla (mismo camino que el botón
+                          // «Agregar pantalla» del banner).
+                          if (recorder.status === "recording") recorder.stop();
+                          void recorder.start();
+                        }
+                      : null
+                  }
                   accionExtra={
                     idiomaDetectado
                       ? {

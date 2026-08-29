@@ -71,6 +71,31 @@ async function detectAndJoin(page, link, { passcode } = {}) {
     await p.waitForURL(/\/externa\/reunion/, { timeout: 15_000 }).catch(() => {});
     check("con auto=1 se entra DERECHO al companion (cero formularios)",
       p.url().includes("/externa/reunion"), p.url());
+
+    // LA OREJA GRANDE: donde la reunión vive AFUERA, el botón «Escuchar a
+    // TODA la reunión» está a la vista y su clic pide la captura de pantalla
+    // con audio (que es lo que mete las voces de todos al reconocimiento).
+    {
+      await p.addInitScript(() => {
+        window.__gdmLlamadas = 0;
+        if (navigator.mediaDevices) {
+          navigator.mediaDevices.getDisplayMedia = () => {
+            window.__gdmLlamadas += 1;
+            return Promise.reject(new DOMException("cancelado", "NotAllowedError"));
+          };
+        }
+      });
+      await p.goto(`${BASE}/externa?url=${encodeURIComponent("https://meet.google.com/oye-todo-sxx")}&auto=1`, { waitUntil: "domcontentloaded" });
+      await p.waitForURL(/\/externa\/reunion/, { timeout: 15_000 }).catch(() => {});
+      const oreja = p.getByRole("button", { name: /Escuchar a TODA la reunión/i });
+      check("el companion de una reunión de afuera ofrece «Escuchar a TODA la reunión»",
+        (await oreja.count()) === 1);
+      await oreja.first().click();
+      await p.waitForTimeout(1200);
+      check("y el clic pide la captura de pantalla con audio (getDisplayMedia)",
+        await p.evaluate(() => window.__gdmLlamadas >= 1),
+        `llamadas=${await p.evaluate(() => window.__gdmLlamadas)}`);
+    }
     // Volver a la detección de Teams para los checks que siguen.
     await detectAndJoin(p, "https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0");
     check("Teams detectado", (await p.getByText(/Microsoft Teams/i).count()) > 0);

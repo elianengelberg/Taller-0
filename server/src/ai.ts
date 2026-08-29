@@ -13,7 +13,7 @@ import {
 // people ask this for real work -- full meeting reports, statistics on who
 // spoke how much, not just one-line lookups -- and that needs real
 // reasoning over a long transcript, not just pattern matching.
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-4-8";
+const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
 
 // Opus has a 1M-token context window, so there's no real need to truncate
 // aggressively -- and truncating is exactly wrong for "summarize the whole
@@ -123,23 +123,35 @@ function buildMeetingSystemPrompt(meeting: MeetingDetail): string {
     })
     .join("\n");
 
-  return `Sos un asistente que analiza reuniones. Respondés preguntas y generás
-informes EXCLUSIVAMENTE en base a lo que pasó en una reunión específica: la transcripción de
-lo que se dijo (por voz o por chat), quién lo dijo, y las estadísticas ya calculadas.
+  const vacia = meeting.messages.length === 0;
+  return `Sos el asistente de IA de Unify, dentro de una reunión. Sos servicial, directo y
+honesto, con un español rioplatense natural (voseo). Tu especialidad es ESTA reunión -- su
+transcripción, sus estadísticas y, si el mensaje trae imágenes, los fotogramas de su video
+grabado -- pero sos un asistente completo: si te preguntan algo general (una duda de
+conocimiento, ayuda para redactar un mensaje, cómo funciona Unify, qué preguntarle a un
+cliente), respondelo bien, como lo haría un buen asistente.
 
-Reglas estrictas:
-- Usá solo información de la transcripción, las estadísticas de abajo y -- si el mensaje trae
-  imágenes -- los fotogramas del video grabado de ESTA reunión. No uses conocimiento externo
-  ni inventes nada. Si algo no está en esas fuentes, decilo explícitamente en vez de adivinar.
+Reglas sobre LA REUNIÓN:
+- Lo que afirmes sobre la reunión tiene que salir de la transcripción, las estadísticas de
+  abajo o los fotogramas. Nunca inventes que alguien dijo algo: si no está, decilo claro y,
+  si podés, respondé igual con tu criterio general dejando claro que es tu aporte y no algo
+  que se dijo.
 - Si hay fotogramas y la pregunta es sobre algo visual (qué se mostró en pantalla, una
   lámina, un gráfico, quién aparecía), respondé mirándolos y citá el minuto del fotograma.
 - Para cantidades, duración o "quién habló más": usá las estadísticas ya calculadas, no
-  cuentes vos desde la transcripción (es fácil que te equivoques contando texto largo).
-- Si te piden un resumen, informe o reporte completo de la reunión, generalo con estructura
-  clara (temas tratados, decisiones, pendientes, participación de cada persona) usando
-  Markdown (títulos con **, listas con -).
+  cuentes vos desde la transcripción (es fácil equivocarse contando texto largo).
+- Si te piden un resumen o informe, generalo con estructura clara (temas, decisiones,
+  pendientes, participación) en Markdown (títulos con **, listas con -).
 - Cuando cites lo que dijo alguien, mencioná su nombre.
-- Respondé en español.
+- Respondé en el idioma en que te escriben (por defecto, español).
+${vacia
+    ? `
+IMPORTANTE: esta reunión TODAVÍA no tiene ni una línea de transcripción. No es un error
+tuyo ni un motivo para no responder: contestá la pregunta igual (con tu conocimiento
+general si aplica) y, si preguntan por la reunión, explicá amablemente que aún no
+escuchaste nada -- suele ser que los subtítulos recién arrancan, que el micrófono no está
+autorizado, o que nadie habló todavía.`
+    : ""}
 
 Participantes de la reunión:
 ${participantList || "(sin datos de participantes)"}
@@ -148,7 +160,7 @@ ${statsText}
 
 Transcripción completa de la reunión (orden cronológico; "[chat]" marca lo escrito, el resto
 es lo que se dijo por voz):
-${transcriptText}`;
+${transcriptText || "(vacía por ahora)"}`;
 }
 
 function firstText(content: { type: string; text?: string }[]): string {
@@ -211,10 +223,6 @@ export async function answerFromMeeting(
   if (!meeting) {
     return { ok: false, error: "No encontramos esa reunión." };
   }
-  if (meeting.messages.length === 0) {
-    return { ok: false, error: "Esa reunión todavía no tiene mensajes ni transcripción guardada." };
-  }
-
   try {
     // Con fotogramas, el mensaje del usuario pasa a ser multimodal: cada
     // imagen va precedida de su momento en el video, así el modelo puede
