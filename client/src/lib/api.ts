@@ -673,6 +673,33 @@ export async function fetchBotAgenda(): Promise<BotAgenda> {
   }
 }
 
+/** Qué encontró el servidor al leer el calendario: la prueba de que quedó bien. */
+export interface PruebaCalendario {
+  ok: boolean;
+  error?: string;
+  /** Las próximas reuniones CON LINK que el bot podría tomar. */
+  proximas?: { subject: string; startMs: number; platform: string }[];
+  /** Cuántos eventos trae el calendario en total (con y sin link). */
+  totalEventos?: number;
+}
+
+// Prueba la dirección del calendario contra el servidor, que la baja de
+// verdad. Es la diferencia entre "guardado" y "quedó andando".
+export async function probarBotAgenda(icsUrl: string | null): Promise<PruebaCalendario> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/bot/agenda/probar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ icsUrl: icsUrl ?? "" }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: data.error ?? "No se pudo probar el calendario." };
+    return data as PruebaCalendario;
+  } catch {
+    return { ok: false, error: "No pudimos conectar con el servidor." };
+  }
+}
+
 export async function saveBotAgenda(auto: boolean, icsUrl: string | null): Promise<{ ok: boolean; error?: string }> {
   try {
     const res = await fetchWithTimeout(`${SERVER_URL}/api/bot/agenda`, {

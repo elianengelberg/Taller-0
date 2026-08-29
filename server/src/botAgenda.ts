@@ -290,6 +290,35 @@ let bajarICS = async (url: string): Promise<string | null> => {
 };
 export function _setBajarICS(fn: typeof bajarICS): void { bajarICS = fn; }
 
+// PROBAR un calendario antes de confiarle nada: se baja el .ics de verdad y se
+// cuenta qué reuniones con link hay por delante. Sin esto, pegar la dirección
+// era un acto de fe -- decía "guardado" igual si el link estaba mal, si era el
+// calendario equivocado o si ningún evento tiene link, y la persona se
+// enteraba recién cuando el bot no aparecía nunca.
+export async function probarCalendario(
+  url: string,
+  ahora = Date.now(),
+  diasVista = 7,
+): Promise<
+  | { ok: false; motivo: "no-se-pudo-bajar" | "no-es-calendario" }
+  | { ok: true; proximas: { subject: string; startMs: number; platform: string }[]; totalEventos: number }
+> {
+  const ics = await bajarICS(url);
+  if (ics === null) return { ok: false, motivo: "no-se-pudo-bajar" };
+  if (!/BEGIN:VCALENDAR/i.test(ics)) return { ok: false, motivo: "no-es-calendario" };
+  // Ventana larga (una semana) a propósito: la del poller son 15 minutos, que
+  // para "¿quedó conectado?" casi siempre daría cero y asustaría de gusto.
+  const horizonte = diasVista * 24 * 60 * 60_000;
+  const eventos = parsearICS(ics, ahora, horizonte, 0);
+  const proximas = eventos
+    .map((e) => ({ e, sala: derivarSala(e.joinUrl) }))
+    .filter((x): x is { e: EventoAgenda; sala: NonNullable<ReturnType<typeof derivarSala>> } => x.sala !== null)
+    .sort((a, b) => a.e.startMs - b.e.startMs)
+    .slice(0, 5)
+    .map((x) => ({ subject: x.e.subject, startMs: x.e.startMs, platform: x.sala.platform }));
+  return { ok: true, proximas, totalEventos: (ics.match(/BEGIN:VEVENT/gi) || []).length };
+}
+
 async function eventosDeUsuario(
   u: { id: string; icsUrl: string | null; msConnected: boolean },
   ahora: number

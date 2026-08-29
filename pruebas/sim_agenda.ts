@@ -208,6 +208,63 @@ const compact = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, "").
   check("el bot despachado por el calendario transcribe al bridge (línea en vivo)", vio,
     `lineas=${lineas.length}`);
 
+  console.log("\n── 3. «¿Quedó conectado?»: la prueba del calendario, contra uno REAL ──");
+  {
+    // Un calendario de verdad servido por HTTP (no el inyector de arriba):
+    // esto ejercita la bajada, el parseo y el resumen que ve la persona.
+    const enDosDias = Date.now() + 2 * 24 * 3600_000;
+    const ICS = [
+      "BEGIN:VCALENDAR", "BEGIN:VEVENT", "UID:prueba-1", "SUMMARY:Clase de los martes",
+      `DTSTART:${compact(enDosDias)}`,
+      "DESCRIPTION:Entramos por https://meet.google.com/pru-ebac-abc",
+      "END:VEVENT",
+      // Un evento SIN link: existe, pero el bot no puede entrar (no se cuenta).
+      "BEGIN:VEVENT", "UID:prueba-2", "SUMMARY:Almuerzo",
+      `DTSTART:${compact(Date.now() + 3 * 24 * 3600_000)}`,
+      "DESCRIPTION:En la cocina", "END:VEVENT", "END:VCALENDAR",
+    ].join("\r\n");
+    const calendario = http.createServer((q, s) => {
+      if ((q.url || "").includes("vacio")) { s.writeHead(200, { "Content-Type": "text/calendar" }); s.end("BEGIN:VCALENDAR\r\nEND:VCALENDAR"); return; }
+      if ((q.url || "").includes("no-es-ics")) { s.writeHead(200, { "Content-Type": "text/html" }); s.end("<html>una página cualquiera</html>"); return; }
+      s.writeHead(200, { "Content-Type": "text/calendar" }); s.end(ICS);
+    });
+    await new Promise<void>((r) => calendario.listen(4193, () => r()));
+
+    const probar = (url: string) =>
+      fetch(`${API}/api/bot/agenda/probar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ icsUrl: url }),
+      }).then((r) => r.json());
+
+    const buena = await probar("http://localhost:4193/mi.ics");
+    check("un calendario con reuniones dice CONECTADO y las lista",
+      buena.ok === true && buena.proximas?.length === 1 &&
+      /Clase de los martes/.test(buena.proximas[0].subject) && buena.proximas[0].platform === "google-meet",
+      JSON.stringify(buena).slice(0, 120));
+
+    const vacia = await probar("http://localhost:4193/vacio.ics");
+    check("uno vacío NO miente: dice que se leyó pero no hay reuniones con link",
+      vacia.ok === true && (vacia.proximas?.length ?? 0) === 0, JSON.stringify(vacia).slice(0, 80));
+
+    const noEsIcs = await probar("http://localhost:4193/no-es-ics");
+    check("una dirección que no es un calendario se explica (no dice «guardado» y listo)",
+      noEsIcs.ok === false && /no es un calendario/i.test(noEsIcs.error ?? ""), String(noEsIcs.error).slice(0, 70));
+
+    const rota = await probar("http://localhost:4199/no-existe.ics");
+    check("una dirección que no abre se explica igual de claro",
+      rota.ok === false && /No pudimos abrir/i.test(rota.error ?? ""), String(rota.error).slice(0, 70));
+
+    const sinSesion = await fetch(`${API}/api/bot/agenda/probar`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ icsUrl: "http://localhost:4193/mi.ics" }),
+    });
+    check("sin sesión, la prueba no atiende (el calendario es privado)", sinSesion.status === 401,
+      `HTTP ${sinSesion.status}`);
+
+    await new Promise<void>((r) => calendario.close(() => r()));
+  }
+
   // Limpieza.
   for (const b of bots) { try { process.kill(-b.pid, "SIGTERM"); } catch { try { b.kill("SIGTERM"); } catch {} } }
   socket.close();

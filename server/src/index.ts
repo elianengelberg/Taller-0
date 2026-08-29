@@ -69,7 +69,7 @@ import {
   getTrackedWords,
   setTrackedWords,
 } from "./db";
-import { arrancarAgenda } from "./botAgenda";
+import { arrancarAgenda, probarCalendario } from "./botAgenda";
 import {
   sendGoogleOnlyResetEmail,
   sendPasswordResetEmail,
@@ -1879,6 +1879,32 @@ app.post("/api/bot/agenda", requireAuth, async (req, res) => {
   if (icsUrl) icsUrl = icsUrl.replace(/^webcal:\/\//i, "https://");
   await setBotAgenda((req as AuthedRequest).userId!, auto, icsUrl);
   res.json({ ok: true, auto, icsUrl });
+});
+
+// "¿Quedó bien conectado?" -- se lee el calendario de VERDAD y se cuenta qué
+// reuniones con link hay esta semana. Guardar sin poder comprobar nada era
+// pedirle fe a la persona: si la dirección estaba mal, o los eventos no traen
+// link, se enteraba recién cuando el bot no aparecía.
+app.post("/api/bot/agenda/probar", requireAuth, async (req, res) => {
+  let icsUrl = String(req.body?.icsUrl ?? "").trim().slice(0, 1000);
+  if (icsUrl) icsUrl = icsUrl.replace(/^webcal:\/\//i, "https://");
+  else icsUrl = (await getBotAgenda((req as AuthedRequest).userId!)).icsUrl ?? "";
+  if (!/^https?:\/\//i.test(icsUrl)) {
+    res.status(400).json({ error: "Todavía no hay una dirección de calendario para probar." });
+    return;
+  }
+  const r = await probarCalendario(icsUrl);
+  if (!r.ok) {
+    res.json({
+      ok: false,
+      error:
+        r.motivo === "no-se-pudo-bajar"
+          ? "No pudimos abrir ese calendario. Fijate que sea la dirección SECRETA en formato iCal (termina en .ics) y que esté completa."
+          : "Esa dirección abre, pero no es un calendario iCal. Copiá la «Dirección secreta en formato iCal» de la configuración de tu calendario.",
+    });
+    return;
+  }
+  res.json({ ok: true, proximas: r.proximas, totalEventos: r.totalEventos });
 });
 
 // Sacar el bot de una reunión a mano.
