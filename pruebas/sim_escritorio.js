@@ -55,6 +55,34 @@ async function probarExtensionLocal(check) {
   fs.rmSync(base, { recursive: true, force: true });
 }
 
+// ── 0b. El cartel de Zoom: 15 segundos y automático (Playwright, HTML real) ─
+// El cartel de la app da tiempo a LEER (con 8 segundos no llegabas a elegir
+// entre grabar, subtítulos y demás) y, si nadie toca nada, cuenta como SÍ.
+async function probarCartel(check) {
+  const { chromium } = require("/opt/node22/lib/node_modules/playwright/node_modules/playwright-core");
+  const b = await chromium.launch({ args: ["--no-sandbox"] });
+  const p = await b.newPage();
+  await p.goto("file://" + path.join(DESK, "cartel.html"));
+  const cuenta = await p.locator("#cuenta").textContent();
+  check("el cartel de Zoom arranca con 15 segundos (antes 8: no daba tiempo a elegir)",
+    cuenta === "15", `cuenta=${cuenta}`);
+  const caja = await p.locator(".caja").boundingBox();
+  check("y el cartel tiene su caja entera a la vista", Boolean(caja) && caja.width >= 400,
+    caja ? `${Math.round(caja.width)}px` : "sin caja");
+  // A los 3 segundos sigue esperando; "Ahora no" responde al instante.
+  await p.waitForTimeout(3000);
+  check("a los 3 segundos todavía espera", await p.evaluate(() => window.__respuesta === undefined));
+  await p.locator("#no").click();
+  check("«Ahora no» responde y corta la cuenta", await p.evaluate(() => window.__respuesta === "no"));
+  // Y el automático: con la cuenta en 2, al vencer responde SÍ solo.
+  const p2 = await b.newPage();
+  await p2.goto("file://" + path.join(DESK, "cartel.html") + "?seg=2");
+  await p2.waitForTimeout(3200);
+  check("si nadie toca nada, al vencer cuenta como SÍ (graba solo)",
+    await p2.evaluate(() => window.__respuesta === "si"));
+  await b.close();
+}
+
 const sonda = path.join("/tmp", "sonda-escritorio.js");
 fs.writeFileSync(sonda, `
   const { app } = require("electron");
@@ -88,6 +116,7 @@ hijo.on("exit", async (c) => {
   const ok = [];
   const check = (n, c, d = "") => { ok.push(c); console.log(`${c ? "PASS" : "FAIL"} ${n}${d ? " — " + d : ""}`); };
   await probarExtensionLocal(check).catch((e) => check("módulo de extensión local", false, String(e.message)));
+  await probarCartel(check).catch((e) => check("cartel de escritorio", false, String(e.message)));
   check("la app de escritorio abre UNA ventana propia (antes no abría ninguna)", r.ventanas === 1, `ventanas=${r.ventanas}`);
   check("y se ve (no queda escondida en la bandeja)", r.visible === true);
   check("con el título de la app", r.titulo === "Unify", String(r.titulo));

@@ -243,6 +243,27 @@ async function botonesChicos(p, minimo = 40) {
         `pedidos=${await pf.evaluate(() => window.__pipVideo)}`);
       check("y el botón queda como activo",
         (await pf.getByRole("button", { name: /Flotantes ✓/i }).count()) > 0);
+      // Y NUNCA en blanco: antes de la primera frase, el canvas ya muestra
+      // qué está esperando (una ventanita vacía parece rota — pasó con Zoom).
+      check("la ventanita flotante nunca está en blanco (dice qué espera)",
+        await pf.evaluate(async () => {
+          // El canvas fuente no está en el DOM: se muestrea el VIDEO que lo
+          // transmite, que es literalmente lo que la persona ve flotar.
+          const v = [...document.querySelectorAll("video")].find((x) => x.muted && x.srcObject);
+          if (!v) return false;
+          await new Promise((r) => setTimeout(r, 600)); // un par de cuadros más
+          const c = document.createElement("canvas");
+          c.width = v.videoWidth || 720;
+          c.height = v.videoHeight || 240;
+          const g = c.getContext("2d");
+          g.drawImage(v, 0, 0, c.width, c.height);
+          const d = g.getImageData(0, 0, c.width, c.height).data;
+          let oscuros = 0;
+          for (let i = 0; i < d.length; i += 4) {
+            if (d[i] < 200 && d[i + 3] > 0) oscuros++;
+          }
+          return oscuros > 200; // hay texto dibujado, no un lienzo liso
+        }));
       check("el video flotante vive y transmite el canvas",
         await pf.evaluate(() => [...document.querySelectorAll("video")].some(
           (v) => v.muted && v.srcObject && v.srcObject.getVideoTracks?.().some((t) => t.readyState === "live"))));

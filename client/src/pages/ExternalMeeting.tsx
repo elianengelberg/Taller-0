@@ -790,6 +790,7 @@ export default function ExternalMeeting() {
         }
       ).documentPictureInPicture;
       const win = await api.requestWindow({ width: 440, height: 190 });
+      win.document.title = "Subtítulos — Unify";
       win.document.body.style.cssText =
         "margin:0;background:#0b1020;color:#fff;font-family:system-ui,sans-serif;overflow:hidden";
       const cont = win.document.createElement("div");
@@ -904,11 +905,25 @@ export default function ExternalMeeting() {
     const ancho = W - margen * 2;
     // Frases de la más nueva a la más vieja, dibujadas de abajo hacia arriba.
     const frases: { quien: string; texto: string; interina?: boolean }[] = [];
+    // Sin frases todavía, la ventanita queda EN BLANCO y parece rota (pasó en
+    // una prueba real con Zoom). Que diga qué está esperando.
+    const pintarEsperando = () => {
+      ctx.font = "600 20px system-ui, sans-serif";
+      ctx.fillStyle = "#2563EB";
+      ctx.fillText("Unify — subtítulos flotantes", margen, H / 2 - 18);
+      ctx.font = "22px system-ui, sans-serif";
+      ctx.fillStyle = "#475569";
+      ctx.fillText("Apenas alguien hable, las frases aparecen acá.", margen, H / 2 + 16);
+    };
     if (captionsOn && interimCaption) {
       frases.push({ quien: draft?.name || "Vos", texto: interimCaption, interina: true });
     }
     for (const l of [...transcriptPip.slice(-3)].reverse()) {
       frases.push({ quien: l.speakerName, texto: getTranslation(l.id) ?? l.text });
+    }
+    if (frases.length === 0) {
+      pintarEsperando();
+      return;
     }
     let y = H - 18;
     for (const f of frases) {
@@ -937,6 +952,15 @@ export default function ExternalMeeting() {
     const cont = win.document.getElementById("subs");
     if (!cont) return;
     cont.textContent = "";
+    // Vacía parece rota: mientras no haya ni una frase, la ventanita explica
+    // qué está esperando (pasó en una prueba real con Zoom).
+    if (transcriptPip.length === 0 && !(captionsOn && interimCaption)) {
+      const espera = win.document.createElement("div");
+      espera.textContent = "Apenas alguien hable, los subtítulos (con su traducción) aparecen acá.";
+      espera.style.cssText = "font-size:15px;line-height:1.4;color:#9fb3d8";
+      cont.appendChild(espera);
+      return;
+    }
     for (const l of transcriptPip.slice(-3)) {
       const fila = win.document.createElement("div");
       fila.style.cssText = "font-size:15px;line-height:1.35";

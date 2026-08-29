@@ -59,7 +59,7 @@
     <p class="titulo">Uy, veo que te estás uniendo a una reunión. ¿Querés grabarla?</p>
     <p class="detalle">Subtítulos, traducción y resumen incluidos. Si no elegís nada, la grabo igual.</p>
     <div class="botones">
-      <button id="si" type="button">Sí, grabala (<span id="cuenta">8</span>)</button>
+      <button id="si" type="button">Sí, grabala (<span id="cuenta">15</span>)</button>
       <button id="no" type="button">Ahora no</button>
     </div>
   </div>
@@ -70,7 +70,7 @@
   // si no está (pruebas en un navegador pelado), la respuesta queda en
   // window.__respuesta para poder verificar la lógica igual.
   const parametros = new URLSearchParams(location.search);
-  let restante = Math.max(1, parseInt(parametros.get("seg") || "8", 10) || 8);
+  let restante = Math.max(1, parseInt(parametros.get("seg") || "15", 10) || 15);
   const cuenta = document.getElementById("cuenta");
   cuenta.textContent = String(restante);
   let respondido = false;

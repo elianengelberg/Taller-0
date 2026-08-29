@@ -185,7 +185,7 @@ function reunionTermino() {
   if (cartel && !cartel.isDestroyed()) cartel.close();
 }
 
-function mostrarCartel(segundos = 8) {
+function mostrarCartel(segundos = 15) {
   if (cartel && !cartel.isDestroyed()) return; // ya hay uno abierto
   cartel = new BrowserWindow({
     width: 470,
@@ -222,13 +222,19 @@ function mostrarCartel(segundos = 8) {
 // que haya -- la barra funciona igual, sólo que en una pestaña común.
 function abrirBarra() {
   const sala = salaActual || `zoom-${Date.now().toString(36)}`;
-  // Abajo a la derecha, chiquita: la barra acompaña la reunión, no la tapa.
+  // AL MEDIO y con lugar. Antes abría 560x460 en la esquina de abajo a la
+  // derecha, y justo al entrar hay que decidir varias cosas (el permiso del
+  // micrófono, si grabar, los subtítulos flotantes, el idioma): en ese rincón
+  // todo quedaba apretado y parecía roto. Centrada se elige cómodo; después
+  // se arrastra al costado de la reunión, que para eso es una ventana.
   const area = screen.getPrimaryDisplay().workArea;
+  const ancho = Math.min(760, area.width - 80);
+  const alto = Math.min(780, area.height - 80);
   abrirEnChrome(`${WEB}/externa?origen=escritorio&sala=${sala}`, {
-    ancho: 560,
-    alto: 460,
-    x: area.x + area.width - 560 - 16,
-    y: area.y + area.height - 460 - 16,
+    ancho,
+    alto,
+    x: Math.round(area.x + (area.width - ancho) / 2),
+    y: Math.round(area.y + (area.height - alto) / 2),
   });
 }
 
