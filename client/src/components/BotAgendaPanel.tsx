@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import BotRepeticiones from "./BotRepeticiones";
+import { detectarDispositivo } from "../lib/dispositivo";
 import { BotAgenda, fetchBotAgenda, probarBotAgenda, PruebaCalendario, saveBotAgenda } from "../lib/api";
 
 // La tarjeta del "piloto automático": el bot entra SOLO a las reuniones del
@@ -15,6 +16,10 @@ export default function BotAgendaPanel() {
   const [comoSacarlo, setComoSacarlo] = useState(false);
   // El resultado de LEER el calendario de verdad (no "guardado": "anda").
   const [probando, setProbando] = useState(false);
+  // Desde qué aparato está mirando: el camino para sacar la dirección iCal es
+  // distinto (y en el celular ni siquiera existe en la app de Google).
+  const [aparato] = useState(detectarDispositivo);
+  const [verElOtroCamino, setVerElOtroCamino] = useState(false);
   const [prueba, setPrueba] = useState<PruebaCalendario | null>(null);
 
   useEffect(() => {
@@ -175,33 +180,53 @@ export default function BotAgendaPanel() {
         {comoSacarlo && (
           <div className="mt-2 space-y-3 text-xs leading-relaxed text-ink-400">
             {/* La dirección secreta NO existe en la app de Google Calendar del
-                teléfono ni del iPad: sólo en la web de escritorio. Decirlo
-                primero evita la búsqueda infinita de un botón que no está. */}
+                teléfono ni del iPad: sólo en la web de escritorio. Se le
+                muestra a cada uno EL camino de su aparato; el otro queda a un
+                toque, por si está preparando el de otra persona. */}
             <p className="rounded-lg border border-dashed border-ink-600 px-3 py-2">
               <b className="text-ink-200">Ojo:</b> este link no aparece en la <b>app</b> de Google
               Calendar (ni en iPad ni en celular). Está sólo en la <b>web</b> de Google Calendar.
             </p>
-            <div>
-              <p className="font-medium text-ink-200">En una computadora</p>
-              <ol className="mt-1 list-decimal space-y-1 pl-5">
-                <li>Entrá a <strong>calendar.google.com</strong>.</li>
-                <li>A la izquierda está tu calendario con tu nombre. Dejá el mouse encima, tocá los <strong>tres puntitos</strong> y después <strong>Configuración y uso compartido</strong>.</li>
-                <li>Bajá del todo, hasta <strong>«Integrar calendario»</strong>.</li>
-                <li>Copiá la <strong>«Dirección secreta en formato iCal»</strong> (termina en <code>.ics</code>).</li>
-                <li>Pegala acá arriba y tocá <strong>Guardar y probar</strong>.</li>
-              </ol>
-            </div>
-            <div>
-              <p className="font-medium text-ink-200">Desde el iPad o el celular (sin computadora)</p>
-              <ol className="mt-1 list-decimal space-y-1 pl-5">
-                <li>Abrí <strong>Safari</strong> (no la app de Calendar) y entrá a <strong>calendar.google.com</strong>.</li>
-                <li>Tocá <strong>aA</strong> en la barra de direcciones y elegí <strong>«Solicitar sitio web para computadora»</strong>. Sin esto, la página no muestra la configuración.</li>
-                <li>Tocá el <strong>engranaje</strong> arriba a la derecha → <strong>Configuración</strong>.</li>
-                <li>En la lista de la izquierda, tocá el calendario <strong>con tu nombre</strong>.</li>
-                <li>Bajá hasta <strong>«Integrar calendario»</strong> y copiá la <strong>«Dirección secreta en formato iCal»</strong>.</li>
-                <li>Volvé acá, pegala arriba y tocá <strong>Guardar y probar</strong>.</li>
-              </ol>
-            </div>
+            {(aparato.esCompu ? !verElOtroCamino : verElOtroCamino) ? (
+              <div>
+                <p className="font-medium text-ink-200">En una computadora</p>
+                <ol className="mt-1 list-decimal space-y-1 pl-5">
+                  <li>Entrá a <strong>calendar.google.com</strong>.</li>
+                  <li>A la izquierda está tu calendario con tu nombre. Dejá el mouse encima, tocá los <strong>tres puntitos</strong> y después <strong>Configuración y uso compartido</strong>.</li>
+                  <li>Bajá del todo, hasta <strong>«Integrar calendario»</strong>.</li>
+                  <li>Copiá la <strong>«Dirección secreta en formato iCal»</strong> (termina en <code>.ics</code>).</li>
+                  <li>Pegala acá arriba y tocá <strong>Guardar y probar</strong>.</li>
+                </ol>
+              </div>
+            ) : (
+              <div>
+                <p className="font-medium text-ink-200">Desde {aparato.nombre}, sin computadora</p>
+                <ol className="mt-1 list-decimal space-y-1 pl-5">
+                  <li>Abrí <strong>{aparato.sistema === "ios" ? "Safari" : "el navegador"}</strong> (no la app de Calendar) y entrá a <strong>calendar.google.com</strong>.</li>
+                  <li>
+                    {aparato.sistema === "ios" ? (
+                      <>Tocá <strong>aA</strong> en la barra de direcciones y elegí <strong>«Solicitar sitio web para computadora»</strong>.</>
+                    ) : (
+                      <>Tocá los <strong>tres puntitos</strong> del navegador y marcá <strong>«Versión para computadora»</strong>.</>
+                    )}{" "}
+                    Sin esto, la página no muestra la configuración.
+                  </li>
+                  <li>Tocá el <strong>engranaje</strong> arriba a la derecha → <strong>Configuración</strong>.</li>
+                  <li>En la lista de la izquierda, tocá el calendario <strong>con tu nombre</strong>.</li>
+                  <li>Bajá hasta <strong>«Integrar calendario»</strong> y copiá la <strong>«Dirección secreta en formato iCal»</strong>.</li>
+                  <li>Volvé acá, pegala arriba y tocá <strong>Guardar y probar</strong>.</li>
+                </ol>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setVerElOtroCamino((v) => !v)}
+              className="text-brand-300 underline"
+            >
+              {verElOtroCamino === aparato.esCompu
+                ? `Ver los pasos desde ${aparato.esCompu ? "el celular o la tablet" : "una computadora"}`
+                : `Volver a los pasos de ${aparato.nombre}`}
+            </button>
           </div>
         )}
         <p className="mt-2 text-xs text-ink-500">¿Usás Outlook? Conectalo arriba y ya queda.</p>

@@ -21,6 +21,7 @@ import {
   impersonatedDomain,
   PLATFORM_REGISTRY,
 } from "../lib/meetingPlatforms";
+import { detectarDispositivo } from "../lib/dispositivo";
 import { esIOS } from "../lib/screenCapture";
 import { cardClass, inputClass, labelClass, nameInputProps, urlInputProps } from "../lib/ui";
 import { abrirVentanaReunion } from "../lib/ventanaReunion";
@@ -627,10 +628,10 @@ function RecordingNotice() {
           se cuenta lo que de verdad pasa, y cuál es la salida. */}
       {esIOS() ? (
         <span>
-          <span className="font-medium text-ink-200">Grabar esta reunión automáticamente.</span> En
-          iPhone y iPad el micrófono es de una sola cosa a la vez, así que adentro mandan los
-          subtítulos y la grabación queda a un toque del botón Grabar. Para que quede el video
-          completo sin resignar nada, mandá el bot: graba desde el servidor.
+          <span className="font-medium text-ink-200">Grabar esta reunión automáticamente.</span> En{" "}
+          {detectarDispositivo().corto} el micrófono es de una sola cosa a la vez, así que adentro
+          mandan los subtítulos y la grabación queda a un toque del botón Grabar. Para que quede el
+          video completo sin resignar nada, mandá el bot: graba desde el servidor.
         </span>
       ) : (
         <span>

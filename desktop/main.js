@@ -30,7 +30,9 @@ const WEB = process.env.UNIFY_WEB || "https://unify-meet.com";
 const ARCHIVO_SIMULACION = path.join(os.tmpdir(), "unify-reunion-simulada");
 
 let tray = null;
+let ventana = null;      // LA app: la ventana principal de Unify
 let cartel = null;
+let avisoDeBandejaDado = false;
 let puente = null;
 let detector = null;
 let salaActual = "";
@@ -40,6 +42,11 @@ let navegadorHijo = null;
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
+  // Doble clic en el acceso directo con Unify ya abierto: en vez de no hacer
+  // nada (y parecer que no se instaló), trae la ventana al frente.
+  app.on("second-instance", () => abrirVentana());
+  // (Que no se cierre al cerrar las ventanas ya está resuelto más abajo.)
+  app.on("activate", () => abrirVentana());
   app.whenReady().then(arrancar);
 }
 
@@ -47,7 +54,10 @@ function arrancar() {
   // Arrancar con la sesión (queda en segundo plano, como pide el flujo:
   // instalás una vez y te olvidás). Sólo tiene sentido empaquetada.
   if (process.platform === "win32" && app.isPackaged) {
-    app.setLoginItemSettings({ openAtLogin: true });
+    // Con "--oculto": el arranque automático con Windows deja a Unify atento
+    // en la bandeja SIN abrir la ventana en la cara. Cuando la abrís vos (o
+    // recién instalada), sí se muestra.
+    app.setLoginItemSettings({ openAtLogin: true, args: ["--oculto"] });
   }
 
   puente = crearPuente();
@@ -63,6 +73,96 @@ function arrancar() {
   });
 
   armarBandeja();
+
+  // LA APP TIENE VENTANA. Antes esto era sólo un ícono al lado del reloj y
+  // todo lo demás abría el navegador: se instalaba y no pasaba nada visible
+  // -- se sentía una página web, no un programa. Ahora abre en su propia
+  // ventana, en la pantalla de inicio, como cualquier app de Windows.
+  if (!process.argv.includes("--oculto")) abrirVentana("/");
+}
+
+// La ventana de la app. Se crea una sola vez y se reusa: cerrarla la esconde
+// en la bandeja (si se destruyera, Unify dejaría de vigilar las reuniones,
+// que es justamente para lo que está).
+function abrirVentana(ruta) {
+  if (ventana && !ventana.isDestroyed()) {
+    if (ruta) ventana.loadURL(`${WEB}${ruta}`);
+    if (ventana.isMinimized()) ventana.restore();
+    ventana.show();
+    ventana.focus();
+    return;
+  }
+  ventana = new BrowserWindow({
+    width: 1180,
+    height: 800,
+    minWidth: 880,
+    minHeight: 600,
+    title: "Unify",
+    backgroundColor: "#0b1020",
+    autoHideMenuBar: true,
+    show: false,
+    icon: iconoBandeja(),
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  });
+  ventana.loadURL(`${WEB}${ruta || "/"}`);
+  // Mostrarla SÓLO con "ready-to-show" es la receta de manual, pero si ese
+  // evento no llega (pasa: sin aceleración de video, con la red lenta) la
+  // ventana se queda invisible y la app parece que no arrancó -- justo el
+  // problema que estamos arreglando. Se muestra con lo que llegue primero,
+  // y hay una red de seguridad por tiempo.
+  const mostrar = () => {
+    if (ventana && !ventana.isDestroyed() && !ventana.isVisible()) ventana.show();
+  };
+  ventana.once("ready-to-show", mostrar);
+  ventana.webContents.once("did-finish-load", mostrar);
+  ventana.webContents.once("did-fail-load", mostrar);
+  setTimeout(mostrar, 4000);
+
+  // El nombre de la ventana es el de la APP, no el de la página: en la barra
+  // de tareas de Windows tiene que decir "Unify".
+  ventana.on("page-title-updated", (ev) => ev.preventDefault());
+
+  // Las REUNIONES corren en Chrome de verdad, no acá: el reconocimiento de
+  // voz del navegador necesita las llaves de Google que Electron no trae, y
+  // una reunión sin subtítulos no es una reunión de Unify. La ventana se
+  // queda con todo lo demás (inicio, historial, cuenta, ayuda).
+  ventana.webContents.on("will-navigate", (ev, url) => {
+    if (!esRutaDeReunion(url)) return;
+    ev.preventDefault();
+    abrirEnChrome(url);
+  });
+  ventana.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith(WEB) && esRutaDeReunion(url)) abrirEnChrome(url);
+    else shell.openExternal(url);
+    return { action: "deny" };
+  });
+
+  // Cerrar la ventana NO cierra Unify: sigue atento en la bandeja, que es su
+  // trabajo. Se avisa una vez para que nadie crea que se colgó.
+  ventana.on("close", (ev) => {
+    if (app.cerrandoDeVerdad) return;
+    ev.preventDefault();
+    ventana.hide();
+    if (!avisoDeBandejaDado) {
+      avisoDeBandejaDado = true;
+      try {
+        tray?.displayBalloon?.({
+          title: "Unify sigue acá",
+          content: "Queda al lado del reloj, atento a tus reuniones. Para abrirlo, tocá su ícono.",
+        });
+      } catch { /* Windows viejo sin globos: no pasa nada */ }
+    }
+  });
+}
+
+// ¿Esta dirección ENTRA a una reunión? (Las que necesitan Chrome.)
+function esRutaDeReunion(url) {
+  try {
+    const { pathname } = new URL(url);
+    return /^\/(reunion|externa|unirse|crear)(\/|$)/.test(pathname);
+  } catch {
+    return false;
+  }
 }
 
 function reunionEmpezo() {
@@ -116,17 +216,31 @@ function mostrarCartel(segundos = 8) {
 // que haya -- la barra funciona igual, sólo que en una pestaña común.
 function abrirBarra() {
   const sala = salaActual || `zoom-${Date.now().toString(36)}`;
-  const url = `${WEB}/externa?origen=escritorio&sala=${sala}`;
+  // Abajo a la derecha, chiquita: la barra acompaña la reunión, no la tapa.
+  const area = screen.getPrimaryDisplay().workArea;
+  abrirEnChrome(`${WEB}/externa?origen=escritorio&sala=${sala}`, {
+    ancho: 560,
+    alto: 460,
+    x: area.x + area.width - 560 - 16,
+    y: area.y + area.height - 460 - 16,
+  });
+}
+
+// Abre una dirección en CHROME de verdad, en una ventana pelada (--app). Es
+// donde las reuniones funcionan: el reconocimiento de voz necesita las llaves
+// de Google que sólo trae Chrome. Sin Chrome instalado, el navegador que haya
+// -- la reunión anda igual, y la propia web avisa si no puede transcribir.
+function abrirEnChrome(url, medidas) {
   const chrome = rutaDeChrome();
   if (!chrome) {
     shell.openExternal(url);
     return;
   }
   const area = screen.getPrimaryDisplay().workArea;
-  const ancho = 560;
-  const alto = 460;
-  const x = area.x + area.width - ancho - 16;
-  const y = area.y + area.height - alto - 16;
+  const ancho = medidas?.ancho ?? Math.min(1180, area.width - 80);
+  const alto = medidas?.alto ?? Math.min(800, area.height - 80);
+  const x = medidas?.x ?? Math.round(area.x + (area.width - ancho) / 2);
+  const y = medidas?.y ?? Math.round(area.y + (area.height - alto) / 2);
   navegadorHijo = spawn(
     chrome,
     [`--app=${url}`, `--window-size=${ancho},${alto}`, `--window-position=${x},${y}`],
@@ -152,15 +266,17 @@ function rutaDeChrome() {
 function armarBandeja() {
   tray = new Tray(iconoBandeja());
   tray.setToolTip("Unify — atento a tus reuniones");
+  // Un clic en el ícono abre la app: es lo que todo el mundo intenta primero.
+  tray.on("click", () => abrirVentana());
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "Abrir Unify", click: () => shell.openExternal(WEB) },
-      { label: "Mi historial", click: () => shell.openExternal(`${WEB}/historial`) },
+      { label: "Abrir Unify", click: () => abrirVentana("/") },
+      { label: "Mi historial", click: () => abrirVentana("/historial") },
       { type: "separator" },
       // Para probar el circuito sin esperar una reunión real.
       { label: "Probar el cartel", click: () => mostrarCartel() },
       { type: "separator" },
-      { label: "Salir", click: () => app.quit() },
+      { label: "Salir", click: () => { app.cerrandoDeVerdad = true; app.quit(); } },
     ])
   );
 }
@@ -193,6 +309,7 @@ function iconoBandeja() {
 app.on("window-all-closed", () => {});
 
 app.on("before-quit", () => {
+  app.cerrandoDeVerdad = true;
   detector?.detener();
   void puente?.cerrar();
 });

@@ -1,5 +1,6 @@
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useEffect, useRef, useState } from "react";
+import { detectarDispositivo } from "../lib/dispositivo";
 import { Link, useSearchParams } from "react-router-dom";
 import Button from "../components/Button";
 import GradientBackdrop from "../components/GradientBackdrop";
@@ -41,15 +42,12 @@ const DESCARGA_WINDOWS =
 
 type Plataforma = "windows" | "mac" | "ios" | "android" | "otro";
 
+// La detección vive en lib/dispositivo (una sola para toda la app: si esta
+// página dijera "iPad" y la de la reunión "iPhone", una de las dos mentiría).
+// Acá sólo se estrecha "linux" a "otro", que es lo que esta página sabe tratar.
 function detectarPlataforma(): Plataforma {
-  const ua = navigator.userAgent;
-  // iPadOS se disfraza de Mac: lo delata el tacto.
-  const esIpad = /iPad/.test(ua) || (/Mac/.test(ua) && navigator.maxTouchPoints > 1);
-  if (/iPhone|iPod/.test(ua) || esIpad) return "ios";
-  if (/Android/.test(ua)) return "android";
-  if (/Mac/.test(ua)) return "mac";
-  if (/Win/.test(ua)) return "windows";
-  return "otro";
+  const s = detectarDispositivo().sistema;
+  return s === "linux" ? "otro" : s;
 }
 
 // ¿Safari de verdad, o Chrome/Edge/Firefox de iPhone? Desde iOS 16.4 los
@@ -62,15 +60,14 @@ function esSafariDeIos(): boolean {
 }
 
 function esIpadPuntual(): boolean {
-  const ua = navigator.userAgent;
-  return /iPad/.test(ua) || (/Mac/.test(ua) && navigator.maxTouchPoints > 1);
+  return detectarDispositivo().corto === "iPad";
 }
 
 // Edge se anuncia como "Edg/": su página de extensiones es edge://extensions
 // y ahí el Modo de desarrollador vive a la IZQUIERDA, no arriba a la derecha.
 // Detectarlo evita mandar a alguien de Edge a pegar una URL de Chrome.
 function esEdge(): boolean {
-  return /Edg\//.test(navigator.userAgent);
+  return detectarDispositivo().navegador === "edge";
 }
 
 const NOMBRE: Record<Plataforma, string> = {

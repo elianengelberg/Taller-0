@@ -209,6 +209,38 @@ self.addEventListener("fetch", (e) => {
         `versión=${await version(p2)}`);
       check("sin quedar nada pendiente ni pedir nada", !(await hayEspera(p2)));
       await p2.close();
+
+      // 5d. EL BOTÓN "Buscar actualización ahora" de /instalar. La app se
+      //     actualiza sola, pero quien acaba de leer que hay una versión
+      //     nueva quiere COMPROBARLO en el momento -- y ese botón tiene que
+      //     hacer algo de verdad, no decir "ya estás al día" y quedarse.
+      const p3 = await ctx.newPage();
+      p3.on("pageerror", (e) => errs.push(e.message.slice(0, 140)));
+      await p3.goto(`${B}/instalar`, { waitUntil: "networkidle" });
+      await p3.evaluate(() => navigator.serviceWorker.ready);
+
+      const boton = p3.getByRole("button", { name: /Buscar actualizaci/i });
+      check("el botón de buscar actualización está a la vista", (await boton.count()) > 0);
+
+      // Sin nada nuevo publicado, tiene que decir la verdad: estás al día.
+      await boton.first().click();
+      // Y sobre todo: CONTESTA. Antes se quedaba en "Buscando…" para siempre
+      // cuando el pedido del service worker no resolvía, y no había manera de
+      // saber si estabas al día o si el botón estaba roto.
+      check("sin novedades, contesta que ya estás en la última versión",
+        await esperar(p3, (x) => x.evaluate(() => /última versión/i.test(document.body.innerText)), 25_000),
+        ((await p3.evaluate(() => document.body.innerText).catch(() => "")).match(/Buscar actualización ahora[\s\S]{0,45}/)?.[0] ?? "?").replace(/\n/g, " | "));
+
+      // Y ahora sí: se publica una versión nueva y se toca el botón.
+      publicar("v4");
+      const antes = await cargas(p3);
+      await p3.getByRole("button", { name: /Buscar actualizaci/i }).first().click();
+      check("con una versión nueva, el botón la APLICA de verdad",
+        await esperar(p3, async (x) => (await version(x)) === "v4", 40_000),
+        `versión=${await version(p3)}`);
+      check("y la pantalla se recargó sola en la versión nueva", (await cargas(p3)) > antes,
+        `cargas: ${antes} → ${await cargas(p3)}`);
+      await p3.close();
     } finally {
       fs.writeFileSync(SW, original);
     }

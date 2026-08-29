@@ -332,6 +332,39 @@ async function botonesChicos(p, minimo = 40) {
       await pm.close();
     }
 
+    // ── 4c. LA APP LE HABLA A ESTE APARATO (y no al de al lado) ──
+    // Las instrucciones no son las mismas en un iPhone, un Android o Windows:
+    // mostrarle a cada uno las de todos era obligarlo a buscar la suya (y a
+    // veces mandarlo a un menú que en su aparato no existe).
+    {
+      const pd = await ctx.newPage();
+      await pd.goto(`${B}/externa?url=${encodeURIComponent("https://meet.google.com/apa-rato-xyz")}`, { waitUntil: "networkidle" });
+      await pd.waitForTimeout(600);
+      const nom = pd.getByLabel("Tu nombre");
+      if (await nom.count()) await nom.first().fill("Aparato");
+      const unirme = pd.getByRole("button", { name: /Unirme acá dentro/i });
+      if (!/\/externa\/reunion/.test(pd.url())) {
+        await unirme.first().waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
+        if (await unirme.count()) await unirme.first().tap();
+      }
+      await pd.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
+      await pd.waitForTimeout(2500);
+      const txt = (await pd.locator("body").textContent()) || "";
+      if (esIphone) {
+        check("en iPhone, la instrucción de ver las dos cosas es la de iPhone (flotantes)",
+          /subtítulos flotantes/i.test(txt) && !/Split View/i.test(txt),
+          txt.slice(0, 60).replace(/\s+/g, " "));
+        check("y NO le habla de Windows ni de Android",
+          !/tecla Windows|En Android/i.test(txt));
+      } else {
+        check("en Android, la instrucción es la de Android (ventanita flotante / pantalla dividida)",
+          /En Android/i.test(txt), txt.slice(0, 60).replace(/\s+/g, " "));
+        check("y NO le habla de iPad ni de Split View",
+          !/Split View|Ajustes → Safari/i.test(txt));
+      }
+      await pd.close();
+    }
+
     // ── 5. La app instalada (pantalla de inicio de iOS) no abre la sábana ──
     // En la PWA de iOS, window.open abre un navegador interno ENCIMA de
     // Unify: si la app de Meet se lleva el enlace, esa sábana queda en

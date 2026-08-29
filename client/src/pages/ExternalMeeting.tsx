@@ -42,6 +42,7 @@ import {
 import { askMeetingAI } from "../lib/api";
 import { LANGUAGES, etiquetaDeIdioma, shortLang } from "../lib/languages";
 import { recentCaptionEntries } from "../lib/captionLines";
+import { comoVerLosDosALaVez, detectarDispositivo } from "../lib/dispositivo";
 import { esIOS, screenCaptureSupported } from "../lib/screenCapture";
 import { autoRecordEnabled, discardStashedDisplayStream, takeDisplayStream } from "../lib/autoRecord";
 import { cerrarVentanaSiQuedoEnBlanco } from "../lib/ventanaReunion";
@@ -340,6 +341,8 @@ export default function ExternalMeeting() {
   // grabación por micrófono no arranca sola acá, y si alguien la enciende a
   // propósito con el botón, los subtítulos se pausan mientras dure y vuelven
   // solos al detenerla.
+  // El aparato de quien está en la reunión: sus instrucciones, no las de todos.
+  const [aparato] = useState(detectarDispositivo);
   const unSoloMicrofono = esIOS();
   // `cediendoMic` es el traspaso en curso: alguien tocó Grabar y los
   // subtítulos tienen que SOLTAR el micrófono antes de que el grabador lo
@@ -405,7 +408,11 @@ export default function ExternalMeeting() {
   }, [micAttempt, captionsSupported]);
 
   const captionsProblem = !captionsSupported
-    ? "Este navegador no puede transcribir voz. Para ver subtítulos, entrá desde Chrome o Edge (en iPhone/iPad, desde la app de Chrome)."
+    ? (aparato.sistema === "ios"
+        ? `Este navegador de ${aparato.corto} no puede transcribir voz. Para ver subtítulos, abrí Unify en Safari; si ya estás en Safari, mandá el bot y él transcribe todo desde el servidor.`
+        : aparato.sistema === "android"
+          ? "Este navegador no puede transcribir voz. Para ver subtítulos, abrí Unify en Chrome de Android."
+          : "Este navegador no puede transcribir voz. Para ver subtítulos, abrí Unify en Chrome o Edge.")
     : micBloqueado
       ? MENSAJE_MIC_BLOQUEADO
       : micTomadoPorGrabacion
@@ -438,7 +445,7 @@ export default function ExternalMeeting() {
     return () => window.clearInterval(t);
   }, [escuchando, micAttempt]);
   const avisoSilencio = silencioLargo
-    ? "No está llegando ninguna voz al micrófono. Si la reunión corre en su app en este mismo aparato, el sistema le da el micrófono a la llamada y Unify no escucha nada. Salidas: dejá la reunión sonando en ALTAVOZ (sin auriculares) y esta pantalla al frente, abrila desde el navegador con Unify al lado (en iPad: Split View), o mandá el bot desde la pantalla de unirse: graba y transcribe todo desde el servidor, sin depender de este micrófono."
+    ? `No está llegando ninguna voz al micrófono. Si la reunión corre en su app en este mismo aparato, el sistema le da el micrófono a la llamada y Unify no escucha nada. Salidas: dejá la reunión sonando en ALTAVOZ (sin auriculares) y esta pantalla al frente; ${comoVerLosDosALaVez(aparato)} O mandá el bot: graba y transcribe todo desde el servidor, sin depender de este micrófono.`
     : null;
 
   const { getTranslation, translationFailed } = useLineTranslations(meeting?.transcript ?? [], targetLang);
@@ -1106,14 +1113,14 @@ export default function ExternalMeeting() {
                         roomKey={botDeSala.roomKey}
                         platform={botDeSala.platform}
                         lang={spokenLang}
-                        titulo="¿Este aparato no escucha la reunión?"
-                        descripcion="Mandá el bot: entra a la reunión, graba y transcribe todo desde el servidor. No usa el micrófono de tu teléfono, así que funciona aunque la llamada esté en este mismo aparato."
+                        titulo={`¿${aparato.corto} no escucha la reunión?`}
+                        descripcion={`Mandá el bot: entra a la reunión, graba y transcribe todo desde el servidor. No usa el micrófono de ${aparato.nombre}, así que funciona aunque la llamada esté en este mismo aparato.`}
                       />
                     ) : null
                   }
                   notaGrabacion={
                     grabacionCedida && recorder.status === "idle"
-                      ? "En iPhone y iPad el micrófono es de una sola cosa a la vez, así que la grabación automática está en pausa para que anden los subtítulos. Si querés que quede el video y la transcripción completa en el historial, mandá el bot al entrar: graba desde el servidor y no usa este micrófono. También podés tocar «Grabar» abajo para guardar el audio (mientras dure, los subtítulos se pausan)."
+                      ? `En ${aparato.corto} el micrófono es de una sola cosa a la vez, así que la grabación automática está en pausa para que anden los subtítulos. Si querés que quede el video y la transcripción completa en el historial, mandá el bot: graba desde el servidor y no usa este micrófono. También podés tocar «Grabar» abajo para guardar el audio (mientras dure, los subtítulos se pausan).`
                       : null
                   }
                   participantCount={participantCount}

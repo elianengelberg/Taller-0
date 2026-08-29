@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useRef } from "react";
+import { comoVerLosDosALaVez, detectarDispositivo } from "../lib/dispositivo";
 import Avatar from "./Avatar";
 import { GlobeIcon } from "./icons";
 
@@ -81,6 +82,9 @@ export default function CompanionSubtitleStage({
   }, [lines.length, interim]);
 
   const empty = lines.length === 0 && !interim;
+  // El aparato de quien está mirando: sus instrucciones, no las de todos.
+  const aparato = detectarDispositivo();
+  const verLosDos = comoVerLosDosALaVez(aparato);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -142,14 +146,25 @@ export default function CompanionSubtitleStage({
             </p>
             {/* En el teléfono, la instrucción del altavoz ES el modo de uso
                 (no un consejo al pie): primero y en la caja destacada. */}
-            <p className="max-w-sm rounded-xl border border-brand-500/40 bg-brand-500/10 px-3 py-2.5 text-sm leading-relaxed text-ink-200 sm:hidden">
-              Poné la reunión en <b>altavoz</b>, sin auriculares, y dejá esta pantalla al frente:
-              el micrófono capta a todos y los subtítulos corren acá, con su traducción.
+            {/* La instrucción, para el aparato que la está leyendo: en un
+                teléfono el modo de uso ES el altavoz; en una compu son las dos
+                ventanas lado a lado. Mostrarle a cada uno la de todos era
+                obligarlo a buscar la suya. */}
+            <p className="max-w-sm rounded-xl border border-brand-500/40 bg-brand-500/10 px-3 py-2.5 text-sm leading-relaxed text-ink-200">
+              {aparato.esCompu ? (
+                <>
+                  Con la reunión sonando en <b>altavoz</b> (en esta compu o en un aparato al lado),
+                  el micrófono capta todas las voces solo.
+                </>
+              ) : (
+                <>
+                  Poné la reunión en <b>altavoz</b>, sin auriculares, y dejá esta pantalla al frente:
+                  el micrófono capta a todos y los subtítulos corren acá, con su traducción.
+                </>
+              )}
             </p>
-            <p className="hidden max-w-sm rounded-xl border border-dashed border-ink-600 px-3 py-2 text-xs leading-relaxed text-ink-400 sm:block">
-              Con la reunión sonando en <b className="text-ink-200">altavoz</b> (en este aparato o
-              en uno al lado), el micrófono capta todas las voces solo. En iPad podés ver la
-              reunión y esto a la vez: Split View, o los subtítulos flotantes de arriba.
+            <p className="max-w-sm rounded-xl border border-dashed border-ink-600 px-3 py-2 text-xs leading-relaxed text-ink-400">
+              {verLosDos}
             </p>
             {/* Si el aparato no presta el micrófono (la app de la llamada se
                 lo queda, que es lo que hace iOS), esta es la salida que SÍ

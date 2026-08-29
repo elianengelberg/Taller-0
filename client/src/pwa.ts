@@ -267,14 +267,23 @@ export function initPwa(): void {
   // La búsqueda A PEDIDO (el botón "Buscar actualización" de /instalar):
   // certeza en vez de espera. Busca ya, y si hay algo lo aplica ya.
   buscarActualizacionAhora = async () => {
+    // NINGUNA de estas esperas puede ser infinita. `getRegistration()` y
+    // sobre todo `update()` se cuelgan sin resolver cuando el pedido del
+    // service worker queda pendiente (red lenta, pedido bloqueado, servidor
+    // dormido): el botón se quedaba en "Buscando…" para siempre y no había
+    // forma de saber si estabas al día. Ahora siempre contesta.
+    const demora = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
     try {
-      const reg = await navigator.serviceWorker?.getRegistration();
+      const reg = await Promise.race([
+        navigator.serviceWorker?.getRegistration(),
+        demora(5000).then(() => undefined),
+      ]);
       if (!reg) return "sin-sw";
-      await reg.update().catch(() => {});
+      await Promise.race([reg.update().catch(() => {}), demora(8000)]);
       // La instalación de un SW nuevo tarda unos segundos: esperarla.
       for (let i = 0; i < 20; i++) {
         if (reg.waiting) break;
-        await new Promise((r) => setTimeout(r, 500));
+        await demora(500);
       }
       if (!reg.waiting) return "al-dia";
       recargarAlTomarControl();

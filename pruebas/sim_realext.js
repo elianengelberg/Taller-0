@@ -135,9 +135,38 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
       /reunión de Google Meet/.test(texto) && /subtítulos y grabar/.test(texto) && /abro los subtítulos solo/.test(texto),
       texto.slice(0, 80));
 
-    // Sin responder: a los ~5 s el panel se abre solo con la transcripción.
+    // EN EL MEDIO Y GRANDE: en el rincón de abajo a la derecha se perdía
+    // entre los controles de Meet y no se llegaba a leer.
+    // Se mide contra la ventana REAL (el arnés no fija un viewport propio).
+    const caja = await aviso.evaluate((el) => {
+      const c = el.shadowRoot?.querySelector(".caja");
+      const r = c?.getBoundingClientRect();
+      if (!r) return null;
+      return {
+        w: r.width,
+        desvioX: Math.abs(r.x + r.width / 2 - window.innerWidth / 2),
+        desvioY: Math.abs(r.y + r.height / 2 - window.innerHeight / 2),
+      };
+    });
+    check("el aviso está en el MEDIO de la pantalla (no en un rincón)",
+      Boolean(caja) && caja.desvioX < 40 && caja.desvioY < 40,
+      caja ? `desvío=(${Math.round(caja.desvioX)},${Math.round(caja.desvioY)}) px del centro` : "sin caja");
+    check("y es grande de verdad (se lee de un vistazo)", Boolean(caja) && caja.w >= 480,
+      caja ? `${Math.round(caja.w)}px` : "sin caja");
+
+    // El fondo NO puede robarle los clics a Meet: tapar "Unirse ahora" quince
+    // segundos sería peor que el cartel chiquito.
+    check("y Meet se sigue usando atrás (el fondo del aviso no intercepta clics)",
+      await page.evaluate(() => document.getElementById("unify-aviso")?.style.pointerEvents === "none"));
+
+    // QUINCE segundos, no cinco: a los 6 todavía tiene que estar esperando.
     await page.waitForTimeout(6500);
-    check("sin respuesta, a los 5 segundos el panel se abre solo",
+    check("a los 6 segundos TODAVÍA espera tu respuesta (antes se iba a los 5)",
+      (await page.locator("#unify-aviso").count()) === 1);
+
+    // Y si no contesta, hace todo solo: abre los subtítulos.
+    await page.waitForTimeout(10_000);
+    check("sin respuesta, a los 15 segundos el panel se abre solo",
       await page.evaluate(() =>
         Boolean(document.getElementById("unify-root")?.shadowRoot?.querySelector(".drawer.is-open"))
       ));

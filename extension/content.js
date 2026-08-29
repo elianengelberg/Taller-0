@@ -847,25 +847,32 @@
 
     const host = document.createElement("div");
     host.id = "unify-aviso";
-    host.style.cssText = "position:fixed;z-index:2147483001;right:16px;bottom:96px;pointer-events:auto;";
+    host.style.cssText =
+      "position:fixed;z-index:2147483001;inset:0;display:flex;align-items:center;" +
+      "justify-content:center;pointer-events:none;";
     const root = host.attachShadow({ mode: "open" });
     root.innerHTML = `
       <style>
         :host { all: initial; }
-        .caja { width: 360px; max-width: calc(100vw - 32px); box-sizing: border-box;
+        /* En el MEDIO y grande: en el rincón se perdía entre los controles de
+           Meet y la gente ni lo llegaba a ver. El fondo NO recibe clics
+           (pointer-events en el host), así que Meet se sigue usando atrás. */
+        .caja { width: 520px; max-width: calc(100vw - 40px); box-sizing: border-box;
+          pointer-events: auto;
           background: #0f172a; color: #f5f6fb; border: 1px solid #334155;
-          border-radius: 14px; padding: 14px 16px;
-          font: 15px/1.5 system-ui, -apple-system, sans-serif;
-          box-shadow: 0 8px 30px rgba(0,0,0,.45); }
-        .fila { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-        button { border: 0; border-radius: 10px; padding: 10px 16px; font: inherit;
-          font-weight: 600; cursor: pointer; min-height: 40px; }
+          border-radius: 20px; padding: 28px 30px;
+          font: 19px/1.45 system-ui, -apple-system, sans-serif;
+          box-shadow: 0 24px 70px rgba(0,0,0,.55); }
+        .msg { font-size: 21px; font-weight: 600; }
+        .fila { display: flex; gap: 12px; margin-top: 22px; flex-wrap: wrap; }
+        button { border: 0; border-radius: 14px; padding: 15px 26px; font: inherit;
+          font-size: 18px; font-weight: 700; cursor: pointer; min-height: 54px; }
         button:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; }
-        .si { background: #6366f1; color: #fff; }
+        .si { background: #6366f1; color: #fff; flex: 1; }
         .si:hover { background: #4f46e5; }
         .no { background: transparent; color: #e2e8f0; border: 1px solid #475569; }
         .no:hover { background: #1e293b; }
-        .pie { margin-top: 8px; font-size: 12.5px; color: #94a3b8; }
+        .pie { margin-top: 14px; font-size: 15px; color: #94a3b8; }
       </style>
       <div class="caja" role="dialog" aria-label="Aviso de Unify">
         <div class="msg"></div>
@@ -881,8 +888,12 @@
     (document.body || document.documentElement).appendChild(host);
 
     const pie = root.querySelector(".pie");
-    let restante = 5;
-    pie.textContent = `Si no respondés, en ${restante} abro los subtítulos solo.`;
+    // Quince segundos: cinco no alcanzaban ni para leerlo mientras se entra a
+    // una reunión. Si no contesta, se hace lo mismo que si hubiera dicho que
+    // sí -- que es lo que la persona quiere el 99% de las veces.
+    let restante = 15;
+    const textoPie = (n) => `Si no contestás, en ${n} segundo${n === 1 ? "" : "s"} abro los subtítulos solo.`;
+    pie.textContent = textoPie(restante);
     const cerrar = () => {
       if (toastTimer) { clearInterval(toastTimer); toastTimer = null; }
       host.remove();
@@ -890,7 +901,7 @@
     toastTimer = setInterval(() => {
       restante -= 1;
       if (restante > 0) {
-        pie.textContent = `Si no respondés, en ${restante} abro los subtítulos solo.`;
+        pie.textContent = textoPie(restante);
         return;
       }
       cerrar();

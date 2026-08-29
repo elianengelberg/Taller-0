@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { comoDesbloquearMicrofono } from "../lib/dispositivo";
 
 // ¿El sitio tiene el micrófono BLOQUEADO? El reconocimiento de voz "arranca"
 // sin error aunque el permiso esté denegado (en iPhone/iPad siempre; en
@@ -39,8 +40,11 @@ export function usePermisoDeMicrofono(reintento: number, onConcedido: () => void
   return bloqueado;
 }
 
+// El mensaje habla del aparato que TIENE la persona: mandar a alguien de
+// Windows a "Ajustes → Safari" era mandarlo a un lugar que no existe. La ruta
+// real de cada sistema vive en lib/dispositivo.
 export const MENSAJE_MIC_BLOQUEADO =
-  "El micrófono está bloqueado para Unify, así que no podemos subtitular. Permitilo en el navegador (en iPhone/iPad: Ajustes → Apps → Safari o la app Unify → Micrófono) y tocá Reintentar.";
+  `El micrófono está bloqueado para Unify, así que no podemos subtitular. ${comoDesbloquearMicrofono()}`;
 
 // Fuerza el CARTEL nativo de autorización. El reconocimiento de voz a veces
 // arranca sin disparar el cartel (iOS), y la persona terminaba obligada a ir

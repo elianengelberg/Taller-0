@@ -3,26 +3,33 @@
 // is WebKit underneath, so capturing the screen from a web page there is
 // impossible, not merely unpermitted. Feature-detect it once so the UI can
 // say that honestly instead of blaming a cancelled permission prompt.
+import { detectarDispositivo, esIOS } from "./dispositivo";
+
 export const screenCaptureSupported =
   typeof navigator !== "undefined" &&
   typeof navigator.mediaDevices?.getDisplayMedia === "function";
 
-// ¿iPhone o iPad? En iOS el micrófono es de UN SOLO dueño a la vez: si el
-// reconocimiento de voz (subtítulos) y una grabación por getUserMedia corren
-// juntos, el sistema les corta el audio a los dos en silencio. Quien decida
-// entre uno y otro necesita saber dónde está parado. (iPadOS se disfraza de
-// Mac en el user agent: lo delata el tacto.)
-export function esIOS(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const ua = navigator.userAgent;
-  return /iPhone|iPad|iPod/.test(ua) || (/Mac/.test(ua) && navigator.maxTouchPoints > 1);
-}
+// La detección de aparato vive en un solo lugar (lib/dispositivo). Se
+// reexporta acá porque este módulo es el que responde "¿se puede capturar?".
+export { esIOS };
+
+// Los dos mensajes hablan del aparato que los está leyendo: en iPhone y iPad
+// la regla es de Apple y no hay vuelta; en Android tampoco existe capturar la
+// pantalla desde el navegador. Decir "iPhone" a alguien de Android sonaba a
+// error ajeno.
+const APARATO = detectarDispositivo();
+const PORQUE_NO_SE_PUEDE =
+  APARATO.sistema === "ios"
+    ? `en ${APARATO.corto} ningún navegador lo permite (es una regla de Apple)`
+    : APARATO.sistema === "android"
+      ? "el navegador de Android no puede capturar la pantalla"
+      : "este navegador no lo permite";
 
 export const SHARE_UNSUPPORTED_MESSAGE =
-  "Este navegador no puede capturar la pantalla: en iPhone y iPad ningún navegador lo permite. Para compartir pantalla, entrá a la reunión desde una computadora.";
+  `Este navegador no puede capturar la pantalla: ${PORQUE_NO_SE_PUEDE}. Para compartir pantalla, entrá a la reunión desde una computadora.`;
 
 export const RECORDING_UNSUPPORTED_MESSAGE =
-  "La grabación captura la pantalla de la reunión y este navegador no lo permite: en iPhone y iPad ningún navegador puede. Para grabar, entrá desde una computadora.";
+  `La grabación captura la pantalla de la reunión y ${PORQUE_NO_SE_PUEDE}. Para que quede el video igual, mandá el bot: graba desde el servidor.`;
 
 // NotAllowedError covers both the user pressing "Cancelar" in the picker and
 // an OS-level block (macOS's screen-recording privacy setting) -- the spec

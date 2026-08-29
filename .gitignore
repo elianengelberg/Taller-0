@@ -10,3 +10,4 @@ __pycache__/
 
 # Salidas de las pruebas (vistas previas renderizadas, capturas): se regeneran.
 pruebas/salida/
+desktop/node_modules/
