@@ -75,16 +75,27 @@ export function useSpeechRecognition({
     // Lo interino que la sesión nunca confirmó. Cuando la sesión muere
     // (silencio, red, un stop), el navegador lo descarta: eran palabras
     // DICHAS que desaparecían de la transcripción. Se rescatan como final.
+    // Con DOS guardas, porque el rescate ciego inventaba frases en las
+    // reuniones normales: (1) si la sesión terminó en "no-speech", el propio
+    // reconocedor RETRACTÓ ese interino ("eso no era habla, era ruido") y no
+    // hay nada que rescatar; (2) un interino de una sola palabra suele ser
+    // ruido de fondo, no una frase perdida.
     let pendingInterim = "";
+    let retractado = false;
     const rescueInterim = () => {
       const texto = pendingInterim.trim();
       pendingInterim = "";
-      if (texto) onResultRef.current([texto]);
+      if (retractado) {
+        retractado = false;
+        return;
+      }
+      if (texto && texto.split(/\s+/).length >= 2) onResultRef.current([texto]);
     };
 
     recognition.onresult = (event) => {
       setError(null);
       consecutiveErrors = 0;
+      retractado = false; // hay habla de verdad: lo pendiente vuelve a valer
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
@@ -113,7 +124,11 @@ export function useSpeechRecognition({
       // "no-speech" and "aborted" are expected/transient (e.g. silence, or the
       // effect cleaning up to restart) -- not worth alarming the user about,
       // and don't count toward the failure backoff below.
-      if (event.error === "no-speech" || event.error === "aborted") return;
+      if (event.error === "no-speech") {
+        retractado = true; // el reconocedor decidió que eso no era habla
+        return;
+      }
+      if (event.error === "aborted") return;
 
       const now = Date.now();
       consecutiveErrors = now - lastErrorAt < 3000 ? consecutiveErrors + 1 : 1;

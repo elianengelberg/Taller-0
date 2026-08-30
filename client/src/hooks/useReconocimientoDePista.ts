@@ -58,13 +58,21 @@ export function useReconocimientoDePista({
     // la IA correctora del servidor reconstruya la palabra que se dijo.
     rec.maxAlternatives = 5;
     let interinoPendiente = "";
+    // "no-speech" = el reconocedor RETRACTÓ lo interino ("era ruido"): no se
+    // rescata. Y una sola palabra suelta tampoco (suele ser ruido de fondo).
+    let retractado = false;
     const rescatarInterino = () => {
       const texto = interinoPendiente.trim();
       interinoPendiente = "";
-      if (texto) onFinalRef.current([texto]);
+      if (retractado) {
+        retractado = false;
+        return;
+      }
+      if (texto && texto.split(/\s+/).length >= 2) onFinalRef.current([texto]);
     };
     rec.onresult = (ev: SpeechRecognitionEvent) => {
       fallasSeguidas = 0;
+      retractado = false;
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const res = ev.results[i];
         if (!res.isFinal) {
@@ -81,7 +89,11 @@ export function useReconocimientoDePista({
       }
     };
     rec.onerror = (ev: SpeechRecognitionErrorEvent) => {
-      if (ev.error !== "no-speech" && ev.error !== "aborted") fallasSeguidas += 1;
+      if (ev.error === "no-speech") {
+        retractado = true;
+        return;
+      }
+      if (ev.error !== "aborted") fallasSeguidas += 1;
     };
     rec.onend = () => {
       // Antes de relevantar, lo interino sin confirmar se rescata: la sesión

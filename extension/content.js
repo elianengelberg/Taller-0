@@ -520,13 +520,21 @@
     // Lo interino que la sesión nunca confirmó se rescata al morir: eran
     // palabras dichas que desaparecían (mismo arreglo que en el injector).
     let interinoPendiente = "";
+    // "no-speech" = el reconocedor RETRACTÓ lo interino ("era ruido"): no se
+    // rescata. Y una palabra suelta tampoco (suele ser ruido de fondo).
+    let retractado = false;
     const rescatarInterino = () => {
       const texto = interinoPendiente.trim();
       interinoPendiente = "";
-      if (texto) void emit("Vos", texto, []);
+      if (retractado) {
+        retractado = false;
+        return;
+      }
+      if (texto && texto.split(/\s+/).length >= 2) void emit("Vos", texto, []);
     };
     r.onresult = (ev) => {
       state.micDenied = false;
+      retractado = false;
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const res = ev.results[i];
         const text = res[0]?.transcript?.trim();
@@ -546,6 +554,10 @@
       }
     };
     r.onerror = (ev) => {
+      if (ev.error === "no-speech") {
+        retractado = true;
+        return;
+      }
       if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
         rescatarInterino();
         state.micDenied = true;

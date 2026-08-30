@@ -45,10 +45,17 @@ export function useTrackTranscription({ track, lang, onResult }: UseTrackTranscr
     rec.interimResults = true;
     rec.maxAlternatives = 5;
     let interinoPendiente = "";
+    // "no-speech" = el reconocedor RETRACTÓ lo interino ("era ruido"): no se
+    // rescata. Y una sola palabra suelta tampoco (suele ser ruido de fondo).
+    let retractado = false;
     const rescatarInterino = () => {
       const texto = interinoPendiente.trim();
       interinoPendiente = "";
-      if (texto) onResultRef.current([texto]);
+      if (retractado) {
+        retractado = false;
+        return;
+      }
+      if (texto && texto.split(/\s+/).length >= 2) onResultRef.current([texto]);
     };
     const prender = () => {
       try {
@@ -60,6 +67,7 @@ export function useTrackTranscription({ track, lang, onResult }: UseTrackTranscr
 
     rec.onresult = (event) => {
       fallas = 0;
+      retractado = false;
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         if (!result.isFinal) {
@@ -76,7 +84,11 @@ export function useTrackTranscription({ track, lang, onResult }: UseTrackTranscr
       }
     };
     rec.onerror = (event) => {
-      if (event.error === "no-speech" || event.error === "aborted") return;
+      if (event.error === "no-speech") {
+        retractado = true;
+        return;
+      }
+      if (event.error === "aborted") return;
       fallas += 1;
     };
     rec.onend = () => {

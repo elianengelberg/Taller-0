@@ -407,13 +407,21 @@
       // desaparecían de la transcripción -- "no agarra todas las palabras"
       // era, en buena parte, esto. Al morir la sesión se rescata como final.
       let interinoPendiente = "";
+      // "no-speech" = el reconocedor RETRACTÓ lo interino ("era ruido"): no
+      // se rescata. Y una palabra suelta tampoco (suele ser ruido de fondo).
+      let retractado = false;
       const rescatarInterino = () => {
         const texto = interinoPendiente.trim();
         interinoPendiente = "";
-        if (texto) alTextoFinal(texto, []);
+        if (retractado) {
+          retractado = false;
+          return;
+        }
+        if (texto && texto.split(/\s+/).length >= 2) alTextoFinal(texto, []);
       };
       r.onresult = (ev) => {
         fallasSeguidas = 0;
+        retractado = false;
         for (let i = ev.resultIndex; i < ev.results.length; i++) {
           const res = ev.results[i];
           const texto = res[0]?.transcript?.trim();
@@ -441,7 +449,11 @@
           alFaltarPermiso();
           return;
         }
-        if (ev.error !== "no-speech" && ev.error !== "aborted") fallasSeguidas += 1;
+        if (ev.error === "no-speech") {
+          retractado = true;
+          return;
+        }
+        if (ev.error !== "aborted") fallasSeguidas += 1;
       };
       r.onend = () => {
         // Antes de relevantar, lo interino sin confirmar se rescata: la

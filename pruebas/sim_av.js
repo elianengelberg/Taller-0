@@ -303,6 +303,18 @@ async function indicadoresMute(page) {
         check("lo ya confirmado NO se rescata dos veces",
           finales.filter((t) => /otra frase/.test(t)).length === 1, JSON.stringify(finales));
 
+        // Las DOS guardas del rescate (sin ellas, el rescate ciego inventaba
+        // frases en las reuniones normales -- pasó de verdad):
+        interino("puro ruido de fondo");
+        instancia.onerror({ error: "no-speech" }); // el reconocedor lo retractó
+        instancia.onend();
+        check("lo que el reconocedor RETRACTÓ (no-speech) NO se inventa como frase",
+          !finales.some((t) => /puro ruido/.test(t)), JSON.stringify(finales));
+        interino("eh");
+        instancia.onend();
+        check("una palabra interina suelta tampoco entra (suele ser ruido)",
+          !finales.includes("eh"), JSON.stringify(finales));
+
         for (let i = 0; i < 10; i++) { instancia.onerror({ error: "network" }); instancia.onend(); }
         await sleep(5600); // los reintentos van espaciados (tope ~4,9 s)
         check("tras DIEZ fallas de red sigue reintentando (antes quedaba muerto para siempre)",
@@ -357,6 +369,90 @@ async function indicadoresMute(page) {
       window.__recs.some((x) => x.arranques >= 2));
     check("y la escucha se relevanta sola tras el corte", seRelevanto === true);
     await pr.close();
+  }
+
+  // ── SUBTÍTULOS DE LA REUNIÓN NORMAL, con el oído manejado a mano ─────────
+  // La regresión reportada fue acá («se expandió a las reuniones normales»):
+  // el rescate ciego convertía en frase lo que el reconocedor había
+  // RETRACTADO (ruido que muere en no-speech) y palabras sueltas de fondo.
+  // Se maneja el oído con los patrones del mundo real y se mira EXACTAMENTE
+  // qué líneas salen por el socket de la reunión.
+  {
+    const cr2 = sio(API, { transports: ["websocket"], forceNew: true, reconnection: false });
+    await new Promise((r, x) => { cr2.on("connect", r); cr2.on("connect_error", x); });
+    const creada2 = await new Promise((res) => cr2.timeout(8000).emit("create-meeting",
+      { hostName: "Semilla2", hostLanguage: "es-AR", roles: [] }, (e, r) => res(r)));
+    const codeN = creada2?.meeting?.id;
+    cr2.disconnect();
+    check("se crea la reunión normal de la prueba de oído", Boolean(codeN), String(codeN));
+
+    // Un oyente por socket junta EXACTAMENTE las líneas que salen.
+    const oy = sio(API, { transports: ["websocket"], forceNew: true, reconnection: false });
+    await new Promise((r, x) => { oy.on("connect", r); oy.on("connect_error", x); });
+    const lineasN = [];
+    oy.on("transcript-line", (p) => lineasN.push(p.line));
+    await new Promise((res) => oy.timeout(8000).emit("join-meeting",
+      { meetingId: codeN, name: "Oyente", language: "es-AR" }, (e, r) => res(r)));
+
+    const pn = await (await mk()).newPage();
+    const bagN = [];
+    watch(pn, bagN);
+    await pn.addInitScript(() => {
+      window.__recs = [];
+      const Doble = class {
+        constructor() { window.__recs.push(this); this.arranques = 0; }
+        start() { this.arranques += 1; }
+        stop() { if (this.onend) setTimeout(() => this.onend(), 0); }
+        abort() { if (this.onend) setTimeout(() => this.onend(), 0); }
+      };
+      window.SpeechRecognition = Doble;
+      window.webkitSpeechRecognition = Doble;
+    });
+    await pn.goto(`${B}/unirse/${codeN}`, { waitUntil: "domcontentloaded" });
+    await pn.getByLabel(/Tu nombre/i).fill("Norma");
+    await pn.waitForTimeout(400);
+    await pn.getByRole("button", { name: /Unirme|Entrar/i }).last().click();
+    await pn.waitForTimeout(4000);
+
+    const manejar = (paso) => pn.evaluate((p) => {
+      const r = [...window.__recs].reverse().find((x) => x.onresult && x.onend);
+      if (!r) return false;
+      const interino = (t) => r.onresult({ resultIndex: 0, results: [{ isFinal: false, length: 1, 0: { transcript: t } }] });
+      const final = (t) => r.onresult({ resultIndex: 0, results: [{ isFinal: true, length: 1, 0: { transcript: t } }] });
+      if (p === "normal") { interino("hola a todos"); final("hola a todos arrancamos la reunión"); }
+      if (p === "corte") { interino("esto se corta a la mitad"); r.onend(); }
+      if (p === "ruido") { interino("zumbido raro"); if (r.onerror) r.onerror({ error: "no-speech" }); r.onend(); }
+      if (p === "suelta") { interino("eh"); r.onend(); }
+      return true;
+    }, paso);
+
+    const okNormal = await manejar("normal");
+    await pn.waitForTimeout(900);
+    const okCorte = await manejar("corte");
+    await pn.waitForTimeout(900);
+    const okRuido = await manejar("ruido");
+    await pn.waitForTimeout(900);
+    const okSuelta = await manejar("suelta");
+    await pn.waitForTimeout(2500);
+    check("el oído de la reunión normal aceptó los cuatro patrones",
+      okNormal && okCorte && okRuido && okSuelta);
+
+    // Estado FINAL por línea (el servidor fusiona fragmentos seguidos en la
+    // misma id: vale el último texto de cada una).
+    const porId = new Map();
+    for (const l of lineasN) porId.set(l.id, l.text);
+    const todo = [...porId.values()].join(" || ");
+    check("la frase confirmada sale UNA vez (ni se pierde ni se duplica)",
+      (todo.match(/hola a todos arrancamos la reunión/g) || []).length === 1, todo.slice(0, 150));
+    check("la frase cortada a la mitad se RESCATA igual",
+      /esto se corta a la mitad/.test(todo), todo.slice(0, 150));
+    check("el ruido retractado por el reconocedor NO aparece",
+      !/zumbido/.test(todo), todo.slice(0, 150));
+    check("la palabra suelta de fondo tampoco",
+      !/\beh\b/.test(todo), todo.slice(0, 150));
+    check("sin errores de JS en la reunión normal de la prueba", bagN.length === 0, bagN[0] || "");
+    oy.disconnect();
+    await pn.close();
   }
 
   check("cierre: ni un error de JS en toda la sesión de A", bagA.length === 0, bagA.slice(0, 3).join(" | "));
