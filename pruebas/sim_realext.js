@@ -12,7 +12,14 @@ const SRC = "/home/user/Taller-0/extension";
 const results = [];
 const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" : "FAIL"} ${n}${d ? " — " + d : ""}`); };
 
-const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Meet falso</title></head>
+const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Meet falso</title>
+<style>
+  /* Como el Meet real con fonts.gstatic BLOQUEADO: la familia de íconos está
+     declarada pero su carga revienta (la URL devuelve HTML, no una fuente).
+     El rescate de la extensión sólo actúa sobre familias declaradas y rotas:
+     exactamente este caso. */
+  @font-face { font-family: 'Google Symbols'; src: url(http://localhost:4189/fuente-bloqueada.woff2) format('woff2'); }
+</style></head>
 <body style="margin:0;background:#202124;height:100vh">
   <button aria-label="Salir de la llamada">Salir</button>
   <button aria-label="Mostrar a todos (3)">Personas</button>
@@ -477,6 +484,29 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
     const junto = nuevas.map((p) => p.text).join(" ").replace(/\s+/g, " ").trim();
     check("y al partirlo no se pierde NI UNA palabra",
       junto === monologo, junto === monologo ? "texto completo" : `quedó: …${junto.slice(-80)}`);
+  }
+
+  // LOS ÍCONOS RESCATADOS. En redes donde fonts.gstatic.com está bloqueado,
+  // la fuente de íconos de Google no carga y cada botón de Meet muestra su
+  // NOMBRE en texto ("mic", "videocam", "call_end") -- pasó en una reunión
+  // real. Esta página falsa tampoco declara esa fuente (mismo síntoma): la
+  // extensión tiene que registrar la SUYA, embebida, con los mismos nombres.
+  {
+    const rescate = await page.evaluate(() => document.getElementById("unify-rescate-iconos")?.textContent ?? "");
+    check("si la fuente de íconos de Google no carga, la extensión pone la SUYA",
+      /iconos-material\.woff2/.test(rescate) && /Google Symbols/.test(rescate),
+      rescate ? rescate.replace(/\s+/g, " ").slice(0, 90) : "no se inyectó");
+    const fuenteOk = await page.evaluate(async () => {
+      const m = document.getElementById("unify-rescate-iconos")?.textContent.match(/url\("([^"]+)"\)/);
+      if (!m) return "sin url";
+      try {
+        const r = await fetch(m[1]);
+        const b = await r.arrayBuffer();
+        return `${r.status}:${b.byteLength}`;
+      } catch (e) { return String(e).slice(0, 60); }
+    });
+    check("y la fuente embebida se sirve de verdad (no un 404 adentro del paquete)",
+      /^200:3\d{5}$/.test(fuenteOk), fuenteOk);
   }
 
   // Y la red de seguridad: si Meet recicla su fila y reaparece texto viejo, no

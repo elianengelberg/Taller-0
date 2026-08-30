@@ -1180,6 +1180,42 @@
   });
   globalObserver.observe(document.documentElement, { childList: true, subtree: true });
 
+  // ===========================================================================
+  // LOS ÍCONOS DE MEET, RESCATADOS. En algunas redes (antivirus, bloqueadores,
+  // DNS filtrado) fonts.gstatic.com no responde y la fuente de íconos de
+  // Google no carga: cada botón de Meet muestra su NOMBRE en texto ("mic",
+  // "videocam", "call_end") -- "los botones bugueados", tal cual se vio en una
+  // reunión real. No lo rompemos nosotros (esta extensión no puede bloquear
+  // fuentes: no tiene webRequest ni declarativeNetRequest, y no inyecta CSS a
+  // la página), pero sí podemos arreglarlo: la fuente viaja ADENTRO de la
+  // extensión y, SOLO si la de Google no cargó, se registra en la página con
+  // los mismos nombres de familia. Si la de Google funciona, esto no toca nada.
+  // ===========================================================================
+  async function rescatarIconosDeMeet() {
+    try {
+      // Un respiro generoso: primero que la fuente REAL tenga su oportunidad.
+      await new Promise((r) => setTimeout(r, 6000));
+      const familias = ['"Google Symbols"', '"Google Material Icons"', '"Material Symbols Outlined"'];
+      const faltantes = [];
+      for (const familia of familias) {
+        try { await document.fonts.load(`24px ${familia}`); } catch { /* sigue */ }
+        if (!document.fonts.check(`24px ${familia}`)) faltantes.push(familia);
+      }
+      if (faltantes.length === 0 || document.getElementById("unify-rescate-iconos")) return;
+      const url = chrome.runtime.getURL("iconos-material.woff2");
+      const estilo = document.createElement("style");
+      estilo.id = "unify-rescate-iconos";
+      estilo.textContent = faltantes
+        .map((f) => `@font-face{font-family:${f};font-style:normal;font-weight:100 700;src:url("${url}") format("woff2");font-display:block;}`)
+        .join("\n");
+      document.documentElement.appendChild(estilo);
+      log("íconos de Meet rescatados con la fuente local:", faltantes.join(", "));
+    } catch {
+      /* mejor íconos rotos que romper otra cosa */
+    }
+  }
+  void rescatarIconosDeMeet();
+
   setInterval(() => {
     try {
       ensureAll();
