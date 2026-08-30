@@ -227,8 +227,12 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
         const sys = Array.isArray(body.system)
           ? body.system.map((b) => (b && b.text) || "").join("\n")
           : String(body.system ?? "");
+        const contenidoUser = Array.isArray(body.messages) ? String(body.messages[0]?.content ?? "") : "";
         const texto = /TRAD_/.test(sys)
           ? [...new Set([...sys.matchAll(/TRAD_([a-z]{2})/g)].map((m) => m[1]))]
+              // Marcador de prueba: simula la respuesta INCOMPLETA (sin pt),
+              // como una línea con formato roto en la vida real.
+              .filter((c) => !(contenidoUser.includes("sin portugues") && c === "pt"))
               .map((c) => `TRAD_${c}: [${c}] the blue slide shows the sales curve`).join("\n")
           : sys.includes("Translate the user's message")
             ? "texto traducido de prueba"
@@ -236,8 +240,7 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
                 // El doble del CLEANUP espeja las candidatas (prefiere la
                 // alternativa, como una corrección real): así sirve para
                 // cualquier fragmento, no sólo el de la lámina.
-                const user = Array.isArray(body.messages) ? String(body.messages[0]?.content ?? "") : "";
-                const alt = user.match(/^2\. (.+)$/m)?.[1] || user.match(/^1\. (.+)$/m)?.[1] ||
+                const alt = contenidoUser.match(/^2\. (.+)$/m)?.[1] || contenidoUser.match(/^1\. (.+)$/m)?.[1] ||
                   "la lámina azul muestra la curva de ventas";
                 return `IDIOMA: es\nTEXTO: ${alt}`;
               })();
@@ -342,6 +345,28 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
         return user.includes("subí el archivo al drive") && /TEXT:\s*no lo veo/.test(user);
       }),
       JSON.stringify(jTrad).slice(0, 80));
+
+    // NADIE SIN SU IDIOMA. Si la respuesta multi-idioma viene incompleta
+    // (una línea con formato roto, un idioma filtrado), antes esa persona se
+    // quedaba SIN traducción para siempre y sin error a la vista. Ahora el
+    // idioma que falta se rellena aparte en la misma pasada.
+    const s2 = io("http://localhost:4009", { transports: ["websocket"] });
+    await new Promise((resolve) => {
+      s2.emit("join-companion", { externalKey: key, name: "Viewer PT", language: "pt-BR" }, resolve);
+      setTimeout(resolve, 3000);
+    });
+    const antesParches = parches.length;
+    await fetch(`http://localhost:4009/api/meet-bridge/${encodeURIComponent(key)}/transcript`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ speaker: "Otra Voz", text: "el grafico final queda sin portugues", lang: "es-AR" }),
+    });
+    await new Promise((r) => setTimeout(r, 2500));
+    const parchesNuevos = parches.slice(antesParches);
+    const completo = parchesNuevos.find((p) => p.translations?.en && p.translations?.pt);
+    check("si la respuesta multi-idioma viene INCOMPLETA, el idioma que falta se rellena aparte",
+      Boolean(completo) && completo.translations.pt === "texto traducido de prueba",
+      JSON.stringify(parchesNuevos).slice(0, 140));
+    s2.close();
 
     socket.close();
     try { process.kill(-server.pid); } catch { server.kill(); }

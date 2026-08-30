@@ -417,6 +417,15 @@ export async function translateFragmentToAll(
         if (fullCacheKey && Object.keys(translations).length === targetLangCodes.length) {
           boundedSet(translateAllCache, fullCacheKey, { result: translations, expiresAt: Date.now() + CACHE_TTL_MS });
         }
+        // NADIE se queda sin su idioma. Si la respuesta vino incompleta (una
+        // línea con formato roto, un idioma filtrado por el detector de
+        // parloteo), esos idiomas se rellenan uno por uno -- antes acá se
+        // devolvía lo que hubiera y la línea quedaba SIN traducir para esas
+        // personas, para siempre y sin ningún error a la vista.
+        const faltantes = targetLangCodes.filter((code) => !translations[code]);
+        if (faltantes.length > 0) {
+          Object.assign(translations, await traducirUnoPorUno(best, faltantes, sourceLangHint));
+        }
         return translations;
       }
     }

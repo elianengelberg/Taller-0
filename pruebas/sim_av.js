@@ -264,7 +264,99 @@ async function indicadoresMute(page) {
       const mic = crear(Viejo)({ lang: "es", alTextoFinal: () => {}, alTextoInterino: () => {}, alFaltarPermiso: () => {} });
       check("sin pista, el micrófono arranca igual que siempre", mic.arrancar() === true && hecho.arranco === true);
       mic.parar();
+
+      // EL RESCATE DE LO INTERINO y EL NUNCA RENDIRSE, con la fábrica real.
+      // Dos males de una reunión de verdad: (1) la sesión de voz muere
+      // (silencio, red) y Chrome TIRA el texto interino nunca confirmado --
+      // palabras dichas que desaparecían; (2) tras 8 fallas seguidas el
+      // reconocimiento se apagaba PARA SIEMPRE -- subtítulos "trabados"
+      // hasta recargar.
+      {
+        const finales = [];
+        let instancia = null;
+        function Falso() {
+          instancia = this;
+          this.arranques = 0;
+          this.start = () => { this.arranques += 1; };
+          this.stop = () => { if (this.onend) this.onend(); };
+        }
+        const voz = crear(Falso)({
+          lang: "es",
+          alTextoFinal: (t) => finales.push(t),
+          alTextoInterino: () => {},
+          alFaltarPermiso: () => {},
+        });
+        check("el doble de voz arranca", voz.arrancar() === true && instancia !== null);
+        const interino = (texto) =>
+          instancia.onresult({ resultIndex: 0, results: [{ isFinal: false, length: 1, 0: { transcript: texto } }] });
+        const final = (texto) =>
+          instancia.onresult({ resultIndex: 0, results: [{ isFinal: true, length: 1, 0: { transcript: texto } }] });
+
+        interino("esto quedó a medio decir");
+        instancia.onend(); // la sesión muere SIN confirmar
+        check("una sesión que muere NO se lleva lo interino (se rescata como final)",
+          finales.includes("esto quedó a medio decir"), JSON.stringify(finales));
+
+        interino("otra frase");
+        final("otra frase entera");
+        instancia.onend();
+        check("lo ya confirmado NO se rescata dos veces",
+          finales.filter((t) => /otra frase/.test(t)).length === 1, JSON.stringify(finales));
+
+        for (let i = 0; i < 10; i++) { instancia.onerror({ error: "network" }); instancia.onend(); }
+        await sleep(5600); // los reintentos van espaciados (tope ~4,9 s)
+        check("tras DIEZ fallas de red sigue reintentando (antes quedaba muerto para siempre)",
+          instancia.arranques >= 10, `arranques=${instancia.arranques}`);
+        voz.parar();
+      }
     }
+  }
+
+  // ── EL MISMO RESCATE, EN LA WEB DE VERDAD ────────────────────────────────
+  // El companion externo escucha con useSpeechRecognition: acá se le planta
+  // un reconocimiento controlable, se lo hace morir con un interino a medio
+  // confirmar, y esas palabras tienen que aparecer en la transcripción real
+  // (viajaron por el socket hasta el servidor y volvieron como línea).
+  {
+    const pr = await (await mk()).newPage();
+    const bagR = [];
+    watch(pr, bagR);
+    await pr.addInitScript(() => {
+      window.__recs = [];
+      const Doble = class {
+        constructor() { window.__recs.push(this); this.arranques = 0; }
+        start() { this.arranques += 1; }
+        stop() { if (this.onend) setTimeout(() => this.onend(), 0); }
+        abort() { if (this.onend) setTimeout(() => this.onend(), 0); }
+      };
+      window.SpeechRecognition = Doble;
+      window.webkitSpeechRecognition = Doble;
+    });
+    await pr.goto(`${B}/externa?url=${encodeURIComponent("https://meet.google.com/res-cate-xyz")}`, { waitUntil: "domcontentloaded" });
+    await pr.waitForTimeout(1200);
+    const nombreR = pr.getByLabel("Tu nombre");
+    if (await nombreR.count()) await nombreR.first().fill("Rescate");
+    const unirmeR = pr.getByRole("button", { name: /Unirme acá dentro/i });
+    if (await unirmeR.count()) await unirmeR.first().click();
+    await pr.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
+    await pr.waitForTimeout(2500);
+
+    const manejado = await pr.evaluate(() => {
+      const r = [...window.__recs].reverse().find((x) => x.onresult && x.onend);
+      if (!r) return false;
+      r.onresult({ resultIndex: 0, results: [{ isFinal: false, length: 1, 0: { transcript: "las palabras que casi se pierden" } }] });
+      r.onend(); // la sesión muere sin confirmar
+      return true;
+    });
+    await pr.waitForTimeout(2500);
+    const cuerpoR = (await pr.locator("body").textContent()) || "";
+    check("en la web real, lo interino de una sesión muerta llega igual a la transcripción",
+      manejado && /las palabras que casi se pierden/i.test(cuerpoR),
+      manejado ? cuerpoR.replace(/\s+/g, " ").slice(0, 90) : "el reconocimiento no arrancó");
+    const seRelevanto = await pr.evaluate(() =>
+      window.__recs.some((x) => x.arranques >= 2));
+    check("y la escucha se relevanta sola tras el corte", seRelevanto === true);
+    await pr.close();
   }
 
   check("cierre: ni un error de JS en toda la sesión de A", bagA.length === 0, bagA.slice(0, 3).join(" | "));

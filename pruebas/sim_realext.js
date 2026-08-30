@@ -457,6 +457,28 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
       `la cola aparece ${vecesPendiente} vez/veces en ${nuevas.length} envíos: ${todo.slice(0, 150)}`);
   }
 
+  // EL MONÓLOGO SIN PAUSAS. Si nadie respira 1,6 segundos, el asentamiento no
+  // llega nunca: ni una línea salía al panel/historial hasta que la persona
+  // terminara -- "se traba" mientras alguien habla de corrido. Ahora la parte
+  // ya fría se emite por el camino, y el servidor pega los pedazos en una
+  // línea. Acá: que salga POR PARTES y que no se pierda NI UNA palabra.
+  {
+    const antes = posted.length;
+    const monologo =
+      "el plan de este trimestre tiene tres partes bien claras que quiero repasar con calma " +
+      "primero la campaña de lanzamiento que arranca en dos semanas con el equipo de contenido " +
+      "después viene la parte de alianzas donde tenemos cuatro conversaciones abiertas con socios nuevos " +
+      "y por último el presupuesto de herramientas que hay que cerrar antes de fin de mes sin falta";
+    await page.evaluate(async (texto) => { await window.__say("Gustavo Peña", texto); }, monologo);
+    await page.waitForTimeout(3000);
+    const nuevas = posted.slice(antes).filter((p) => p.speaker === "Gustavo Peña");
+    check("un monólogo largo se emite POR PARTES (no se traba hasta la pausa)",
+      nuevas.length >= 2, `envíos=${nuevas.length}`);
+    const junto = nuevas.map((p) => p.text).join(" ").replace(/\s+/g, " ").trim();
+    check("y al partirlo no se pierde NI UNA palabra",
+      junto === monologo, junto === monologo ? "texto completo" : `quedó: …${junto.slice(-80)}`);
+  }
+
   // Y la red de seguridad: si Meet recicla su fila y reaparece texto viejo, no
   // se transcribe dos veces la misma frase.
   {

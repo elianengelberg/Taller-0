@@ -33,15 +33,23 @@ export function useTrackTranscription({ track, lang, onResult }: UseTrackTranscr
     if (!Ctor) return;
 
     let activo = true;
-    // Sin red hacia el servicio de voz, onend->start->onerror giraría para
-    // siempre: unas cuantas fallas seguidas y se apaga solo, sin molestar
-    // (los subtítulos por micrófono tienen su propio cartel de error).
+    // Las fallas en cadena (sin red hacia el servicio de voz) ESPACIAN los
+    // reintentos, pero no lo apagan: antes cinco seguidas lo dejaban mudo
+    // PARA SIEMPRE sin aviso. Cuando la causa pasa, la escucha vuelve sola.
     let fallas = 0;
     const rec = new Ctor();
     rec.lang = lang;
     rec.continuous = true;
-    rec.interimResults = false;
+    // Interinos sólo para el RESCATE: si la sesión muere a mitad de una
+    // frase, esas palabras estaban dichas y se emiten igual. No se muestran.
+    rec.interimResults = true;
     rec.maxAlternatives = 5;
+    let interinoPendiente = "";
+    const rescatarInterino = () => {
+      const texto = interinoPendiente.trim();
+      interinoPendiente = "";
+      if (texto) onResultRef.current([texto]);
+    };
     const prender = () => {
       try {
         (rec.start as unknown as (t?: MediaStreamTrack) => void)(track);
@@ -54,12 +62,16 @@ export function useTrackTranscription({ track, lang, onResult }: UseTrackTranscr
       fallas = 0;
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
-        if (!result.isFinal) continue;
+        if (!result.isFinal) {
+          interinoPendiente = result[0]?.transcript?.trim() ?? interinoPendiente;
+          continue;
+        }
         const alternatives: string[] = [];
         for (let j = 0; j < result.length; j++) {
           const alt = result[j]?.transcript?.trim();
           if (alt) alternatives.push(alt);
         }
+        interinoPendiente = "";
         if (alternatives.length) onResultRef.current(alternatives);
       }
     };
@@ -68,14 +80,16 @@ export function useTrackTranscription({ track, lang, onResult }: UseTrackTranscr
       fallas += 1;
     };
     rec.onend = () => {
-      if (!activo || fallas >= 5 || track.readyState !== "live") return;
+      rescatarInterino();
+      if (!activo || track.readyState !== "live") return;
       setTimeout(() => {
         if (activo) prender();
-      }, fallas ? 1000 : 0);
+      }, Math.min(fallas, 7) * 700);
     };
 
     const alTerminar = () => {
       activo = false;
+      rescatarInterino();
       try { rec.stop(); } catch { /* ya parado */ }
     };
     track.addEventListener("ended", alTerminar);
@@ -84,6 +98,7 @@ export function useTrackTranscription({ track, lang, onResult }: UseTrackTranscr
     return () => {
       activo = false;
       track.removeEventListener("ended", alTerminar);
+      rescatarInterino();
       rec.onresult = null;
       rec.onerror = null;
       rec.onend = null;

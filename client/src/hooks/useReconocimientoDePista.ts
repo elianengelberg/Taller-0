@@ -49,32 +49,49 @@ export function useReconocimientoDePista({
     const rec = new Reconocedor();
     rec.lang = lang;
     rec.continuous = true;
-    rec.interimResults = false;
+    // Los interinos se piden pero NO se muestran (el globo interino en
+    // pantalla es de la propia voz): sirven para el RESCATE de abajo. Sin
+    // ellos, cuando la sesión moría a mitad de una frase, esas palabras del
+    // audio de la reunión desaparecían sin dejar rastro.
+    rec.interimResults = true;
     // 5 lecturas candidatas, igual que el micrófono: más hipótesis para que
     // la IA correctora del servidor reconstruya la palabra que se dijo.
     rec.maxAlternatives = 5;
+    let interinoPendiente = "";
+    const rescatarInterino = () => {
+      const texto = interinoPendiente.trim();
+      interinoPendiente = "";
+      if (texto) onFinalRef.current([texto]);
+    };
     rec.onresult = (ev: SpeechRecognitionEvent) => {
       fallasSeguidas = 0;
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const res = ev.results[i];
-        if (!res.isFinal) continue;
+        if (!res.isFinal) {
+          interinoPendiente = res[0]?.transcript?.trim() ?? interinoPendiente;
+          continue;
+        }
         const alternativas: string[] = [];
         for (let j = 0; j < res.length && j < 5; j++) {
           const texto = res[j]?.transcript?.trim();
           if (texto && !alternativas.includes(texto)) alternativas.push(texto);
         }
+        interinoPendiente = "";
         if (alternativas.length > 0) onFinalRef.current(alternativas);
       }
     };
-    rec.onerror = () => {
-      fallasSeguidas += 1;
+    rec.onerror = (ev: SpeechRecognitionErrorEvent) => {
+      if (ev.error !== "no-speech" && ev.error !== "aborted") fallasSeguidas += 1;
     };
     rec.onend = () => {
+      // Antes de relevantar, lo interino sin confirmar se rescata: la sesión
+      // que murió no lo va a confirmar nunca.
+      rescatarInterino();
       // Se corta solo tras un silencio; relevantarlo es lo que lo hace
-      // continuo. Si falla en cadena (sin red hacia el servicio de voz),
-      // insistir sería martillar: varias seguidas y se deja quieto.
+      // continuo. NUNCA se rinde del todo (antes, ocho fallas seguidas lo
+      // apagaban PARA SIEMPRE y la reunión quedaba muda hasta recargar):
+      // espacia los reintentos y sigue -- cuando la red vuelve, vuelve.
       if (!activa || track.readyState === "ended") return;
-      if (fallasSeguidas >= 8) return;
       setTimeout(() => {
         if (!activa) return;
         try {
@@ -82,7 +99,7 @@ export function useReconocimientoDePista({
         } catch {
           // Ya estaba arrancando: inofensivo.
         }
-      }, fallasSeguidas ? 800 : 0);
+      }, Math.min(fallasSeguidas, 7) * 700);
     };
     try {
       (rec as unknown as { start: (t: MediaStreamTrack) => void }).start(track);
@@ -92,6 +109,7 @@ export function useReconocimientoDePista({
     }
     return () => {
       activa = false;
+      rescatarInterino();
       try {
         rec.stop();
       } catch {

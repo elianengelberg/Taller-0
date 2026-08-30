@@ -401,6 +401,17 @@
       // las otras dos le dan a la IA de limpieza del servidor más hipótesis
       // para reconstruir la palabra que de verdad se dijo.
       r.maxAlternatives = 3;
+      // Lo último interino que el reconocimiento mostró y NUNCA confirmó.
+      // Cuando la sesión muere (silencio, error de red, un stop nuestro),
+      // Chrome tira ese texto a la basura: eran palabras DICHAS que
+      // desaparecían de la transcripción -- "no agarra todas las palabras"
+      // era, en buena parte, esto. Al morir la sesión se rescata como final.
+      let interinoPendiente = "";
+      const rescatarInterino = () => {
+        const texto = interinoPendiente.trim();
+        interinoPendiente = "";
+        if (texto) alTextoFinal(texto, []);
+      };
       r.onresult = (ev) => {
         fallasSeguidas = 0;
         for (let i = ev.resultIndex; i < ev.results.length; i++) {
@@ -413,8 +424,10 @@
               const otra = res[j]?.transcript?.trim();
               if (otra && otra !== texto) alts.push(otra);
             }
+            interinoPendiente = ""; // lo confirmó: ya no hay nada que rescatar
             alTextoFinal(texto, alts);
           } else {
+            interinoPendiente = texto;
             alTextoInterino(texto);
           }
         }
@@ -423,29 +436,38 @@
         if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
           // Sin micrófono no hay drama: los subtítulos de los DEMÁS siguen
           // llegando por el bridge. Se avisa una vez y no se insiste.
+          rescatarInterino();
           activa = false;
           alFaltarPermiso();
           return;
         }
-        fallasSeguidas += 1;
+        if (ev.error !== "no-speech" && ev.error !== "aborted") fallasSeguidas += 1;
       };
       r.onend = () => {
-        // El reconocimiento se corta solo tras un silencio: relevantarlo es
-        // lo que lo vuelve continuo. Pero si falla y falla (sin red hacia el
-        // servicio de voz), insistir sería martillar: varias seguidas y listo.
+        // Antes de relevantar, lo interino sin confirmar se rescata: la
+        // sesión que murió no lo va a confirmar nunca.
+        rescatarInterino();
         if (!activa) return;
-        if (fallasSeguidas >= 8) { activa = false; return; }
+        // NUNCA se rinde del todo. Antes, ocho fallas seguidas apagaban el
+        // reconocimiento PARA SIEMPRE, sin aviso: los subtítulos quedaban
+        // "trabados" hasta recargar (pasó en reuniones reales, con la red
+        // de la voz caída un rato). Ahora espacia los reintentos (hasta 5 s)
+        // y sigue insistiendo: cuando la red vuelve, la voz vuelve sola.
+        const espera = Math.min(fallasSeguidas, 7) * 700;
         setTimeout(() => {
           if (activa) { try { track ? r.start(track) : r.start(); } catch { /* ya estaba arrancando */ } }
-        }, fallasSeguidas ? 800 : 0);
+        }, espera);
       };
       try { track ? r.start(track) : r.start(); } catch { return false; }
       rec = r;
       activa = true;
+      // El rescate también corre al parar a mano (cambio de idioma, cierre).
+      rec.__rescatar = rescatarInterino;
       return true;
     }
     function parar() {
       activa = false;
+      try { rec?.__rescatar?.(); } catch { /* nada que rescatar */ }
       try { rec?.stop(); } catch { /* ya estaba muerto */ }
       rec = null;
     }
@@ -1212,7 +1234,9 @@
     reiniciarVozHook = arrancarVozPropia;
 
     void sondear();
-    overlayTimer = setInterval(sondear, 2500);
+    // 1,5 s: con 2,5 los subtítulos de los demás se sentían "trabados" (una
+    // frase podía tardar dos ticks y medio entre dicha y pintada).
+    overlayTimer = setInterval(sondear, 1500);
   }
 
   function notaEnOverlay(texto, clase) {

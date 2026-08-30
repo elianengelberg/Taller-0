@@ -56,12 +56,14 @@ export function useSpeechRecognition({
     if (!RecognitionCtor) return;
 
     let cancelled = false;
-    // If every restart immediately errors again (e.g. a persistent network
-    // block), onend -> start() -> onerror -> onend would otherwise loop
-    // forever, hammering the API and draining battery for no benefit. Give
-    // up after a handful of rapid failures instead of retrying forever.
+    // Fallas rápidas seguidas (la red del servicio de voz caída, un bloqueo):
+    // NO apagan el reconocimiento -- antes cinco seguidas lo mataban PARA
+    // SIEMPRE y los subtítulos quedaban "trabados" sin aviso hasta recargar.
+    // Espacian los reintentos (hasta ~5 s) y se sigue insistiendo: cuando la
+    // causa pasa, la voz vuelve sola. Sólo el permiso denegado corta.
     let consecutiveErrors = 0;
     let lastErrorAt = 0;
+    let restartTimeout: ReturnType<typeof setTimeout> | undefined;
     setError(null);
     shouldRunRef.current = true;
     const recognition = new RecognitionCtor();
@@ -70,8 +72,19 @@ export function useSpeechRecognition({
     recognition.interimResults = true;
     recognition.maxAlternatives = 5;
 
+    // Lo interino que la sesión nunca confirmó. Cuando la sesión muere
+    // (silencio, red, un stop), el navegador lo descarta: eran palabras
+    // DICHAS que desaparecían de la transcripción. Se rescatan como final.
+    let pendingInterim = "";
+    const rescueInterim = () => {
+      const texto = pendingInterim.trim();
+      pendingInterim = "";
+      if (texto) onResultRef.current([texto]);
+    };
+
     recognition.onresult = (event) => {
       setError(null);
+      consecutiveErrors = 0;
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
@@ -80,16 +93,21 @@ export function useSpeechRecognition({
             const alt = result[j]?.transcript?.trim();
             if (alt) alternatives.push(alt);
           }
+          pendingInterim = "";
           if (alternatives.length) onResultRef.current(alternatives);
         } else {
           const interim = result[0]?.transcript?.trim();
-          if (interim) onInterimRef.current?.(interim);
+          if (interim) {
+            pendingInterim = interim;
+            onInterimRef.current?.(interim);
+          }
         }
       }
     };
 
     recognition.onerror = (event) => {
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        rescueInterim();
         shouldRunRef.current = false;
       }
       // "no-speech" and "aborted" are expected/transient (e.g. silence, or the
@@ -100,11 +118,6 @@ export function useSpeechRecognition({
       const now = Date.now();
       consecutiveErrors = now - lastErrorAt < 3000 ? consecutiveErrors + 1 : 1;
       lastErrorAt = now;
-      if (consecutiveErrors >= 5) {
-        // Stop the onend handler from restarting -- something is
-        // persistently broken, not a one-off blip.
-        shouldRunRef.current = false;
-      }
 
       const known = ERROR_MESSAGES[event.error];
       if (known) {
@@ -124,14 +137,21 @@ export function useSpeechRecognition({
 
     // The API stops itself after a pause in speech; restart it while captions
     // are still toggled on so it behaves like a continuous live transcript.
+    // Con fallas recientes, el reintento se espacia (backoff) en vez de
+    // martillar -- pero NUNCA deja de intentar mientras siga activo.
     recognition.onend = () => {
-      if (shouldRunRef.current) {
+      rescueInterim();
+      if (!shouldRunRef.current) return;
+      const espera = consecutiveErrors > 0 ? Math.min(consecutiveErrors, 7) * 700 : 0;
+      clearTimeout(restartTimeout);
+      restartTimeout = setTimeout(() => {
+        if (!shouldRunRef.current || cancelled) return;
         try {
           recognition.start();
         } catch {
           // start() can throw if called while already starting; safe to ignore.
         }
-      }
+      }, espera);
     };
 
     try {
@@ -172,7 +192,11 @@ export function useSpeechRecognition({
     return () => {
       cancelled = true;
       shouldRunRef.current = false;
+      // El desmontaje también rescata lo interino: onend ya no va a correr
+      // (se anula abajo) y esas palabras estaban dichas.
+      rescueInterim();
       clearTimeout(reactivateTimeout);
+      clearTimeout(restartTimeout);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       recognition.onresult = null;
       recognition.onerror = null;

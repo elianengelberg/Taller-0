@@ -447,6 +447,27 @@
     }
     clearTimeout(rec.timer);
     rec.timer = setTimeout(() => finalizeEntry(node), SETTLE_MS);
+    // MONÓLOGO SIN PAUSAS: si nadie respira 1,6 s, el asentamiento no llega
+    // nunca y el panel/historial quedan "trabados" mientras la persona habla
+    // de corrido. Con mucha cola acumulada se emite la parte ya FRÍA (hasta
+    // el último cierre de frase o espacio), dejando calientes los últimos
+    // ~40 caracteres, que son los que Meet todavía suele corregir. El bridge
+    // después pega los pedazos del mismo hablante en una sola línea.
+    {
+      const pendiente = rec.text.slice(rec.emitted.length);
+      if (rec.text.startsWith(rec.emitted) && pendiente.length > 240) {
+        const zona = pendiente.slice(0, pendiente.length - 40);
+        const corte = Math.max(
+          zona.lastIndexOf(". "), zona.lastIndexOf("? "), zona.lastIndexOf("! "),
+          zona.lastIndexOf(" ")
+        );
+        if (corte > 60) {
+          const listo = pendiente.slice(0, corte + 1).trim();
+          rec.emitted = rec.text.slice(0, rec.emitted.length + corte + 1);
+          void emit(rec.speaker || "Participante", listo);
+        }
+      }
+    }
     // Lo que se está diciendo AHORA: la cola de la fila, no todo el historial.
     const enCurso = rec.text.slice(largoDelPrefijoComun(rec.emitted, rec.text)).trim() || rec.text;
     if (enCurso !== rec.ultimoCartel) {
@@ -496,6 +517,14 @@
     // Tres lecturas candidatas: la IA del servidor elige la palabra que de
     // verdad tiene sentido (ver transcriptCleanup.ts del lado del servidor).
     r.maxAlternatives = 3;
+    // Lo interino que la sesión nunca confirmó se rescata al morir: eran
+    // palabras dichas que desaparecían (mismo arreglo que en el injector).
+    let interinoPendiente = "";
+    const rescatarInterino = () => {
+      const texto = interinoPendiente.trim();
+      interinoPendiente = "";
+      if (texto) void emit("Vos", texto, []);
+    };
     r.onresult = (ev) => {
       state.micDenied = false;
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
@@ -508,20 +537,24 @@
             const otra = res[j]?.transcript?.trim();
             if (otra && otra !== text) alts.push(otra);
           }
+          interinoPendiente = "";
           void emit("Vos", text, alts);
         } else {
+          interinoPendiente = text;
           ui.showSubtitle({ speaker: "Vos", text, translated: null });
         }
       }
     };
     r.onerror = (ev) => {
       if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
+        rescatarInterino();
         state.micDenied = true;
         mic.running = false;
         ui.renderMicCard();
       }
     };
     r.onend = () => {
+      rescatarInterino();
       if (mic.running) {
         try { r.start(); } catch { /* ya arrancando */ }
       }
