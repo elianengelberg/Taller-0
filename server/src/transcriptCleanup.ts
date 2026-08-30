@@ -31,7 +31,11 @@ import { languageExpertiseHints, languageName, translateText } from "./translate
 const CLEANUP_MODEL = process.env.ANTHROPIC_TRANSCRIPT_MODEL || "claude-sonnet-5";
 // Live captions need to feel instant -- if the correction call takes too
 // long, ship the raw recognized text instead of stalling the conversation.
-const CLEANUP_TIMEOUT_MS = 3500;
+// 4,5 s y no menos: con 3,5 s una porción real de correcciones se vencía y
+// la línea salía CRUDA -- "subtítulos flojos" sin ningún error a la vista.
+// El subtítulo en vivo no espera a esto (se pinta local al instante); esto
+// demora sólo la versión buena de la línea del panel/historial.
+const CLEANUP_TIMEOUT_MS = 4500;
 // Las traducciones NO bloquean el subtítulo (llegan como parche sobre la
 // línea ya emitida), así que pueden esperar más. Con el timeout corto de la
 // corrección, una llamada multi-idioma se vencía seguido y caía EN SILENCIO

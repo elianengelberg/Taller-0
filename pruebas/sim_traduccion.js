@@ -230,7 +230,17 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
         const texto = /TRAD_/.test(sys)
           ? [...new Set([...sys.matchAll(/TRAD_([a-z]{2})/g)].map((m) => m[1]))]
               .map((c) => `TRAD_${c}: [${c}] the blue slide shows the sales curve`).join("\n")
-          : "IDIOMA: es\nTEXTO: la lámina azul muestra la curva de ventas";
+          : sys.includes("Translate the user's message")
+            ? "texto traducido de prueba"
+            : (() => {
+                // El doble del CLEANUP espeja las candidatas (prefiere la
+                // alternativa, como una corrección real): así sirve para
+                // cualquier fragmento, no sólo el de la lámina.
+                const user = Array.isArray(body.messages) ? String(body.messages[0]?.content ?? "") : "";
+                const alt = user.match(/^2\. (.+)$/m)?.[1] || user.match(/^1\. (.+)$/m)?.[1] ||
+                  "la lámina azul muestra la curva de ventas";
+                return `IDIOMA: es\nTEXTO: ${alt}`;
+              })();
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ id: "msg_1", type: "message", role: "assistant", model: "x",
           content: [{ type: "text", text: texto }], stop_reason: "end_turn",
@@ -291,6 +301,47 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
     check("el overlay (sondeo de /session) ve el texto corregido con su traducción pegada",
       Boolean(linea) && linea.translations?.en?.includes("blue slide"),
       JSON.stringify(linea)?.slice(0, 140));
+
+    // LA FUSIÓN, con la IA prendida: el mismo hablante sigue enseguida y su
+    // fragmento (ya corregido) se PEGA a la línea anterior -- misma id, la
+    // web la re-renderiza, ninguna línea picada nueva.
+    const antesFusion = lineas.length;
+    await fetch(`http://localhost:4009/api/meet-bridge/${encodeURIComponent(key)}/transcript`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ speaker: "Vos", text: "y sigue subiendo cada mes", lang: "es-AR" }),
+    });
+    await new Promise((r) => setTimeout(r, 2000));
+    const fusionada = lineas[lineas.length - 1];
+    check("el fragmento que sigue se FUSIONA a la línea corregida (misma id)",
+      lineas.length === antesFusion + 1 && fusionada?.id === linea?.id &&
+      /curva de ventas y sigue subiendo cada mes$/.test(fusionada?.text ?? ""),
+      String(fusionada?.text));
+    check("y la traducción se pide sobre la línea ENTERA fusionada (no el pedacito)",
+      vistos.some((v) => {
+        const sys = Array.isArray(v.system) ? v.system.map((b) => (b && b.text) || "").join("\n") : String(v.system ?? "");
+        const user = Array.isArray(v.messages) ? String(v.messages[0]?.content ?? "") : "";
+        return /TRAD_/.test(sys) && user.includes("curva de ventas y sigue subiendo cada mes");
+      }));
+
+    // EL CONTEXTO en la traducción por línea (la del panel de la extensión):
+    // "no lo veo" se traduce distinto si venían hablando de un archivo o de
+    // una persona -- las últimas líneas viajan junto al texto, y el prompt
+    // ordena NO traducirlas.
+    const rTrad = await fetch("http://localhost:4009/api/translate", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "no lo veo", source: "es-AR", target: "en",
+        context: ["Ana: subí el archivo al drive", "Beto: dale, fijate"],
+      }),
+    });
+    const jTrad = await rTrad.json().catch(() => ({}));
+    check("la traducción por línea viaja CON el contexto de la charla",
+      jTrad?.translatedText === "texto traducido de prueba" &&
+      vistos.some((v) => {
+        const user = Array.isArray(v.messages) ? String(v.messages[0]?.content ?? "") : "";
+        return user.includes("subí el archivo al drive") && /TEXT:\s*no lo veo/.test(user);
+      }),
+      JSON.stringify(jTrad).slice(0, 80));
 
     socket.close();
     try { process.kill(-server.pid); } catch { server.kill(); }

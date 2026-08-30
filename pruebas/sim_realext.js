@@ -427,6 +427,36 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
       `«contame un poco» aparece ${vecesQueAparece} vez/veces en: ${nuevas.map((p) => `"${p.text}"`).join(" + ")}`);
   }
 
+  // EL OTRO camino de la repetición (pasó en una reunión real): una parte ya
+  // se emitió, la persona SIGUE hablando (hay cola pendiente), y Meet corrige
+  // una palabra de lo YA emitido. El motor viejo emitía primero la cola VIEJA
+  // y después la corregida: la misma frase dos veces con una palabra
+  // cambiada. Ahora la cola pendiente se emite UNA vez, ya corregida.
+  {
+    const antes = posted.length;
+    await page.evaluate(async () => {
+      const caps = document.getElementById("caps");
+      const row = document.createElement("div");
+      row.innerHTML = '<img alt=""><div class="n"></div><div class="t"></div>';
+      caps.appendChild(row);
+      row.querySelector(".n").textContent = "Elsa Prieto";
+      const t = row.querySelector(".t");
+      t.textContent = "la campaña nueva arranca el lunes que viene.";
+      await new Promise((r) => setTimeout(r, 2200)); // asentó: se emitió
+      t.textContent = "la campaña nueva arranca el lunes que viene. después vemos los números del presupuesto";
+      await new Promise((r) => setTimeout(r, 400)); // cola pendiente, sin asentar
+      // Meet corrige "lunes" -> "martes" DENTRO de lo ya emitido, y la frase sigue
+      t.textContent = "la campaña nueva arranca el martes que viene. después vemos los números del presupuesto con todo el equipo";
+    });
+    await page.waitForTimeout(3000);
+    const nuevas = posted.slice(antes).filter((p) => p.speaker === "Elsa Prieto");
+    const todo = nuevas.map((p) => p.text).join(" || ");
+    const vecesPendiente = (todo.match(/después vemos los números/gi) || []).length;
+    check("corregir una palabra YA emitida no duplica la cola pendiente",
+      vecesPendiente === 1 && nuevas.length === 2,
+      `la cola aparece ${vecesPendiente} vez/veces en ${nuevas.length} envíos: ${todo.slice(0, 150)}`);
+  }
+
   // Y la red de seguridad: si Meet recicla su fila y reaparece texto viejo, no
   // se transcribe dos veces la misma frase.
   {

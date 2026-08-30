@@ -205,7 +205,12 @@ function cacheKey(text: string, source: string, target: string): string {
   return `${source.trim().toLowerCase()}|${target.trim().toLowerCase()}|${text}`;
 }
 
-async function translateWithClaude(text: string, from: string, to: string): Promise<string> {
+async function translateWithClaude(
+  text: string,
+  from: string,
+  to: string,
+  context: string[] = []
+): Promise<string> {
   const sinOrigen = ORIGEN_DESCONOCIDO.has(shortLang(from));
   const expertise = languageExpertiseHints(sinOrigen ? [to] : [from, to]);
   const system =
@@ -217,8 +222,16 @@ async function translateWithClaude(text: string, from: string, to: string): Prom
     `${languageName(to)}, matching the speaker's tone and register. ` +
     `Keep proper names, numbers, units and product names as they are. If the fragment is cut ` +
     `mid-sentence, translate it as a fragment -- never complete or extend it. ` +
+    `The user's message may begin with a CONTEXT block (recent conversation lines): use it ` +
+    `only to disambiguate pronouns, gender and word senses -- NEVER translate or include the ` +
+    `context itself. Translate ONLY the text after "TEXT:". ` +
     `Reply with ONLY the translated text -- no quotes, no notes, no explanations.` +
     (expertise ? `\n\n${expertise}` : "");
+  // El contexto viaja en el mensaje del usuario (varía por llamada) y el
+  // system queda idéntico entre frases: así el caché de prompt sigue vivo.
+  const mensaje = context.length
+    ? `CONTEXT (recent lines, oldest first; do NOT translate):\n${context.join("\n")}\n\nTEXT:\n${text}`
+    : text;
   const response = await anthropicClient!.messages.create({
     model: TRANSLATE_MODEL,
     max_tokens: 1024,
@@ -229,7 +242,7 @@ async function translateWithClaude(text: string, from: string, to: string): Prom
     // cachearlo hace que cada frase siguiente de la reunión entre más rápida
     // y más barata, sin re-procesar las instrucciones ni la pericia.
     system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content: text }],
+    messages: [{ role: "user", content: mensaje }],
   });
 
   for (const block of response.content) {
@@ -280,7 +293,12 @@ const ORIGEN_DESCONOCIDO = new Set(["auto", "", "und"]);
 export async function translateText(
   text: string,
   source: string,
-  target: string
+  target: string,
+  // Líneas recientes de la conversación (más antigua primero). Sólo para
+  // desambiguar -- pronombres, género, de qué se viene hablando --, nunca se
+  // traduce. La diferencia entre "banco" el asiento y "banco" el de plata la
+  // decide el contexto, no la palabra.
+  context: string[] = []
 ): Promise<string> {
   const trimmed = text.trim();
   if (!trimmed) return "";
@@ -305,7 +323,7 @@ export async function translateText(
     try {
       // Claude recibe los códigos COMPLETOS: la región (es-AR, pt-BR...)
       // es parte del nivel de la traducción, no un detalle a recortar.
-      translated = await translateWithClaude(trimmed, source, target);
+      translated = await translateWithClaude(trimmed, source, target, context);
     } catch (err) {
       avisarFallaClaude(err);
       translated = await translateWithMyMemory(trimmed, from, to);

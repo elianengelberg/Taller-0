@@ -67,13 +67,45 @@ const post = (p, b, token) => fetch(API + p, { method: "POST",
     live.length > 0 && puente.body?.dbId === joined.meeting.dbId,
     `bridge=${puente.body?.dbId} socket=${joined.meeting.dbId}`);
 
-  // Persistencia: el historial del dueño debe tener todo.
+  // LA FUSIÓN DE FRAGMENTOS. El motor de Meet corta la frase cada ~1,6 s de
+  // pausa, así que un pensamiento llegaba PICADO en varias líneas -- feas de
+  // leer y peores de traducir. Ahora, si el MISMO hablante sigue enseguida,
+  // el fragmento se PEGA a su última línea (misma id, la web la re-renderiza)
+  // en vez de abrir otra. "control de sala" vino de Ana justo después de la
+  // línea de Ana: tiene que haber crecido esa línea, no sumado una nueva.
+  await sleep(400);
+  const idAna = live[3]?.id;
+  const crecida = live[live.length - 1];
+  check("un fragmento que sigue enseguida SE PEGA a la línea anterior (misma id)",
+    crecida?.id === idAna && / control de sala$/.test(crecida?.text ?? ""),
+    `${crecida?.id === idAna ? "misma id" : "id distinta"}: "${crecida?.text}"`);
+
+  // Otro hablante SIEMPRE abre línea nueva; y sus propios fragmentos seguidos
+  // quedan en UNA sola.
+  await post(`/api/meet-bridge/${code}/transcript`, { speaker: "Dani", text: "una cosa más sobre los plazos", lang: "es-AR" });
+  await sleep(400);
+  await post(`/api/meet-bridge/${code}/transcript`, { speaker: "Dani", text: "mejor lo vemos el jueves", lang: "es-AR" });
+  await sleep(600);
+  const deDani = live.filter((l) => l.speakerName === "Dani");
+  check("otro hablante abre línea nueva, y sus fragmentos seguidos quedan en UNA",
+    new Set(deDani.map((l) => l.id)).size === 1 &&
+    deDani[deDani.length - 1]?.text === "una cosa más sobre los plazos mejor lo vemos el jueves",
+    deDani[deDani.length - 1]?.text);
+
+  // Persistencia: el historial del dueño debe tener todo -- y SIN filas
+  // picadas: 4 líneas de la charla + la única de Dani (las fusiones crecen la
+  // fila existente, no agregan).
+  await sleep(400);
   const det = await fetch(`${API}/api/meetings/${dbId}`, { headers: { Authorization: `Bearer ${token}` } });
   const detail = await det.json();
   const msgs = detail?.meeting?.messages ?? [];
-  check("todo queda guardado en el historial", msgs.length >= 5, `mensajes=${msgs.length}`);
+  check("todo queda guardado en el historial SIN filas picadas", msgs.length === 5, `mensajes=${msgs.length}`);
+  check("y las filas fusionadas guardan el texto COMPLETO",
+    msgs.some((m) => / control de sala$/.test(m.text ?? "")) &&
+    msgs.some((m) => /una cosa más sobre los plazos mejor lo vemos el jueves/.test(m.text ?? "")),
+    msgs.map((m) => m.text).join(" | ").slice(0, 160));
   const savedSpeakers = [...new Set(msgs.map((m) => m.senderName))];
-  check("el historial conserva quién dijo cada cosa", savedSpeakers.length === 3, savedSpeakers.join(", "));
+  check("el historial conserva quién dijo cada cosa", savedSpeakers.length === 4, savedSpeakers.join(", "));
 
   // La IA del panel: debe pasar el control de acceso (falla solo por falta de clave).
   const ask = await post(`/api/meet-bridge/${code}/ask`, { question: "resumime la reunión" }, token);

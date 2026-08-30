@@ -149,9 +149,15 @@
   async function translateLine(line) {
     if (!cfg.lang) return;
     try {
+      // Las últimas líneas de la charla viajan como contexto: "no lo veo" se
+      // traduce distinto si venían hablando de un archivo o de una persona.
+      const contexto = state.lines
+        .filter((l) => l !== line)
+        .slice(-3)
+        .map((l) => `${l.speaker}: ${l.text}`.slice(0, 240));
       const r = await api("/api/translate", {
         method: "POST",
-        body: JSON.stringify({ text: line.text, source: "auto", target: cfg.lang }),
+        body: JSON.stringify({ text: line.text, source: "auto", target: cfg.lang, context: contexto }),
       });
       if (r?.translatedText && r.translatedText !== line.text) {
         line.translated = r.translatedText;
@@ -429,9 +435,12 @@
       if (parsed.speaker) rec.speaker = parsed.speaker;
       if (parsed.text === rec.text) return; // nada cambió: ni tocar el cartel
       if (!parsed.text.startsWith(rec.emitted)) {
-        // Meet corrigió algo. Lo ya enviado sigue enviado: se conserva la
-        // parte en común (antes se ponía en cero y se remandaba todo).
-        finalizeEntry(node);
+        // Meet corrigió algo de lo ya enviado. Se retrocede el puntero a la
+        // parte en común y listo: la versión CORREGIDA de ahí en adelante se
+        // emite en el próximo asentamiento, UNA sola vez. Antes acá se
+        // emitía primero la cola vieja pendiente (finalizeEntry) y después
+        // la corregida: la misma frase dos veces con una palabra cambiada --
+        // el "se repiten las oraciones" de las reuniones reales.
         rec.emitted = rec.emitted.slice(0, largoDelPrefijoComun(rec.emitted, parsed.text));
       }
       rec.text = parsed.text;
