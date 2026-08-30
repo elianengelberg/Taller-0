@@ -155,17 +155,22 @@ const json = (obj) => ({ method: "POST", headers: { "Content-Type": "application
   await p.getByText("Zoom (app de escritorio)").first().waitFor({ timeout: 15000 }).catch(() => {});
   check("la barra dice de qué reunión es", (await p.getByText("Zoom (app de escritorio)").count()) > 0);
 
-  // La grabación automática (sólo audio, todavía sin captura) ya arrancó.
-  await p.getByText("Grabando").first().waitFor({ timeout: 15000 }).catch(() => {});
-  check("la grabación arranca sola al entrar", (await p.getByText("Grabando").count()) > 0);
+  // La barra YA NO graba sola en este modo: desde la 1.4.0 el VIDEO lo graba
+  // la APP de escritorio (pantalla + audio del sistema, sin selector) --
+  // duplicar acá daba DOS videos del mismo rato en el historial. Y la barra
+  // lo DICE, para que nadie crea que no se está grabando nada.
+  await dormir(2500);
+  // Por el BOTÓN de detener (no por el texto "Grabando": la nota de abajo
+  // dice "lo está grabando la app" y un getByText la agarraría).
+  check("la barra NO arranca su propia grabación (el video lo graba la app)",
+    (await p.getByRole("button", { name: "Detener grabación" }).count()) === 0);
+  await p.getByText(/lo está grabando la app de Unify/i).first().waitFor({ timeout: 10000 }).catch(() => {});
+  check("y lo dice con todas las letras (nadie cree que no se graba)",
+    (await p.getByText(/lo está grabando la app de Unify/i).count()) > 0);
 
-  // ═══════ 2. Ana pasa a grabar la PANTALLA (con el audio de la reunión) ═══════
+  // ═══════ 2. Ana igual quiere grabar la PANTALLA desde la barra (manual) ═══════
   console.log("\n── 2. Grabar pantalla con audio ──");
-  // Por ROL y aria-label: el texto "Grabando" también está en la pastilla de
-  // estado (no clickeable) y un getByText agarra esa primero.
-  await p.getByRole("button", { name: "Detener grabación" }).click(); // corta la de sólo audio
-  await dormir(1500);
-  await p.getByRole("button", { name: /Grabar la reunión/ }).click(); // y graba pantalla
+  await p.getByRole("button", { name: /Grabar la reunión/ }).click(); // manual: graba pantalla
   let conPista = false;
   for (let i = 0; i < 20 && !conPista; i++) {
     await dormir(500);

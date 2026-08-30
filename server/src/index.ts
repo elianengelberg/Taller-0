@@ -2260,8 +2260,13 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
   // Se traduce la línea ENTERA (no sólo el fragmento): para quien lee en otro
   // idioma, la línea fusionada tiene que estar completa en su idioma.
   const lineaParaTraducir = line;
+  const textoQueSeTraduce = line.text;
   void translateFragmentToAll([line.text], recentContext, targetLangs, sourceLang).then((translations) => {
     if (Object.keys(translations).length === 0) return;
+    // La línea pudo CRECER por otra fusión mientras esta traducción volvía:
+    // un parche del texto corto no puede pisar al de la línea completa (el
+    // camino de voz del socket ya tenía este mismo guarda; acá faltaba).
+    if (lineaParaTraducir.text !== textoQueSeTraduce) return;
     lineaParaTraducir.translations = translations;
     io.to(roomFor(meeting.id)).emit("transcript-line-translations", { lineId: lineaParaTraducir.id, translations });
   });

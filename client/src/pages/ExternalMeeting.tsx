@@ -694,13 +694,11 @@ export default function ExternalMeeting() {
   // invitados) -- sin que nadie toque nada. Dos lecturas seguidas de "terminó"
   // antes de actuar: un tropiezo del puente no tiene que cortar una reunión
   // que sigue viva.
-  const escritorioRef = useRef(sessionStorage.getItem("unify_escritorio") === "1");
-  // La marca se consume al entrar (como unify_autorec): si quedara colgada y
-  // esta misma pestaña abriera después una reunión externa común, el modo
-  // escritorio la cortaría solo al no encontrar el puente.
-  useEffect(() => {
-    sessionStorage.removeItem("unify_escritorio");
-  }, []);
+  // Antes esto era un flag de sessionStorage que se CONSUMÍA al montar: un
+  // remontaje del componente lo perdía y la barra arrancaba su propia
+  // grabación en modo escritorio (video duplicado). En el draft no se pierde,
+  // y una reunión externa común (draft nuevo, sin la marca) no lo hereda.
+  const escritorioRef = useRef(draft?.mode === "companion" && draft.escritorio === true);
   const finishFromDesktopRef = useRef<() => void>(() => {});
   finishFromDesktopRef.current = () => {
     if (recorder.status === "recording") recorder.stop();
@@ -1197,9 +1195,11 @@ export default function ExternalMeeting() {
                     ) : null
                   }
                   notaGrabacion={
-                    grabacionCedida && recorder.status === "idle"
-                      ? `En ${aparato.corto} el micrófono es de una sola cosa a la vez, así que la grabación automática está en pausa para que anden los subtítulos. Si querés que quede el video y la transcripción completa en el historial, mandá el bot: graba desde el servidor y no usa este micrófono. También podés tocar «Grabar» abajo para guardar el audio (mientras dure, los subtítulos se pausan).`
-                      : null
+                    escritorioRef.current && recorder.status === "idle"
+                      ? "El video lo está grabando la app de Unify (la pantalla, con el audio del sistema): al cortar la reunión aparece solo en tu historial. Esta barra pone los subtítulos, la traducción y la IA."
+                      : grabacionCedida && recorder.status === "idle"
+                        ? `En ${aparato.corto} el micrófono es de una sola cosa a la vez, así que la grabación automática está en pausa para que anden los subtítulos. Si querés que quede el video y la transcripción completa en el historial, mandá el bot: graba desde el servidor y no usa este micrófono. También podés tocar «Grabar» abajo para guardar el audio (mientras dure, los subtítulos se pausan).`
+                        : null
                   }
                   participantCount={participantCount}
                 />

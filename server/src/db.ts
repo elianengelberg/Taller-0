@@ -1345,18 +1345,33 @@ export function recordMessage(params: {
   spokenAt?: Date;
 }): Promise<number | null> {
   return safe(async () => {
-    const { rows } = params.spokenAt
-      ? await pool!.query(
-          `INSERT INTO messages (meeting_id, kind, sender_name, role_name, text, source_lang, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-          [params.meetingId, params.kind, params.senderName, params.roleName, params.text, params.sourceLang, params.spokenAt]
-        )
-      : await pool!.query(
-          `INSERT INTO messages (meeting_id, kind, sender_name, role_name, text, source_lang)
-           VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-          [params.meetingId, params.kind, params.senderName, params.roleName, params.text, params.sourceLang]
-        );
-    return (rows[0]?.id as number) ?? null;
+    const insertar = async () => {
+      const { rows } = params.spokenAt
+        ? await pool!.query(
+            `INSERT INTO messages (meeting_id, kind, sender_name, role_name, text, source_lang, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+            [params.meetingId, params.kind, params.senderName, params.roleName, params.text, params.sourceLang, params.spokenAt]
+          )
+        : await pool!.query(
+            `INSERT INTO messages (meeting_id, kind, sender_name, role_name, text, source_lang)
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+            [params.meetingId, params.kind, params.senderName, params.roleName, params.text, params.sourceLang]
+          );
+      return (rows[0]?.id as number) ?? null;
+    };
+    try {
+      return await insertar();
+    } catch (err) {
+      // LA PRIMERA LÍNEA DE UNA REUNIÓN RECIÉN NACIDA. La fila de la reunión
+      // se crea "fire and forget" (companionForRoomKey, join-companion) y la
+      // primera línea puede llegar ANTES de que ese insert aterrice: la clave
+      // foránea revienta y la línea se PERDÍA del historial en silencio
+      // (visto en el log de verdad). Un reintento corto le da tiempo a la
+      // reunión a existir; cualquier otro error sigue su camino normal.
+      if (!/messages_meeting_id_fkey/.test((err as Error)?.message ?? "")) throw err;
+      await new Promise((r) => setTimeout(r, 800));
+      return await insertar();
+    }
   }, null);
 }
 
@@ -1429,11 +1444,23 @@ export function deleteMeeting(id: string, ownerId: string): Promise<boolean> {
 // `owner_id IS NULL` so it can't steal a meeting someone else already owns.
 export function claimMeeting(id: string, ownerId: string): Promise<boolean> {
   return safe(async () => {
-    const result = await pool!.query(
-      `UPDATE meetings SET owner_id = $2 WHERE id = $1 AND owner_id IS NULL`,
-      [id, ownerId]
-    );
-    return (result.rowCount ?? 0) > 0;
+    const reclamar = async () => {
+      const result = await pool!.query(
+        `UPDATE meetings SET owner_id = $2 WHERE id = $1 AND owner_id IS NULL`,
+        [id, ownerId]
+      );
+      return (result.rowCount ?? 0) > 0;
+    };
+    if (await reclamar()) return true;
+    // Cero filas puede ser "ya tiene dueño" (correcto: no se pisa) o LA
+    // CARRERA del nacimiento: la reunión companion se crea fire-and-forget
+    // (companionForRoomKey) y el reclamo del PRIMER GET de sesión puede
+    // llegar antes que ese INSERT -- el UPDATE no tocaba nada y la reunión
+    // quedaba huérfana ("no aparece en mi historial", el bug ya sufrido).
+    const { rows } = await pool!.query(`SELECT 1 FROM meetings WHERE id = $1`, [id]);
+    if (rows.length > 0) return false; // existe y tiene dueño: se respeta
+    await new Promise((r) => setTimeout(r, 800));
+    return await reclamar();
   }, false);
 }
 

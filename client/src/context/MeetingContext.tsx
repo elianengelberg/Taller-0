@@ -175,6 +175,7 @@ interface MeetingContextValue {
     externalKey: string;
     roomLabel: string;
     embed: CompanionEmbed;
+    escritorio?: boolean;
   }) => void;
   clearDraft: () => void;
   // Wakes the backend (Render can cold-start ~tens of seconds) and opens the
@@ -512,6 +513,7 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
       externalKey: string;
       roomLabel: string;
       embed: CompanionEmbed;
+      escritorio?: boolean;
     }) => {
       setDraft({ mode: "companion", ...info });
     },

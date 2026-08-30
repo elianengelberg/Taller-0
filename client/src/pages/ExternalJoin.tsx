@@ -269,10 +269,10 @@ export default function ExternalJoin() {
       };
       const infoApp = APPS_ESCRITORIO[sala.split("-")[0]] ?? APPS_ESCRITORIO.zoom;
       const nombreApp = infoApp.nombre;
-      // La barra acompañante arranca grabando sola y sabe que la vigila el
-      // puente local de la app (ver ExternalMeeting).
+      // La barra sabe que la vigila el puente local de la app (y que el VIDEO
+      // lo graba la app misma). El modo escritorio viaja EN el draft, no en
+      // sessionStorage: un remontaje del componente no lo puede perder.
       sessionStorage.setItem("unify_autorec", "1");
-      sessionStorage.setItem("unify_escritorio", "1");
       const savedName = (localStorage.getItem("unify_external_name") ?? "").trim();
       startCompanionDraft({
         name: savedName || user?.name || "Invitado",
@@ -287,6 +287,7 @@ export default function ExternalJoin() {
           label: nombreApp,
           joinLink: infoApp.enlace,
         },
+        escritorio: true,
       });
       navigate("/externa/reunion", { replace: true });
       return;

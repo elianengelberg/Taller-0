@@ -125,6 +125,11 @@ export type MeetingDraft =
       externalKey: string;
       roomLabel: string;
       embed: CompanionEmbed;
+      // La abrió la APP DE ESCRITORIO (detectó la reunión de Zoom/Teams/...):
+      // el video lo graba la app -- la barra no arranca su propia grabación y
+      // el puente local manda el fin de la reunión. Viaja EN el draft (no en
+      // sessionStorage): un remontaje del componente no lo pierde.
+      escritorio?: boolean;
     };
 
 // "waiting" = held in the meeting's waiting room until a host admits us.
