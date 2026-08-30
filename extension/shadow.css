@@ -43,6 +43,32 @@ input, select, textarea { font-family: inherit; }
   box-shadow: 0 18px 48px -20px rgba(0, 0, 0, 0.75);
 }
 
+/* ============== BOTÓN "U" FLOTANTE (abre el panel; abajo a la derecha) ====
+   Vive ACÁ, en nuestro shadow, y no adentro de la barra de Meet: inyectar un
+   hijo en la barra que Meet re-renderiza le rompía sus propios botones. */
+.fab {
+  position: fixed;
+  right: 18px;
+  bottom: 92px;
+  z-index: 40;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, var(--violet-2), var(--violet));
+  color: #fff;
+  font-size: 17px;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgba(139, 92, 246, 0.45);
+  pointer-events: auto;
+  transition: filter 0.15s ease, opacity 0.2s ease;
+}
+.fab:hover { filter: brightness(1.1); }
+/* Con el panel abierto el cajón lo taparía: se retira (el panel tiene su ✕). */
+.fab.is-active { opacity: 0; pointer-events: none; }
+
 /* ===================== BADGE DE ESTADO (arriba a la derecha) ============== */
 .badge {
   position: fixed;

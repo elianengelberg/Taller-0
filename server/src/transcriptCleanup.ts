@@ -32,6 +32,12 @@ const CLEANUP_MODEL = process.env.ANTHROPIC_TRANSCRIPT_MODEL || "claude-sonnet-5
 // Live captions need to feel instant -- if the correction call takes too
 // long, ship the raw recognized text instead of stalling the conversation.
 const CLEANUP_TIMEOUT_MS = 3500;
+// Las traducciones NO bloquean el subtítulo (llegan como parche sobre la
+// línea ya emitida), así que pueden esperar más. Con el timeout corto de la
+// corrección, una llamada multi-idioma se vencía seguido y caía EN SILENCIO
+// al proveedor gratuito: eso era literalmente "las traducciones flojas" --
+// se pagaba Sonnet y se servía el traductor de respaldo.
+const TRANSLATE_TIMEOUT_MS = 9000;
 
 // Every language the app offers has an expertise entry (which itself
 // includes that language's own translated app-vocabulary anchors -- see
@@ -320,6 +326,14 @@ Reglas:
   traducción puede quedarse corta ni cortar el final aunque el principio ya suene completo.
 - Cada traducción tiene que basarse en la MISMA versión corregida del fragmento -- no
   reinterpretes el fragmento de forma distinta para cada idioma.
+- Esto es HABLA de una reunión en vivo, no un documento: traducí como lo diría un hablante
+  nativo conversando -- registro oral natural del idioma destino, no una traducción palabra
+  por palabra. Los modismos y frases hechas se traducen por su SENTIDO (el equivalente
+  natural en el idioma destino), nunca literalmente.
+- Usá el contexto reciente de la conversación para desambiguar pronombres, género y de qué
+  se está hablando: la traducción tiene que sonar como parte de ESA charla.
+- Los nombres propios, marcas, números, siglas y términos técnicos que se dicen en su forma
+  original quedan tal cual -- no los traduzcas ni los "corrijas".
 
 Formato de respuesta obligatorio, EXACTAMENTE estas líneas y nada más (sin texto antes ni
 después, una línea por elemento, sin mostrar el fragmento corregido en su idioma original):
@@ -391,7 +405,7 @@ export async function translateFragmentToAll(
         ],
         messages: [{ role: "user", content: buildUserMessage(trimmedAlternatives, recentContext) }],
       },
-      { timeout: CLEANUP_TIMEOUT_MS }
+      { timeout: TRANSLATE_TIMEOUT_MS }
     );
     for (const block of response.content) {
       if (block.type === "text") {

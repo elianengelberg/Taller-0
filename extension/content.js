@@ -342,13 +342,35 @@
   const esLigaduraDeIcono = (t) => /^[a-z][a-z0-9]*(_[a-z0-9]+)+$/.test(t);
   const esControlDeMeet = (el) => Boolean(el.closest('button, [role="button"], [role="toolbar"]'));
 
+  // Los íconos de UNA sola palabra ("mic", "chat", "send") se le escapaban a
+  // la regla del guion bajo y entraban a la transcripción como "comandos"
+  // dichos por nadie (pasó de nuevo en una reunión real). Se los reconoce por
+  // ESTRUCTURA, que es lo que de verdad los delata: van marcados aria-hidden,
+  // en <i>, con clases de ícono, o -- la prueba reina -- dibujados con la
+  // fuente de símbolos de Google.
+  const esElementoDeIcono = (el) =>
+    Boolean(
+      el.closest(
+        'i, [aria-hidden="true"], [class*="material-icon"], [class*="google-symbols"], .notranslate, [translate="no"], [data-icon]'
+      )
+    );
+  const pareceLigaduraSuelta = (el, t) => {
+    if (!/^[a-z][a-z0-9_]{1,29}$/.test(t)) return false; // una sola palabra pelada
+    if (t.includes("_")) return true; // mic_off, arrow_downward
+    try {
+      return /symbols|material/i.test(getComputedStyle(el).fontFamily || "");
+    } catch {
+      return false;
+    }
+  };
+
   function parseEntry(node) {
     const leaves = [];
     node.querySelectorAll("*").forEach((el) => {
       if (el.children.length === 0) {
-        if (esControlDeMeet(el)) return;
+        if (esControlDeMeet(el) || esElementoDeIcono(el)) return;
         const t = (el.textContent || "").replace(/\s+/g, " ").trim();
-        if (t && !esLigaduraDeIcono(t)) leaves.push(t);
+        if (t && !esLigaduraDeIcono(t) && !pareceLigaduraSuelta(el, t)) leaves.push(t);
       }
     });
     if (leaves.length === 0) {
@@ -549,6 +571,7 @@
 
       const wrap = document.createElement("div");
       wrap.innerHTML = `
+        <button class="fab" data-el="fab" type="button" title="Unify: transcripción, IA y grabación" aria-label="Abrir el panel de Unify">U</button>
         <div class="badge glass" part="badge">
           <span class="live"></span>
           <span class="txt"><b>Unify</b>: <span data-el="statusTxt">Companion activo</span></span>
@@ -617,6 +640,7 @@
       shadow.querySelectorAll("[data-el]").forEach((n) => (el[n.dataset.el] = n));
 
       shadow.querySelectorAll(".tab").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
+      el.fab.addEventListener("click", () => toggleDrawer());
       el.close.addEventListener("click", () => toggleDrawer(false));
       el.rec.addEventListener("click", toggleRecording);
       el.lang.addEventListener("change", () => {
@@ -652,7 +676,8 @@
     function toggleDrawer(force) {
       drawerOpen = force === undefined ? !drawerOpen : force;
       el.drawer.classList.toggle("is-open", drawerOpen);
-      barButton.setActive(drawerOpen);
+      // El panel entra desde la derecha y taparía al botón: se corre solo.
+      el.fab?.classList.toggle("is-active", drawerOpen);
     }
 
     function setStatus(kind) {
@@ -886,70 +911,18 @@
   })();
 
   // ===========================================================================
-  // Botón en la barra inferior de Meet (va en el DOM de Meet, no en el shadow)
+  // El botón "U" para abrir el panel. ANTES se inyectaba ADENTRO de la barra
+  // inferior de Meet (bar.appendChild sobre el ancestro del micrófono) y eso
+  // rompía los botones de Meet: su framework re-renderiza esa barra y un hijo
+  // ajeno la descuadra o directamente hace fallar sus updates (mutear/apagar
+  // cámara "completamente bugueados" -- pasó de verdad). Ahora es un botón
+  // FLOTANTE en nuestro shadow (abajo a la derecha, cerca de la barra): cero
+  // escrituras en el DOM que Meet administra.
   // ===========================================================================
-  const barButton = (() => {
-    const ID = "unify-bar-btn";
-    let node = null;
-
-    // La barra es el ancestro del botón de micrófono que ya contiene varios
-    // botones: buscarla así sobrevive a los cambios de clases de Meet.
-    function findBar() {
-      const micBtn =
-        document.querySelector('[data-is-muted][aria-label*="icróf"], [data-is-muted][aria-label*="icrophone"]') ||
-        document.querySelector("[data-is-muted]");
-      if (!micBtn) return null;
-      let cur = micBtn;
-      for (let i = 0; i < 6 && cur.parentElement; i++) {
-        cur = cur.parentElement;
-        if (cur.querySelectorAll('button, [role="button"]').length >= 3) return cur;
-      }
-      return null;
-    }
-
-    function ensure() {
-      const existing = document.getElementById(ID);
-      if (existing && existing.isConnected) {
-        node = existing;
-        return;
-      }
-      const bar = findBar();
-      if (!bar) return;
-      node = document.createElement("button");
-      node.id = ID;
-      node.type = "button";
-      node.setAttribute("aria-label", "Abrir el panel de Unify");
-      node.title = "Unify: transcripción, IA y grabación";
-      node.style.cssText = [
-        "width:48px", "height:48px", "border-radius:50%", "border:0", "cursor:pointer",
-        "margin:0 4px", "display:inline-flex", "align-items:center", "justify-content:center",
-        "background:linear-gradient(160deg,#a78bfa,#8b5cf6)", "color:#fff",
-        "box-shadow:0 4px 14px rgba(139,92,246,.45)", "flex:none",
-        "font-family:'Google Sans',Roboto,Arial,sans-serif", "font-size:17px", "font-weight:700",
-        "transition:filter .15s ease",
-      ].join(";");
-      node.textContent = "U";
-      node.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        ui.toggleDrawer();
-      });
-      node.addEventListener("mouseenter", () => (node.style.filter = "brightness(1.1)"));
-      node.addEventListener("mouseleave", () => (node.style.filter = ""));
-      bar.appendChild(node);
-    }
-
-    return {
-      ensure,
-      setActive(on) {
-        if (node) node.style.outline = on ? "2px solid rgba(255,255,255,.85)" : "";
-      },
-      remove() {
-        document.getElementById(ID)?.remove();
-        node = null;
-      },
-    };
-  })();
+  const barButton = {
+    ensure() { /* vive en el shadow: lo crea ui.mount() */ },
+    remove() { /* se va con ui.unmount() */ },
+  };
 
   // ===========================================================================
   // Estado de la llamada hacia Unify

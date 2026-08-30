@@ -256,6 +256,59 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
       nuevas.map((p) => `${p.speaker}: ${p.text}`).join(" | ") || "ninguna línea nueva");
   }
 
+  // Y LOS ÍCONOS SUELTOS TAMPOCO. La segunda vez que pasó, el "comando" no
+  // venía adentro de un botón: era un span de ícono pelado ("mic", "chat" en
+  // la fuente de símbolos, o marcado aria-hidden). Una sola palabra sin guion
+  // bajo se le escapaba a la regla vieja.
+  {
+    const antes = posted.length;
+    await page.evaluate(() => {
+      const fila = document.createElement("div");
+      fila.innerHTML =
+        '<i class="google-symbols">mic</i>' +
+        '<span aria-hidden="true">volume_up</span>' +
+        '<span class="notranslate material-icons-extended">chat</span>' +
+        '<i>send</i>';
+      document.getElementById("caps").appendChild(fila);
+    });
+    await page.waitForTimeout(2500);
+    const nuevas = posted.slice(antes);
+    check("los íconos sueltos de Meet (mic, chat, send…) NO entran a la transcripción",
+      nuevas.length === 0,
+      nuevas.map((p) => `${p.speaker}: ${p.text}`).join(" | ") || "ninguna línea nueva");
+  }
+
+  // EL BOTÓN "U" YA NO VIVE ADENTRO DE LA BARRA DE MEET. Inyectarlo ahí
+  // (bar.appendChild) rompía los botones de Meet cuando su framework
+  // re-renderizaba la barra: mutear y apagar cámara quedaban "completamente
+  // bugueados" (pasó en una reunión real). Ahora es un flotante del shadow.
+  {
+    const donde = await page.evaluate(() => ({
+      enBarraDeMeet: Boolean(document.getElementById("unify-bar-btn")),
+      enShadow: Boolean(document.getElementById("unify-root")?.shadowRoot?.querySelector(".fab")),
+    }));
+    check("el botón «U» NO se inyecta en el DOM de Meet (no le rompe la botonera)",
+      donde.enBarraDeMeet === false, donde.enBarraDeMeet ? "sigue adentro de la barra" : "limpio");
+    check("y vive como flotante en el shadow de Unify", donde.enShadow === true);
+
+    // Y abre/cierra el panel de verdad.
+    const abierto = await page.evaluate(() => {
+      const shadow = document.getElementById("unify-root").shadowRoot;
+      // A estado conocido POR EL CAMINO REAL (tocar la clase desincronizaría
+      // el estado interno del panel).
+      if (shadow.querySelector(".drawer.is-open")) shadow.querySelector('[data-el="close"]').click();
+      shadow.querySelector(".fab").click();
+      return Boolean(shadow.querySelector(".drawer.is-open"));
+    });
+    check("el flotante «U» abre el panel", abierto === true);
+    const cerrado = await page.evaluate(() => {
+      const shadow = document.getElementById("unify-root").shadowRoot;
+      shadow.querySelector('[data-el="close"]').click();
+      return !shadow.querySelector(".drawer.is-open");
+    });
+    check("y la ✕ del panel lo vuelve a cerrar", cerrado === true);
+  }
+
   const speakers = [...new Set(posted.map((p) => p.speaker))];
   check("transcribe a TODOS los participantes", speakers.length === 3, speakers.join(" | "));
   check("una frase por persona, sin duplicados", posted.length === 3, `enviadas=${posted.length}`);
