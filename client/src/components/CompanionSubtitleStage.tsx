@@ -104,7 +104,7 @@ export default function CompanionSubtitleStage({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Estado: qué está pasando, en una línea */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-ink-800 px-4 py-2 text-[11px] text-ink-400">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-ink-800 px-4 py-2 text-xs text-ink-300">
         <span className="flex items-center gap-1.5">
           <span
             className={`h-1.5 w-1.5 rounded-full ${
@@ -122,13 +122,13 @@ export default function CompanionSubtitleStage({
       </div>
 
       {problem && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-[11px] leading-snug text-amber-200">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs leading-snug text-amber-200">
           <span className="min-w-0 flex-1">{problem}</span>
           {accionExtra && (
             <button
               type="button"
               onClick={accionExtra.onClick}
-              className="shrink-0 rounded-lg bg-amber-400 px-2.5 py-1 font-semibold text-ink-950 hover:bg-amber-300"
+              className="min-h-[36px] shrink-0 rounded-lg bg-amber-400 px-3.5 py-1.5 text-xs font-semibold text-ink-950 hover:bg-amber-300"
             >
               {accionExtra.texto}
             </button>
@@ -137,7 +137,7 @@ export default function CompanionSubtitleStage({
             <button
               type="button"
               onClick={onRetry}
-              className="shrink-0 rounded-lg border border-amber-400/50 px-2.5 py-1 font-semibold text-amber-100 hover:bg-amber-500/20"
+              className="min-h-[36px] shrink-0 rounded-lg border border-amber-400/50 px-3.5 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-500/20"
             >
               Reintentar
             </button>
@@ -146,13 +146,13 @@ export default function CompanionSubtitleStage({
       )}
 
       {notaGrabacion && (
-        <div className="border-b border-ink-700 bg-ink-800/60 px-4 py-2 text-[11px] leading-snug text-ink-300">
+        <div className="border-b border-ink-700 bg-ink-800/60 px-4 py-2 text-xs leading-snug text-ink-200">
           {notaGrabacion}
         </div>
       )}
 
       {translationFailed && targetLabel && (
-        <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-[11px] leading-snug text-amber-200">
+        <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs leading-snug text-amber-200">
           No estamos pudiendo traducir en este momento, así que ves el texto original. Si sigue
           igual, puede faltar configurar la traducción en el servidor.
         </div>
@@ -204,7 +204,7 @@ export default function CompanionSubtitleStage({
                 >
                   Escuchar a TODA la reunión
                 </button>
-                <p className="mt-1.5 text-[11px] leading-relaxed text-ink-500">
+                <p className="mt-1.5 text-xs leading-relaxed text-ink-400">
                   Elegí <b className="text-ink-300">Toda la pantalla</b> y tildá{" "}
                   <b className="text-ink-300">Compartir audio del sistema</b>: así transcribo a
                   todos (no sólo tu voz) y la reunión queda grabada en video. En Mac el audio del

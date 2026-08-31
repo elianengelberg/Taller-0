@@ -46,9 +46,11 @@ export default function IconButton({
         )}
       </button>
       {caption && (
+        // 12px y con más contraste (eran 10px en gris apagado): el nombre del
+        // botón es LO que le dice a alguien no técnico qué hace cada círculo.
         <span
-          className={`text-[10px] font-medium leading-none ${
-            danger ? "text-red-400" : active ? "text-brand-300" : "text-ink-400"
+          className={`text-xs font-semibold leading-none ${
+            danger ? "text-red-400" : active ? "text-brand-300" : "text-ink-200"
           }`}
         >
           {caption}

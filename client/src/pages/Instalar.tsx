@@ -403,7 +403,197 @@ export default function Instalar() {
           </section>
         )}
 
-        {/* ── 1. La app ─────────────────────────────────────────────── */}
+        {/* ── 1. La extensión ───────────────────────────────────────── */}
+        <section
+          id="ext"
+          ref={seccionExt}
+          className={`${cardClass} mt-6 scroll-mt-6 ${
+            siguientePaso ? "border-brand-500/60 ring-1 ring-brand-500/40" : ""
+          }`}
+        >
+          {siguientePaso && (
+            <p className="mb-3 text-sm font-semibold text-brand-200">
+              Paso 2 de 2 — la descarga ya arrancó, seguí acá abajo
+            </p>
+          )}
+          {/* Sin la sección de la app (ya instalada), numerar "2" sobraría. */}
+          <h2 className="text-lg font-semibold text-strong">
+            {instalada ? "La extensión para tu navegador" : "La extensión"}
+          </h2>
+
+          {movil ? (
+            <div className="mt-2 text-sm leading-relaxed text-ink-300">
+              <p>
+                Tocá el botón y se descarga directo. Después la instalás en el Chrome o Edge de tu
+                computadora (ahí es donde vive una extensión).
+              </p>
+              <div className="mt-3">
+                <Button onClick={bajarExtension}>Descargar la extensión</Button>
+              </div>
+              <p className="mt-3 text-xs text-ink-400">
+                Se baja un archivo ZIP. En la computadora: descomprimilo, abrí{" "}
+                <code className="rounded bg-ink-800 px-1">chrome://extensions</code>, prendé «Modo de
+                desarrollador» y tocá «Cargar descomprimida» eligiendo la carpeta. Los pasos con
+                detalle están en esta misma página abierta desde la compu.
+              </p>
+            </div>
+          ) : (
+            <>
+              <p className="mt-1 text-sm leading-relaxed text-ink-300">
+                Se instala una vez y funciona sola: entrás a una reunión y el cartel aparece.{" "}
+                <span className="font-semibold text-strong">No hace falta abrir Unify</span> ni tener la app a
+                la vista.
+              </p>
+              <div className="mt-3 text-sm leading-relaxed text-ink-200">
+                <p className="text-xs text-ink-400">
+                  ¿La querés 24/7? Poné el navegador para que arranque con Windows
+                  (Configuración → Aplicaciones → Inicio) y listo, sin que
+                  abras nada.
+                </p>
+              </div>
+
+              {CHROME_WEB_STORE_URL ? (
+                <>
+                  <a href={CHROME_WEB_STORE_URL} target="_blank" rel="noopener noreferrer">
+                    <Button className="mt-4 w-full sm:w-auto">
+                      {esEdge() ? "Agregar a Edge desde la Chrome Web Store" : "Agregar a Chrome desde la Web Store"}
+                    </Button>
+                  </a>
+                  {esEdge() && (
+                    <p className="mt-2 text-xs text-ink-400">
+                      Edge instala extensiones de la Chrome Web Store: si te lo pregunta, tocá{" "}
+                      <span className="font-semibold">“Permitir extensiones de otras tiendas”</span> y después{" "}
+                      “Agregar a Chrome”.
+                    </p>
+                  )}
+                  <p className="mt-3 text-sm leading-relaxed text-ink-300">
+                    Un clic y listo. Desde la tienda también se actualiza sola cuando sacamos mejoras.
+                  </p>
+                  {/* El ZIP no se retira: hay equipos de trabajo con la tienda
+                      bloqueada por política, y ahí sigue siendo el único
+                      camino. Queda chico y abajo, como alternativa. */}
+                  <p className="mt-3 text-xs text-ink-400">
+                    ¿La tienda está bloqueada en tu computadora del trabajo?{" "}
+                    <a href="/unify-extension.zip" download className="underline hover:text-ink-200">
+                      Bajá el ZIP
+                    </a>{" "}
+                    y cargalo a mano desde{" "}
+                    <button
+                      type="button"
+                      onClick={() => copiar(esEdge() ? "edge://extensions" : "chrome://extensions", "exts")}
+                      className="underline hover:text-ink-200"
+                    >
+                      {esEdge() ? "edge://extensions" : "chrome://extensions"}{copiado === "exts" ? " ✓" : ""}
+                    </button>{" "}
+                    (Modo de desarrollador → “Cargar descomprimida”). Ojo: el ZIP es la única
+                    forma que no se actualiza sola; cuando puedas, instalala de la tienda y te
+                    olvidás para siempre.
+                  </p>
+                </>
+              ) : plataforma === "mac" ? (
+                <div className="mt-4">
+                  {/* En Mac, el patrón de siempre: un comando para Terminal.
+                      (Un .command descargado pierde el permiso de ejecución y
+                      Gatekeeper lo frena: pegar el comando es MENOS pasos.) */}
+                  <p className="text-sm font-medium text-strong">
+                    Copiá esto y pegalo en Terminal (⌘ Espacio → “Terminal” → Enter):
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <code className="min-w-0 flex-1 overflow-x-auto rounded-lg bg-ink-900 px-3 py-2 text-xs text-brand-200">
+                      curl -fsSL https://www.unify-meet.com/instalar-unify.command | bash
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => copiar("curl -fsSL https://www.unify-meet.com/instalar-unify.command | bash", "terminal")}
+                      className="rounded-lg border border-ink-600 px-3 py-2 text-xs font-semibold text-ink-100 hover:bg-ink-800"
+                    >
+                      {copiado === "terminal" ? "¡Copiado!" : "Copiar"}
+                    </button>
+                  </div>
+                  <div className="mt-4 text-sm leading-relaxed text-ink-200">
+                    <p>
+                      El instalador descarga la extensión, la deja en su carpeta, te{" "}
+                      <span className="font-semibold">copia la ruta al portapapeles</span> y te abre la página de
+                      extensiones de Chrome. Ahí quedan los dos toques que Chrome exige sí o sí:
+                    </p>
+                    <ol className="mt-1.5 list-decimal space-y-1 pl-5">
+                      <li>Prendé el <span className="font-semibold">Modo de desarrollador</span> (arriba a la derecha).</li>
+                      <li>Tocá <span className="font-semibold">“Cargar descomprimida”</span> y pegá la ruta (⌘V).</li>
+                    </ol>
+                    <p className="mt-2 text-xs text-ink-400">
+                      Es un script de texto plano:{" "}
+                      <a href="/instalar-unify.command" className="underline hover:text-ink-200">leelo acá</a> antes
+                      de correrlo si querés. Alternativa manual:{" "}
+                      <a href="/unify-extension.zip" download className="underline hover:text-ink-200">bajar el ZIP</a>{" "}
+                      (doble clic lo descomprime) y cargar esa carpeta a mano.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4">
+                  {/* Camino principal: el ZIP. Sin terminal y sin sustos -- el
+                      .bat que probamos antes hacía saltar los avisos de
+                      seguridad de Edge y SmartScreen en cadena (a un .bat
+                      descargado lo tratan como malware) y abría una consola
+                      negra en la cara de la persona. Quedó como alternativa,
+                      abajo y con la advertencia dicha de antemano. */}
+                  <a href="/unify-extension.zip" download>
+                    <Button className="w-full sm:w-auto">Descargar la extensión (ZIP)</Button>
+                  </a>
+                  <div className="mt-4 text-sm leading-relaxed text-ink-200">
+                    <p className="font-medium text-strong">
+                      Cuatro pasos, sin terminal ni avisos de seguridad{esEdge() ? " (estás en Edge: los pasos son los de Edge)" : ""}:
+                    </p>
+                    <ol className="mt-1.5 list-decimal space-y-1.5 pl-5">
+                      <li>
+                        En <span className="font-semibold">Descargas</span>, clic derecho sobre{" "}
+                        <span className="font-mono text-[13px]">unify-extension.zip</span> →{" "}
+                        <span className="font-semibold">“Extraer todo…”</span> → Extraer.
+                      </li>
+                      <li>
+                        Pegá{" "}
+                        <button
+                          type="button"
+                          onClick={() => copiar(esEdge() ? "edge://extensions" : "chrome://extensions", "exts")}
+                          className="rounded-md bg-ink-900 px-2 py-0.5 font-mono text-[13px] text-brand-200 hover:bg-ink-700"
+                          title="Tocá para copiar"
+                        >
+                          {esEdge() ? "edge://extensions" : "chrome://extensions"}{copiado === "exts" ? " ✓" : ""}
+                        </button>{" "}
+                        en la barra de direcciones (tocá para copiarlo) y apretá Enter.
+                      </li>
+                      <li>
+                        Prendé el <span className="font-semibold">Modo de desarrollador</span>{" "}
+                        {esEdge() ? "(en Edge está en el panel de la izquierda)" : "(arriba a la derecha)"}.
+                      </li>
+                      <li>
+                        Tocá <span className="font-semibold">“Cargar descomprimida”</span> y elegí la carpeta{" "}
+                        <span className="font-mono text-[13px]">unify-extension</span> que quedó en Descargas.
+                        Listo: entrá a cualquier reunión y Unify aparece solo.
+                      </li>
+                    </ol>
+                    <p className="mt-2 text-xs text-ink-400">
+                      Los dos toques finales los exige el navegador sí o sí: ninguna página puede activar una
+                      extensión por vos. Cuando Unify esté en la Chrome Web Store, todo esto será un solo clic
+                      {esEdge() ? " (también desde Edge)" : ""}.
+                    </p>
+                    <p className="mt-2 text-xs text-ink-400">
+                      ¿Preferís que un script haga la descarga y descompresión por vos?{" "}
+                      <a href="/instalar-unify.bat" download className="underline hover:text-ink-200">
+                        instalar-unify.bat
+                      </a>{" "}
+                      existe, pero avisamos de antemano: por ser un .bat, Windows y Edge le muestran varios avisos
+                      de seguridad y abre una ventana de terminal — es texto plano y podés leerlo con el Bloc de
+                      notas, pero el camino de arriba es más tranquilo.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </section>
+
+        {/* ── 2. La app ─────────────────────────────────────────────── */}
         {!instalada && (
         <section id="app" className={`${cardClass} mt-6 scroll-mt-6`}>
           <h2 className="text-lg font-semibold text-strong">La app</h2>
@@ -608,196 +798,6 @@ export default function Instalar() {
           {estado && !instalada && <p className="mt-3 text-sm text-emerald-300">{estado}</p>}
         </section>
         )}
-
-        {/* ── 2. La extensión ───────────────────────────────────────── */}
-        <section
-          id="ext"
-          ref={seccionExt}
-          className={`${cardClass} mt-6 scroll-mt-6 ${
-            siguientePaso ? "border-brand-500/60 ring-1 ring-brand-500/40" : ""
-          }`}
-        >
-          {siguientePaso && (
-            <p className="mb-3 text-sm font-semibold text-brand-200">
-              Paso 2 de 2 — la descarga ya arrancó, seguí acá abajo
-            </p>
-          )}
-          {/* Sin la sección de la app (ya instalada), numerar "2" sobraría. */}
-          <h2 className="text-lg font-semibold text-strong">
-            {instalada ? "La extensión para tu navegador" : "La extensión"}
-          </h2>
-
-          {movil ? (
-            <div className="mt-2 text-sm leading-relaxed text-ink-300">
-              <p>
-                Tocá el botón y se descarga directo. Después la instalás en el Chrome o Edge de tu
-                computadora (ahí es donde vive una extensión).
-              </p>
-              <div className="mt-3">
-                <Button onClick={bajarExtension}>Descargar la extensión</Button>
-              </div>
-              <p className="mt-3 text-xs text-ink-400">
-                Se baja un archivo ZIP. En la computadora: descomprimilo, abrí{" "}
-                <code className="rounded bg-ink-800 px-1">chrome://extensions</code>, prendé «Modo de
-                desarrollador» y tocá «Cargar descomprimida» eligiendo la carpeta. Los pasos con
-                detalle están en esta misma página abierta desde la compu.
-              </p>
-            </div>
-          ) : (
-            <>
-              <p className="mt-1 text-sm leading-relaxed text-ink-300">
-                Se instala una vez y funciona sola: entrás a una reunión y el cartel aparece.{" "}
-                <span className="font-semibold text-strong">No hace falta abrir Unify</span> ni tener la app a
-                la vista.
-              </p>
-              <div className="mt-3 text-sm leading-relaxed text-ink-200">
-                <p className="text-xs text-ink-400">
-                  ¿La querés 24/7? Poné el navegador para que arranque con Windows
-                  (Configuración → Aplicaciones → Inicio) y listo, sin que
-                  abras nada.
-                </p>
-              </div>
-
-              {CHROME_WEB_STORE_URL ? (
-                <>
-                  <a href={CHROME_WEB_STORE_URL} target="_blank" rel="noopener noreferrer">
-                    <Button className="mt-4 w-full sm:w-auto">
-                      {esEdge() ? "Agregar a Edge desde la Chrome Web Store" : "Agregar a Chrome desde la Web Store"}
-                    </Button>
-                  </a>
-                  {esEdge() && (
-                    <p className="mt-2 text-xs text-ink-400">
-                      Edge instala extensiones de la Chrome Web Store: si te lo pregunta, tocá{" "}
-                      <span className="font-semibold">“Permitir extensiones de otras tiendas”</span> y después{" "}
-                      “Agregar a Chrome”.
-                    </p>
-                  )}
-                  <p className="mt-3 text-sm leading-relaxed text-ink-300">
-                    Un clic y listo. Desde la tienda también se actualiza sola cuando sacamos mejoras.
-                  </p>
-                  {/* El ZIP no se retira: hay equipos de trabajo con la tienda
-                      bloqueada por política, y ahí sigue siendo el único
-                      camino. Queda chico y abajo, como alternativa. */}
-                  <p className="mt-3 text-xs text-ink-400">
-                    ¿La tienda está bloqueada en tu computadora del trabajo?{" "}
-                    <a href="/unify-extension.zip" download className="underline hover:text-ink-200">
-                      Bajá el ZIP
-                    </a>{" "}
-                    y cargalo a mano desde{" "}
-                    <button
-                      type="button"
-                      onClick={() => copiar(esEdge() ? "edge://extensions" : "chrome://extensions", "exts")}
-                      className="underline hover:text-ink-200"
-                    >
-                      {esEdge() ? "edge://extensions" : "chrome://extensions"}{copiado === "exts" ? " ✓" : ""}
-                    </button>{" "}
-                    (Modo de desarrollador → “Cargar descomprimida”). Ojo: el ZIP es la única
-                    forma que no se actualiza sola; cuando puedas, instalala de la tienda y te
-                    olvidás para siempre.
-                  </p>
-                </>
-              ) : plataforma === "mac" ? (
-                <div className="mt-4">
-                  {/* En Mac, el patrón de siempre: un comando para Terminal.
-                      (Un .command descargado pierde el permiso de ejecución y
-                      Gatekeeper lo frena: pegar el comando es MENOS pasos.) */}
-                  <p className="text-sm font-medium text-strong">
-                    Copiá esto y pegalo en Terminal (⌘ Espacio → “Terminal” → Enter):
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <code className="min-w-0 flex-1 overflow-x-auto rounded-lg bg-ink-900 px-3 py-2 text-xs text-brand-200">
-                      curl -fsSL https://www.unify-meet.com/instalar-unify.command | bash
-                    </code>
-                    <button
-                      type="button"
-                      onClick={() => copiar("curl -fsSL https://www.unify-meet.com/instalar-unify.command | bash", "terminal")}
-                      className="rounded-lg border border-ink-600 px-3 py-2 text-xs font-semibold text-ink-100 hover:bg-ink-800"
-                    >
-                      {copiado === "terminal" ? "¡Copiado!" : "Copiar"}
-                    </button>
-                  </div>
-                  <div className="mt-4 text-sm leading-relaxed text-ink-200">
-                    <p>
-                      El instalador descarga la extensión, la deja en su carpeta, te{" "}
-                      <span className="font-semibold">copia la ruta al portapapeles</span> y te abre la página de
-                      extensiones de Chrome. Ahí quedan los dos toques que Chrome exige sí o sí:
-                    </p>
-                    <ol className="mt-1.5 list-decimal space-y-1 pl-5">
-                      <li>Prendé el <span className="font-semibold">Modo de desarrollador</span> (arriba a la derecha).</li>
-                      <li>Tocá <span className="font-semibold">“Cargar descomprimida”</span> y pegá la ruta (⌘V).</li>
-                    </ol>
-                    <p className="mt-2 text-xs text-ink-400">
-                      Es un script de texto plano:{" "}
-                      <a href="/instalar-unify.command" className="underline hover:text-ink-200">leelo acá</a> antes
-                      de correrlo si querés. Alternativa manual:{" "}
-                      <a href="/unify-extension.zip" download className="underline hover:text-ink-200">bajar el ZIP</a>{" "}
-                      (doble clic lo descomprime) y cargar esa carpeta a mano.
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-4">
-                  {/* Camino principal: el ZIP. Sin terminal y sin sustos -- el
-                      .bat que probamos antes hacía saltar los avisos de
-                      seguridad de Edge y SmartScreen en cadena (a un .bat
-                      descargado lo tratan como malware) y abría una consola
-                      negra en la cara de la persona. Quedó como alternativa,
-                      abajo y con la advertencia dicha de antemano. */}
-                  <a href="/unify-extension.zip" download>
-                    <Button className="w-full sm:w-auto">Descargar la extensión (ZIP)</Button>
-                  </a>
-                  <div className="mt-4 text-sm leading-relaxed text-ink-200">
-                    <p className="font-medium text-strong">
-                      Cuatro pasos, sin terminal ni avisos de seguridad{esEdge() ? " (estás en Edge: los pasos son los de Edge)" : ""}:
-                    </p>
-                    <ol className="mt-1.5 list-decimal space-y-1.5 pl-5">
-                      <li>
-                        En <span className="font-semibold">Descargas</span>, clic derecho sobre{" "}
-                        <span className="font-mono text-[13px]">unify-extension.zip</span> →{" "}
-                        <span className="font-semibold">“Extraer todo…”</span> → Extraer.
-                      </li>
-                      <li>
-                        Pegá{" "}
-                        <button
-                          type="button"
-                          onClick={() => copiar(esEdge() ? "edge://extensions" : "chrome://extensions", "exts")}
-                          className="rounded-md bg-ink-900 px-2 py-0.5 font-mono text-[13px] text-brand-200 hover:bg-ink-700"
-                          title="Tocá para copiar"
-                        >
-                          {esEdge() ? "edge://extensions" : "chrome://extensions"}{copiado === "exts" ? " ✓" : ""}
-                        </button>{" "}
-                        en la barra de direcciones (tocá para copiarlo) y apretá Enter.
-                      </li>
-                      <li>
-                        Prendé el <span className="font-semibold">Modo de desarrollador</span>{" "}
-                        {esEdge() ? "(en Edge está en el panel de la izquierda)" : "(arriba a la derecha)"}.
-                      </li>
-                      <li>
-                        Tocá <span className="font-semibold">“Cargar descomprimida”</span> y elegí la carpeta{" "}
-                        <span className="font-mono text-[13px]">unify-extension</span> que quedó en Descargas.
-                        Listo: entrá a cualquier reunión y Unify aparece solo.
-                      </li>
-                    </ol>
-                    <p className="mt-2 text-xs text-ink-400">
-                      Los dos toques finales los exige el navegador sí o sí: ninguna página puede activar una
-                      extensión por vos. Cuando Unify esté en la Chrome Web Store, todo esto será un solo clic
-                      {esEdge() ? " (también desde Edge)" : ""}.
-                    </p>
-                    <p className="mt-2 text-xs text-ink-400">
-                      ¿Preferís que un script haga la descarga y descompresión por vos?{" "}
-                      <a href="/instalar-unify.bat" download className="underline hover:text-ink-200">
-                        instalar-unify.bat
-                      </a>{" "}
-                      existe, pero avisamos de antemano: por ser un .bat, Windows y Edge le muestran varios avisos
-                      de seguridad y abre una ventana de terminal — es texto plano y podés leerlo con el Bloc de
-                      notas, pero el camino de arriba es más tranquilo.
-                    </p>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </section>
 
         {/* ── El enlace para compartir ──────────────────────────────── */}
         {!movil && (

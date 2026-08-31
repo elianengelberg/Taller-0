@@ -95,14 +95,14 @@ export default function Home() {
           {!isStandalone() && (
             <Link
               to="/instalar"
-              className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-strong"
+              className="whitespace-nowrap rounded-full border border-ink-600 bg-ink-800/80 px-4 py-2 text-sm font-semibold text-ink-100 shadow-soft transition-colors hover:border-brand-400 hover:bg-ink-700 hover:text-white"
             >
               Instalar
             </Link>
           )}
           <Link
             to="/historial"
-            className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-strong"
+            className="whitespace-nowrap rounded-full border border-ink-600 bg-ink-800/80 px-4 py-2 text-sm font-semibold text-ink-100 shadow-soft transition-colors hover:border-brand-400 hover:bg-ink-700 hover:text-white"
           >
             Historial
           </Link>

@@ -80,29 +80,33 @@ export default function CompanionDock({
 
   return (
     <div ref={boxRef} className="pointer-events-auto absolute right-3 top-3 z-20 flex flex-col items-end gap-2">
-      <div className="flex items-center gap-2.5 rounded-full border border-white/10 bg-ink-900/80 px-3 py-1.5 shadow-soft backdrop-blur-md">
+      {/* MÁS GRANDE Y MÁS OBVIO. Estos controles (traducir, flotantes) son de
+          lo más usado y estaban en letra chica con botones finitos: quien no
+          es de tecnología ni los veía. Suben de talle -- texto sm, botones con
+          altura de dedo -- sin cambiar la estética ni un texto. */}
+      <div className="flex flex-wrap items-center justify-end gap-3 rounded-2xl border border-white/10 bg-ink-900/85 px-3.5 py-2 shadow-soft backdrop-blur-md sm:rounded-full">
         <span
-          className={`h-2 w-2 shrink-0 rounded-full ${connected ? "bg-accent-green" : "bg-amber-400"}`}
+          className={`h-2.5 w-2.5 shrink-0 rounded-full ${connected ? "bg-accent-green" : "bg-amber-400"}`}
           aria-hidden
         />
-        <span className="whitespace-nowrap text-xs font-medium text-ink-100">
+        <span className="whitespace-nowrap text-sm font-medium text-ink-100">
           <span className="font-bold text-strong">Unify</span>
           <span className="hidden sm:inline">: {connected ? "Companion activo" : "Reconectando…"}</span>
         </span>
 
-        <span className="hidden h-4 w-px bg-white/10 sm:block" aria-hidden />
+        <span className="hidden h-5 w-px bg-white/10 sm:block" aria-hidden />
 
         {/* Visible SIEMPRE y con texto (era un iconito escondido en pantallas
             chicas): acceder a la traducción en vivo es de lo más usado. El
             aria-label del select conserva el nombre accesible completo. */}
-        <label className="flex items-center gap-1.5">
-          <GlobeIcon className="h-3.5 w-3.5 shrink-0 text-brand-300" />
-          <span className="hidden whitespace-nowrap text-xs font-medium text-ink-300 sm:inline">Traducir a</span>
+        <label className="flex min-h-[40px] items-center gap-2">
+          <GlobeIcon className="h-4 w-4 shrink-0 text-brand-300" />
+          <span className="hidden whitespace-nowrap text-sm font-medium text-ink-200 sm:inline">Traducir a</span>
           <select
             value={targetLangChoice}
             onChange={(e) => onTargetLangChange(e.target.value)}
             aria-label="Traducir los subtítulos a"
-            className="max-w-[7.5rem] truncate rounded-md border border-ink-600 bg-ink-800 px-1.5 py-0.5 text-xs text-strong focus:border-brand-400 focus:outline-none"
+            className="max-w-[9.5rem] truncate rounded-lg border border-ink-500 bg-ink-800 px-2.5 py-1.5 text-sm font-medium text-strong focus:border-brand-400 focus:outline-none"
             title="Idioma en el que ves los subtítulos"
           >
             {/* Con el idioma resuelto a la vista: "Automático" dejaba la duda
@@ -122,13 +126,13 @@ export default function CompanionDock({
             type="button"
             onClick={onFlotantes}
             title="Una ventanita con los subtítulos que queda SIEMPRE encima: ideal cuando comparten pantalla o la reunión está en otra app"
-            className={`flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+            className={`flex min-h-[40px] items-center gap-2 whitespace-nowrap rounded-full border px-4 py-1.5 text-sm font-semibold transition-colors ${
               flotantesActivo
                 ? "border-accent-green/50 bg-accent-green/15 text-accent-green"
                 : "border-transparent bg-brand-500 text-on-accent shadow-sm hover:bg-brand-600"
             }`}
           >
-            <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" aria-hidden>
+            <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden>
               <rect x="1.5" y="3.5" width="17" height="13" rx="2" stroke="currentColor" strokeWidth="1.6" />
               <rect x="9.5" y="9.5" width="7" height="5" rx="1.2" fill="currentColor" />
             </svg>
@@ -136,18 +140,18 @@ export default function CompanionDock({
           </button>
         )}
 
-        <span className="hidden h-4 w-px bg-white/10 sm:block" aria-hidden />
+        <span className="hidden h-5 w-px bg-white/10 sm:block" aria-hidden />
 
         <button
           type="button"
           onClick={() => setInviteOpen((v) => !v)}
           aria-expanded={inviteOpen}
-          className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
-            alone ? "bg-brand-500 text-on-accent hover:bg-brand-600" : "text-ink-200 hover:bg-white/10"
+          className={`flex min-h-[40px] items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold transition-colors ${
+            alone ? "bg-brand-500 text-on-accent hover:bg-brand-600" : "border border-ink-600 text-ink-100 hover:bg-white/10"
           }`}
           title="Invitar a los demás a la capa de Unify"
         >
-          <PeopleIcon className="h-3.5 w-3.5" />
+          <PeopleIcon className="h-4 w-4" />
           {participantCount}
         </button>
       </div>
