@@ -323,6 +323,32 @@ const UA = {
     const ti = await texto(ipad.page);
     check("en iPad el perfil de empresa sí aparece, con sus pasos de Ajustes",
       (await ipad.page.locator('a[href="/unify-ipad.mobileconfig"]').count()) === 1 && /Perfil descargado/.test(ti));
+
+    // EN EDGE/CHROME DE iPAD el perfil NO se puede instalar (regla de Apple:
+    // sólo Safari baja perfiles). El toque guardaba un archivo muerto y "el
+    // botón no funciona" (pasó en un iPad real, en Edge). Ahí el botón abre
+    // SAFARI derecho sobre el perfil (x-safari-https) y deja el enlace para
+    // copiar como respaldo.
+    {
+      const ipadEdge = await abrir(
+        "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 EdgiOS/120.0.2210.86 Mobile/15E148 Safari/604.1",
+        `${B}/instalar`
+      );
+      const te = await texto(ipadEdge.page);
+      check("en Edge de iPad NO se ofrece la descarga directa (Safari es el único que puede)",
+        (await ipadEdge.page.locator('a[href="/unify-ipad.mobileconfig"]').count()) === 0);
+      const safariHref = await ipadEdge.page
+        .locator('a[href^="x-safari-https://"]')
+        .first()
+        .getAttribute("href")
+        .catch(() => null);
+      check("el botón abre SAFARI derecho sobre el perfil (x-safari-https)",
+        Boolean(safariHref) && /x-safari-https:\/\/[^/]+\/unify-ipad\.mobileconfig$/.test(safariHref ?? ""),
+        String(safariHref));
+      check("dice por qué (los perfiles sólo los baja Safari) y deja copiar el enlace",
+        /sólo los puede bajar Safari/.test(te) && /Copiar el enlace del perfil/.test(te));
+      await ipadEdge.ctx.close();
+    }
     await ipad.ctx.close();
 
     // Chrome de iPhone (CriOS): desde iOS 16.4 TAMBIÉN puede instalar, pero
@@ -428,7 +454,9 @@ const UA = {
       res2.headers.get("content-type"));
     const cuerpo = Buffer.from(await res2.arrayBuffer()).toString("latin1");
     check("es un plist con el Web Clip de Unify",
-      cuerpo.includes("com.apple.webClip.managed") && cuerpo.includes("https://www.unify-meet.com/"));
+      // El apex (unify-meet.com, sin www): es el dominio canónico que la
+      // persona ve en la barra; el ícono instalado abre directo, sin redirect.
+      cuerpo.includes("com.apple.webClip.managed") && cuerpo.includes("<string>https://unify-meet.com/</string>"));
     check("lleva el ícono adentro (base64 grande)", /<data>[\s\S]{40000,}/.test(cuerpo));
     check("se puede quitar (IsRemovable)", cuerpo.includes("IsRemovable"));
 
