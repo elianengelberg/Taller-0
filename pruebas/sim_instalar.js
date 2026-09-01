@@ -287,6 +287,19 @@ const UA = {
     const t = await texto(page);
     check("marca iPhone/iPad como el sistema detectado (chip «el tuyo»)", /iPhone\/iPad ·\s*el tuyo/.test(t), t.match(/iPhone[^\n]{0,20}/)?.[0]);
     check("el camino: Compartir → Agregar a inicio (Safari)", /Agregar a inicio/.test(t));
+
+    // EL BOTÓN ÚNICO: «Agregar a la pantalla de inicio». Apple no deja que
+    // ninguna página se instale sola en iPhone/iPad, así que el toque abre la
+    // hoja de compartir del sistema (donde ESA opción vive) y deja la
+    // instrucción a la vista -- en Android/PC el mismo botón instala directo.
+    const botonInicio = page.getByRole("button", { name: "Agregar a la pantalla de inicio" });
+    check("hay UN botón grande: «Agregar a la pantalla de inicio»", (await botonInicio.count()) === 1);
+    await botonInicio.first().click().catch(() => {});
+    await page.waitForTimeout(400);
+    const conGuia = await texto(page);
+    check("al tocarlo, la instrucción queda a la vista (qué elegir en el menú que se abre)",
+      /buscá .Agregar a pantalla de inicio./.test(conGuia) && /No se abrió ningún menú/.test(conGuia),
+      conGuia.match(/En el menú[^\n]{0,60}/)?.[0] ?? "sin guía");
     // El perfil de Apple es un camino para iPadS (empresas que precargan el
     // acceso). En un iPhone común sólo confundía: "toco descargar y no pasa
     // nada" -- reporte real. En iPhone NO aparece.

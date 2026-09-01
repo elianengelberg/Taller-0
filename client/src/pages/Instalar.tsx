@@ -103,6 +103,9 @@ export default function Instalar() {
   // cualquiera sin cambiar de aparato.
   const [plataforma, setPlataforma] = useState<Plataforma>(detectarPlataforma());
   const [autodetectada] = useState<Plataforma>(detectarPlataforma());
+  // La ayuda que acompaña al botón «Agregar a la pantalla de inicio» de
+  // iPhone/iPad: aparece con el primer toque y queda a la vista.
+  const [guiaInicio, setGuiaInicio] = useState(false);
   const esApple = plataforma === "mac" || plataforma === "ios";
   const movil = plataforma === "ios" || plataforma === "android";
 
@@ -602,6 +605,48 @@ export default function Instalar() {
             {plataforma === "android" && ", y aparece en el menú Compartir de Android"}
             {esApple && plataforma === "ios" && ", en tu pantalla de inicio"}.
           </p>
+
+          {/* EL BOTÓN ÚNICO en iPhone/iPad. Apple no deja que ninguna página
+              se instale sola ahí (esa API no existe en iOS; en Android y PC
+              sí, y ese caso lo cubre promptInstall). Lo más cerca que Apple
+              permite: abrir la HOJA DE COMPARTIR del sistema, que ya trae
+              «Agregar a pantalla de inicio» adentro -- un toque, sin buscar
+              menús -- con la instrucción a la vista abajo del botón. */}
+          {plataforma === "ios" && autodetectada === "ios" && (
+            <div className="mt-4">
+              <Button
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  if (canPromptInstall()) {
+                    void promptInstall();
+                    return;
+                  }
+                  setGuiaInicio(true);
+                  if (navigator.share) {
+                    void navigator
+                      .share({ title: "Unify", url: window.location.origin })
+                      .catch(() => {});
+                  }
+                }}
+              >
+                Agregar a la pantalla de inicio
+              </Button>
+              {guiaInicio && (
+                <div className="mt-2.5 rounded-xl border border-brand-500/40 bg-brand-500/10 px-3.5 py-2.5 text-sm leading-relaxed text-ink-100">
+                  En el menú que se abrió, buscá{" "}
+                  <span className="font-semibold">“Agregar a pantalla de inicio”</span> (a veces hay
+                  que deslizar la lista de opciones) y tocá{" "}
+                  <span className="font-semibold">Agregar</span>. Listo: Unify queda con su ícono,
+                  como una app. ¿No se abrió ningún menú? Tocá{" "}
+                  <span className="font-semibold">Compartir</span>{" "}
+                  {esSafariDeIos()
+                    ? "(el cuadrado con la flecha, en la barra de arriba)"
+                    : "(dentro del menú ⋯ / ≡ de tu navegador)"}{" "}
+                  y elegí lo mismo.
+                </div>
+              )}
+            </div>
+          )}
 
           {instalable ? (
             <p className="mt-3 text-sm text-ink-400">
