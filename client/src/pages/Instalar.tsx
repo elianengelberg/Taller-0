@@ -661,21 +661,35 @@ export default function Instalar() {
                       ) : (
                         <>
                           {/* Los perfiles de Apple SOLO se instalan si los baja
-                              SAFARI: en Chrome/Edge el toque guardaba un archivo
-                              muerto en Descargas y "el botón no funciona" (pasó
-                              de verdad, en un iPad real). El botón abre Safari
-                              DERECHO sobre el perfil (esquema x-safari-https);
-                              si este iPad no conoce el esquema, queda el enlace
-                              para pegar en Safari. */}
-                          <a
-                            href={`x-safari-https://${typeof window !== "undefined" ? window.location.host : "unify-meet.com"}/unify-ipad.mobileconfig`}
-                            className="mt-1.5 inline-block"
-                          >
-                            <Button variant="secondary">Abrir el perfil en Safari</Button>
-                          </a>
-                          <p className="mt-1 text-xs leading-relaxed text-ink-400">
+                              SAFARI. Y el esquema x-safari-https puede abrir
+                              Safari SIN navegar (pasó en un iPad real: Safari
+                              apareció en la última pestaña que tenía abierta y
+                              nada más). Por eso el botón COPIA el enlace
+                              PRIMERO y recién después intenta abrir Safari:
+                              abra donde abra, el enlace ya viaja en el
+                              portapapeles y pegar resuelve. */}
+                          <div className="mt-1.5">
+                            <Button
+                              variant="secondary"
+                              onClick={() => {
+                                void copiar(`${window.location.origin}/unify-ipad.mobileconfig`, "perfil");
+                                try {
+                                  window.location.href = `x-safari-https://${window.location.host}/unify-ipad.mobileconfig`;
+                                } catch {
+                                  /* esquema desconocido: el enlace copiado es el camino */
+                                }
+                              }}
+                            >
+                              {copiado === "perfil" ? "Enlace copiado ✓ — seguí en Safari" : "Instalar el perfil (te lleva a Safari)"}
+                            </Button>
+                          </div>
+                          <p className="mt-1.5 text-xs leading-relaxed text-ink-400">
                             Los perfiles de Apple sólo los puede bajar Safari (regla de Apple, no nuestra).
-                            El botón lo abre ahí derecho; si no pasa nada, copiá el enlace y pegalo en Safari:
+                            El botón copia el enlace y abre Safari. Si Safari se abre en{" "}
+                            <span className="font-semibold text-ink-200">cualquier otra página</span> (sin
+                            preguntar nada), el enlace ya quedó copiado: tocá su barra de dirección, elegí{" "}
+                            <span className="font-semibold text-ink-200">Pegar y buscar</span> y entrá — ahí
+                            salta el aviso.
                           </p>
                           <button
                             type="button"
