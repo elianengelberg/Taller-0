@@ -2242,6 +2242,8 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
     line = addNamedTranscriptLine(meeting, speaker, textoFinal, sourceLang);
     recordarLineaBridge(meeting.id, speaker, line.id);
     const memoriaNueva = ultimaLineaBridge.get(meeting.id);
+    const lineaNueva = line;
+    const textoInsertado = line.text;
     void recordMessage({
       meetingId: meeting.dbId,
       kind: "transcript",
@@ -2252,7 +2254,14 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
       spokenAt: new Date(),
     }).then((dbMessageId) => {
       // Sólo si la memoria sigue apuntando a ESTA línea (pudo haber avanzado).
-      if (memoriaNueva && memoriaNueva.lineId === line.id) memoriaNueva.dbMessageId = dbMessageId;
+      if (memoriaNueva && memoriaNueva.lineId === lineaNueva.id) memoriaNueva.dbMessageId = dbMessageId;
+      // Si la línea CRECIÓ por una fusión mientras el insert viajaba (con el
+      // reintento por clave foránea puede tardar casi un segundo), la fila
+      // del historial quedaba con el primer fragmento solo, para siempre si
+      // no venía otra fusión. Se la pone al día acá.
+      if (dbMessageId != null && lineaNueva.text !== textoInsertado) {
+        void updateMessageText(dbMessageId, lineaNueva.text);
+      }
     });
   }
   io.to(roomFor(meeting.id)).emit("transcript-line", { line });

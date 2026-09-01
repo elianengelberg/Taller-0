@@ -661,6 +661,8 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
         // fragment merging into this new line before the insert below
         // resolves must NOT write into an older, unrelated row.
         recentUtterance = { lineId: line.id, dbMessageId: null, finalizedAt: Date.now() };
+        const lineaNueva = line;
+        const textoInsertado = line.text;
         void db
           .recordMessage({
             meetingId: meeting.dbId,
@@ -675,8 +677,14 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
             // Only update if this is still the line we think it is -- a
             // merge could have already moved recentUtterance on by the time
             // this insert resolves.
-            if (recentUtterance && recentUtterance.lineId === line.id) {
+            if (recentUtterance && recentUtterance.lineId === lineaNueva.id) {
               recentUtterance.dbMessageId = dbMessageId;
+            }
+            // Si un fragmento se FUSIONÓ en esta línea mientras el insert
+            // viajaba (con el reintento por clave foránea, casi un segundo),
+            // la fila quedaba con el primer pedazo solo. Se la pone al día.
+            if (dbMessageId != null && lineaNueva.text !== textoInsertado) {
+              void db.updateMessageText(dbMessageId, lineaNueva.text);
             }
           });
       }
