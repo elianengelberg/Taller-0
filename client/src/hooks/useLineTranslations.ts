@@ -37,7 +37,13 @@ export function useLineTranslations(lines: TranslatableLine[], targetLang: strin
     let cancelled = false;
 
     lines.forEach((line) => {
-      const key = `${line.id}:${targetLang}`;
+      // El largo del texto viaja en la clave: el servidor FUSIONA fragmentos
+      // seguidos en una misma línea (misma id, texto que crece), y una
+      // traducción hecha para el texto corto no vale para el largo. Con la
+      // clave vieja (id solo), la línea fusionada quedaba traducida a medias
+      // PARA SIEMPRE -- y el parche del servidor que llegaba después caía en
+      // una clave ya ocupada y se ignoraba.
+      const key = `${line.id}:${targetLang}:${line.text.length}`;
       if (translations[key] || inFlightRef.current.has(key)) return;
       if (shortLang(line.sourceLang) === shortLang(targetLang)) return;
 
@@ -67,9 +73,9 @@ export function useLineTranslations(lines: TranslatableLine[], targetLang: strin
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetLang, lines]);
 
-  function getTranslation(lineId: string): string | undefined {
+  function getTranslation(line: { id: string; text: string }): string | undefined {
     if (targetLang === ORIGINAL_LANG) return undefined;
-    return translations[`${lineId}:${targetLang}`];
+    return translations[`${line.id}:${targetLang}:${line.text.length}`];
   }
 
   return { getTranslation, translationFailed: failed };

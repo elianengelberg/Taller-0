@@ -948,7 +948,7 @@ export default function ExternalMeeting() {
       frases.push({ quien: draft?.name || "Vos", texto: interimCaption, interina: true });
     }
     for (const l of [...transcriptPip.slice(-3)].reverse()) {
-      frases.push({ quien: l.speakerName, texto: getTranslation(l.id) ?? l.text });
+      frases.push({ quien: l.speakerName, texto: getTranslation(l) ?? l.text });
     }
     if (frases.length === 0) {
       pintarEsperando();
@@ -997,7 +997,7 @@ export default function ExternalMeeting() {
       quien.textContent = `${l.speakerName}: `;
       quien.style.cssText = "color:#7fa5ff;font-weight:600";
       const texto = win.document.createElement("span");
-      texto.textContent = getTranslation(l.id) ?? l.text;
+      texto.textContent = getTranslation(l) ?? l.text;
       fila.appendChild(quien);
       fila.appendChild(texto);
       cont.appendChild(fila);
@@ -1053,7 +1053,7 @@ export default function ExternalMeeting() {
     speakerId: l.speakerId,
     speakerName: l.speakerName,
     text: l.text,
-    translated: getTranslation(l.id),
+    translated: getTranslation(l),
   }));
   const targetLabel =
     targetLangChoice === ORIGINAL_LANG

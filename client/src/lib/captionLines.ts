@@ -9,7 +9,7 @@ import { TranscriptLine } from "../types";
 // timer, so when only one person is talking only one row is shown.
 export function recentCaptionEntries(
   transcript: TranscriptLine[],
-  getTranslation: (lineId: string) => string | undefined,
+  getTranslation: (line: { id: string; text: string }) => string | undefined,
   maxSpeakers = 3
 ): CaptionEntry[] {
   const seen = new Set<string>();
@@ -26,6 +26,6 @@ export function recentCaptionEntries(
     speakerId: line.speakerId,
     speakerName: line.speakerName,
     text: line.text,
-    translatedText: getTranslation(line.id),
+    translatedText: getTranslation(line),
   }));
 }

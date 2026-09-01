@@ -931,7 +931,7 @@
           quien.textContent = `${linea.speakerName ?? "Alguien"}: `;
           quien.style.cssText = "color:#2563EB;font-weight:700";
           const texto = pipWin.document.createElement("span");
-          const trad = traducciones.get(linea.id);
+          const trad = tradDe(linea);
           texto.textContent = trad && trad !== linea.text ? trad : (linea.text ?? "");
           filaPip.append(quien, texto);
           cont.appendChild(filaPip);
@@ -1076,38 +1076,63 @@
     // Traducción de una línea, con caché y de a una: los subtítulos de los
     // idiomas que ya maneja la web (chino, inglés, alemán, francés, portugués
     // y demás) salen del MISMO endpoint /api/translate del servidor.
-    const traducir = async (linea) => {
-      if (!cfg.lang || traducciones.has(linea.id)) return;
+    // La caché guarda PARA QUÉ texto se tradujo: el servidor fusiona
+    // fragmentos seguidos en una misma línea (misma id, texto que CRECE), y
+    // con la clave por id sola la línea fusionada quedaba traducida a medias
+    // PARA SIEMPRE -- y la traducción del servidor que llegaba después caía
+    // en una clave ya ocupada y se ignoraba.
+    const traducir = async (linea, visibles = []) => {
+      if (!cfg.lang) return;
+      const previa = traducciones.get(linea.id);
+      if (previa && previa.de === linea.text && previa.trad !== "") return;
+      if (previa && previa.de === linea.text && previa.trad === "") return; // en vuelo
       // El idioma de origen viene en la línea: si ya es el tuyo, ni se pide
       // (ahorra red y rate limit; el render igual oculta las idénticas).
       const origen = (linea.sourceLang || "").split("-")[0].toLowerCase();
       if (origen && origen === cfg.lang) return;
       // Si el servidor ya la calculó (viene pegada a la línea), ni se pide.
       const hecha = linea.translations?.[cfg.lang];
-      if (hecha) { traducciones.set(linea.id, hecha); return; }
+      if (hecha) { traducciones.set(linea.id, { de: linea.text, trad: hecha }); return; }
       // Techo de memoria para reuniones de horas: pasado el tope se vacía y
       // se re-traduce sólo lo visible (4 líneas), que es barato.
       if (traducciones.size > 400) traducciones.clear();
-      traducciones.set(linea.id, ""); // reserva: no pedir dos veces
+      traducciones.set(linea.id, { de: linea.text, trad: "" }); // reserva: no pedir dos veces
       try {
         const res = await fetch(`${cfg.serverBase}/api/translate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: linea.text, source: linea.sourceLang || "auto", target: cfg.lang }),
+          body: JSON.stringify({
+            text: linea.text,
+            source: linea.sourceLang || "auto",
+            target: cfg.lang,
+            // Las otras líneas visibles como contexto: "no lo veo" se traduce
+            // distinto según de qué venían hablando.
+            context: visibles
+              .filter((l) => l.id !== linea.id)
+              .slice(-3)
+              .map((l) => `${l.speakerName ?? ""}: ${l.text ?? ""}`.slice(0, 240)),
+          }),
         });
         if (!res.ok) { traducciones.delete(linea.id); return; }
         const data = await res.json();
-        if (typeof data.translatedText === "string") traducciones.set(linea.id, data.translatedText);
+        if (typeof data.translatedText === "string") {
+          traducciones.set(linea.id, { de: linea.text, trad: data.translatedText });
+        }
       } catch {
         traducciones.delete(linea.id); // red caída: se reintenta al próximo tick
       }
+    };
+    // La traducción vigente de una línea, SOLO si es del texto actual.
+    const tradDe = (linea) => {
+      const t = traducciones.get(linea.id);
+      return t && t.de === linea.text && t.trad ? t.trad : null;
     };
 
     const pintar = (transcript, participantes) => {
       const ultimas = (transcript ?? []).slice(-4);
       if (ultimas.length === 0) return;
       const fotos = new Map((participantes ?? []).map((p) => [p.name, p.avatarUrl ?? null]));
-      for (const linea of ultimas) void traducir(linea);
+      for (const linea of ultimas) void traducir(linea, ultimas);
       subs.textContent = "";
       for (const linea of ultimas) {
         const row = document.createElement("div");
@@ -1133,7 +1158,7 @@
         dijo.className = "dijo";
         dijo.textContent = linea.text ?? "";
         cuerpo.append(quien, dijo);
-        const trad = traducciones.get(linea.id);
+        const trad = tradDe(linea);
         // Si la traducción es idéntica al original (ya hablaban en tu idioma),
         // repetir la línea abajo sólo ensucia: no se muestra.
         if (trad && trad !== linea.text) {

@@ -12,7 +12,7 @@ interface Props {
   targetLangChoice: string;
   resolvedTargetLang: string;
   onTargetLangChange: (lang: string) => void;
-  getTranslation: (lineId: string) => string | undefined;
+  getTranslation: (line: { id: string; text: string }) => string | undefined;
   spokenLang: string;
   onSpokenLangChange: (lang: string) => void;
   side?: "left" | "right";
@@ -123,7 +123,7 @@ export default function TranscriptPanel({
             const pieces = group.map((l) =>
               shortLang(l.sourceLang) === shortLang(resolvedTargetLang)
                 ? l.text
-                : getTranslation(l.id)
+                : getTranslation(l)
             );
             const anyForeign =
               wantTranslation &&
