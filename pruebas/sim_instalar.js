@@ -351,20 +351,21 @@ const UA = {
       const te = await texto(ipadEdge.page);
       check("en Edge de iPad NO se ofrece la descarga directa (Safari es el único que puede)",
         (await ipadEdge.page.locator('a[href="/unify-ipad.mobileconfig"]').count()) === 0);
-      const botonPerfil = ipadEdge.page.getByRole("button", { name: /Instalar el perfil/ });
-      check("hay un botón que lleva el perfil a Safari", (await botonPerfil.count()) === 1);
-      // El clic COPIA el enlace primero (la red de seguridad del caso real:
-      // Safari se abre en cualquier lado y el enlace ya viaja copiado).
+      // SIN saltos a Safari por esquema: en un iPad real abría Safari sin
+      // llevar la dirección y la persona caía en su última pestaña, perdida.
+      check("y NADA intenta saltar a Safari por esquema (la trampa del iPad real)",
+        (await ipadEdge.page.locator('a[href^="x-safari"]').count()) === 0);
+      const botonPerfil = ipadEdge.page.getByRole("button", { name: /Copiar el enlace del perfil/ });
+      check("hay un botón que COPIA el enlace del perfil", (await botonPerfil.count()) === 1);
       await botonPerfil.first().click().catch(() => {});
       await ipadEdge.page.waitForTimeout(600);
       const portapapeles = await ipadEdge.page
         .evaluate(() => navigator.clipboard.readText())
         .catch(() => "");
-      check("el clic deja el enlace del perfil YA copiado (pegar en Safari y listo)",
+      check("el clic deja el enlace del perfil copiado (pegar en Safari y listo)",
         /\/unify-ipad\.mobileconfig$/.test(portapapeles), String(portapapeles).slice(-50));
-      check("dice por qué (los perfiles sólo los baja Safari) y qué hacer si Safari abre en otra página",
-        /sólo los puede bajar Safari/.test(te) && /el enlace ya quedó copiado/.test(te) &&
-        /Copiar el enlace del perfil/.test(te));
+      check("dice por qué (sólo Safari baja perfiles) y el paso exacto (Pegar y buscar)",
+        /sólo los puede bajar Safari/.test(te) && /Pegar y buscar/.test(te));
       await ipadEdge.ctx.close();
     }
     await ipad.ctx.close();

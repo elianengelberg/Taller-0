@@ -706,43 +706,29 @@ export default function Instalar() {
                       ) : (
                         <>
                           {/* Los perfiles de Apple SOLO se instalan si los baja
-                              SAFARI. Y el esquema x-safari-https puede abrir
-                              Safari SIN navegar (pasó en un iPad real: Safari
-                              apareció en la última pestaña que tenía abierta y
-                              nada más). Por eso el botón COPIA el enlace
-                              PRIMERO y recién después intenta abrir Safari:
-                              abra donde abra, el enlace ya viaja en el
-                              portapapeles y pegar resuelve. */}
+                              SAFARI. Y saltar a Safari por esquema (x-safari)
+                              resultó una trampa en un iPad real: abría Safari
+                              SIN llevar la dirección y la persona caía en su
+                              última pestaña abierta, sin entender qué pasó.
+                              Nada de saltos: el botón COPIA el enlace y los
+                              pasos dicen exactamente qué hacer. Quien quiera
+                              el camino de un toque tiene el botón «Agregar a
+                              la pantalla de inicio» de arriba. */}
                           <div className="mt-1.5">
                             <Button
                               variant="secondary"
-                              onClick={() => {
-                                void copiar(`${window.location.origin}/unify-ipad.mobileconfig`, "perfil");
-                                try {
-                                  window.location.href = `x-safari-https://${window.location.host}/unify-ipad.mobileconfig`;
-                                } catch {
-                                  /* esquema desconocido: el enlace copiado es el camino */
-                                }
-                              }}
+                              onClick={() => void copiar(`${window.location.origin}/unify-ipad.mobileconfig`, "perfil")}
                             >
-                              {copiado === "perfil" ? "Enlace copiado ✓ — seguí en Safari" : "Instalar el perfil (te lleva a Safari)"}
+                              {copiado === "perfil" ? "Enlace copiado ✓" : "Copiar el enlace del perfil"}
                             </Button>
                           </div>
                           <p className="mt-1.5 text-xs leading-relaxed text-ink-400">
                             Los perfiles de Apple sólo los puede bajar Safari (regla de Apple, no nuestra).
-                            El botón copia el enlace y abre Safari. Si Safari se abre en{" "}
-                            <span className="font-semibold text-ink-200">cualquier otra página</span> (sin
-                            preguntar nada), el enlace ya quedó copiado: tocá su barra de dirección, elegí{" "}
+                            Con el enlace ya copiado: abrí <span className="font-semibold text-ink-200">Safari</span>{" "}
+                            vos, tocá su barra de dirección, elegí{" "}
                             <span className="font-semibold text-ink-200">Pegar y buscar</span> y entrá — ahí
-                            salta el aviso.
+                            salta el aviso <span className="font-semibold text-ink-200">“Permitir”</span>.
                           </p>
-                          <button
-                            type="button"
-                            onClick={() => copiar(`${window.location.origin}/unify-ipad.mobileconfig`, "perfil")}
-                            className="mt-1 inline-block min-h-[40px] text-xs font-medium text-ink-300 underline underline-offset-2 hover:text-ink-100"
-                          >
-                            {copiado === "perfil" ? "Copiado ✓ — pegalo en Safari" : "Copiar el enlace del perfil"}
-                          </button>
                         </>
                       )}
                       <ol className="mt-1.5 list-decimal space-y-1 pl-5">
