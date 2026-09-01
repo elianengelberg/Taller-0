@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useRef } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { comoVerLosDosALaVez, detectarDispositivo } from "../lib/dispositivo";
 import Avatar from "./Avatar";
 import { GlobeIcon } from "./icons";
@@ -91,10 +91,37 @@ export default function CompanionSubtitleStage({
   accionBot,
   participantCount,
 }: Props) {
-  const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Si la persona subió a releer algo, no la arrastramos de vuelta con cada
+  // frase; en cambio aparece el botón "Volver a lo último".
+  const [desanclado, setDesanclado] = useState(false);
+  // La clave incluye el LARGO del texto y de la traducción de la última
+  // línea: el servidor fusiona fragmentos en una misma línea (misma id, texto
+  // que crece) y la traducción llega después -- ambas cosas agrandan el
+  // bloque sin cambiar `lines.length`, y antes eso dejaba el final de la
+  // frase fuera de la vista.
+  const ultima = lines[lines.length - 1];
+  const claveContenido = `${lines.length}:${ultima?.id ?? ""}:${ultima?.text.length ?? 0}:${
+    ultima?.translated?.length ?? 0
+  }:${interim ?? ""}`;
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  }, [lines.length, interim]);
+    if (desanclado) return;
+    const caja = scrollRef.current;
+    // Directo al fondo, sin animación: con subtítulos rápidos el scroll suave
+    // se queda a mitad de camino y parece que "no sigue" la conversación.
+    if (caja) caja.scrollTop = caja.scrollHeight;
+  }, [claveContenido, desanclado]);
+  function alDesplazar() {
+    const caja = scrollRef.current;
+    if (!caja) return;
+    const cerca = caja.scrollHeight - caja.scrollTop - caja.clientHeight < 60;
+    setDesanclado(!cerca);
+  }
+  function volverAlUltimo() {
+    setDesanclado(false);
+    const caja = scrollRef.current;
+    if (caja) caja.scrollTop = caja.scrollHeight;
+  }
 
   const empty = lines.length === 0 && !interim;
   // El aparato de quien está mirando: sus instrucciones, no las de todos.
@@ -158,7 +185,8 @@ export default function CompanionSubtitleStage({
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div className="relative min-h-0 flex-1">
+        <div ref={scrollRef} onScroll={alDesplazar} className="h-full overflow-y-auto px-4 py-4">
         {empty ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <p className="text-base font-medium text-ink-200">Los subtítulos aparecen acá</p>
@@ -264,8 +292,17 @@ export default function CompanionSubtitleStage({
                 </p>
               </div>
             )}
-            <div ref={endRef} />
           </div>
+        )}
+        </div>
+        {desanclado && !empty && (
+          <button
+            type="button"
+            onClick={volverAlUltimo}
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-brand-500 px-4 py-2 text-sm font-semibold text-on-accent shadow-lg hover:bg-brand-600"
+          >
+            ↓ Volver a lo último
+          </button>
         )}
       </div>
     </div>

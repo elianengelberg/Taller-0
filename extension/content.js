@@ -148,6 +148,11 @@
 
   async function translateLine(line) {
     if (!cfg.lang) return;
+    // La foto del texto AL PEDIR: si la línea crece mientras la respuesta
+    // viaja (fusión de fragmentos), ya salió otro pedido por el texto largo,
+    // y esta respuesta vieja NO debe pisar la traducción nueva (la carrera
+    // dejaba una traducción corta pegada a una frase larga).
+    const textoPedido = line.text;
     try {
       // Las últimas líneas de la charla viajan como contexto: "no lo veo" se
       // traduce distinto si venían hablando de un archivo o de una persona.
@@ -157,10 +162,16 @@
         .map((l) => `${l.speaker}: ${l.text}`.slice(0, 240));
       const r = await api("/api/translate", {
         method: "POST",
-        body: JSON.stringify({ text: line.text, source: "auto", target: cfg.lang, context: contexto }),
+        body: JSON.stringify({ text: textoPedido, source: "auto", target: cfg.lang, context: contexto }),
       });
-      if (r?.translatedText && r.translatedText !== line.text) {
+      if (line.text !== textoPedido) return; // llegó tarde: la línea ya es otra
+      if (r?.translatedText && r.translatedText !== textoPedido) {
         line.translated = r.translatedText;
+        ui.renderStream();
+      } else if (r?.translatedText === textoPedido && line.translated) {
+        // Ya está en tu idioma: si quedó una traducción vieja de puente
+        // (de antes de una corrección), acá se retira.
+        line.translated = null;
         ui.renderStream();
       }
     } catch {
@@ -213,7 +224,9 @@
       if (r?.text && r.text !== text && line.text.includes(text)) {
         const i = line.text.lastIndexOf(text);
         line.text = (line.text.slice(0, i) + r.text + line.text.slice(i + text.length)).trim();
-        line.translated = null;
+        // La traducción vieja se QUEDA de puente (la corrección es un retoque,
+        // no otra frase): borrarla hacía parpadear el subtítulo al idioma
+        // original hasta que llegara la nueva. translateLine la reemplaza.
         ui.renderStream();
         ui.showSubtitle(line);
         if (cfg.lang) void translateLine(line);

@@ -114,7 +114,7 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
     if (url.endsWith("/transcript")) {
       let cuerpo = {};
       try { cuerpo = JSON.parse(route.request().postData() || "{}"); posted.push(cuerpo); } catch {}
-      const extra = respuestaIA ? respuestaIA(cuerpo) : null;
+      const extra = respuestaIA ? await respuestaIA(cuerpo) : null;
       return route.fulfill({
         status: 200, contentType: "application/json",
         body: JSON.stringify({ ok: true, dbId: "fake", ...(extra || {}) }),
@@ -125,9 +125,22 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
     }
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
   });
-  await ctx.route("**/api/translate", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ translatedText: "we need to approve the budget" }) })
-  );
+  // Traducciones con guion: lo normal sale al instante; cuando una prueba
+  // quiere MIRAR qué se muestra mientras una traducción viaja, demora sólo
+  // la versión que le interesa (por el contenido del texto).
+  let demorarTraduccionDe = null; // (texto) => ms de demora, o null
+  await ctx.route("**/api/translate", async (route) => {
+    let texto = "";
+    try { texto = JSON.parse(route.request().postData() || "{}").text || ""; } catch {}
+    const demora = demorarTraduccionDe ? demorarTraduccionDe(texto) : 0;
+    if (demora) await new Promise((r) => setTimeout(r, demora));
+    const traduccion = /presupuesto de marketing/.test(texto)
+      ? "NEW the marketing budget is approved"
+      : /prosupuesto/.test(texto)
+        ? "OLD the marketing budget is approved"
+        : "we need to approve the budget";
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ translatedText: traduccion }) });
+  });
 
   const page = await ctx.newPage();
   const errs = [];
@@ -484,6 +497,55 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
     const junto = nuevas.map((p) => p.text).join(" ").replace(/\s+/g, " ").trim();
     check("y al partirlo no se pierde NI UNA palabra",
       junto === monologo, junto === monologo ? "texto completo" : `quedó: …${junto.slice(-80)}`);
+  }
+
+  // LA TRADUCCIÓN NO PARPADEA. Cuando la IA del servidor corrige una palabra
+  // de una línea YA traducida, antes se BORRABA la traducción y el subtítulo
+  // saltaba al idioma original hasta que llegara la nueva: un parpadeo de
+  // idioma en cada corrección. Ahora la vieja queda de puente y la nueva la
+  // reemplaza al llegar (y una respuesta que llega tarde no pisa a la nueva).
+  {
+    await page.locator("#unify-root .langsel").selectOption("en");
+    // Guion: la corrección tarda 1 s en llegar y la traducción de la versión
+    // corregida, 2 s más -- ventana para mirar QUÉ se muestra en el medio.
+    respuestaIA = async (cuerpo) => {
+      if (!/prosupuesto/.test(cuerpo.text)) return null;
+      await new Promise((r) => setTimeout(r, 1000));
+      return { text: cuerpo.text.replace("prosupuesto", "presupuesto") };
+    };
+    demorarTraduccionDe = (texto) => (/presupuesto de marketing/.test(texto) ? 2000 : 0);
+    await page.evaluate(() => window.__say("Rita Suárez", "el prosupuesto de marketing quedó aprobado"));
+    // Emisión ~1,8 s después de empezar a hablar (asentamiento) + la
+    // traducción instantánea de la versión cruda.
+    await page.waitForTimeout(2400);
+    const deRita = () =>
+      page.evaluate(() => {
+        const entradas = [...document.getElementById("unify-root").shadowRoot.querySelectorAll(".entry")];
+        const mia = entradas.reverse().find((e) => /Rita Suárez/.test(e.querySelector(".name")?.textContent ?? ""));
+        return {
+          texto: mia?.querySelector(".text")?.textContent ?? "",
+          trad: mia?.querySelector(".tr")?.textContent ?? "",
+        };
+      });
+    const cruda = await deRita();
+    check("con un idioma elegido, la línea recién dicha muestra su traducción",
+      /OLD the marketing/.test(cruda.trad), cruda.trad || "sin traducción");
+    // t+1 s: la corrección ya llegó; la traducción nueva todavía viaja.
+    await page.waitForTimeout(1000);
+    const puente = await deRita();
+    check("el panel adopta la corrección del servidor en la línea traducida",
+      /presupuesto de marketing/.test(puente.texto) && !/prosupuesto/.test(puente.texto),
+      puente.texto.slice(0, 60));
+    check("y mientras la traducción nueva viaja, la VIEJA queda de puente (no desaparece)",
+      /OLD the marketing/.test(puente.trad),
+      puente.trad || "la traducción DESAPARECIÓ (parpadeo al idioma original)");
+    await page.waitForTimeout(2600);
+    const final = await deRita();
+    check("al llegar, la traducción nueva reemplaza a la del puente",
+      /NEW the marketing/.test(final.trad), final.trad || "sin traducción nueva");
+    respuestaIA = null;
+    demorarTraduccionDe = null;
+    await page.locator("#unify-root .langsel").selectOption("");
   }
 
   // LOS ÍCONOS RESCATADOS. En redes donde fonts.gstatic.com está bloqueado,

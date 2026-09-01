@@ -1084,8 +1084,8 @@
     const traducir = async (linea, visibles = []) => {
       if (!cfg.lang) return;
       const previa = traducciones.get(linea.id);
-      if (previa && previa.de === linea.text && previa.trad !== "") return;
-      if (previa && previa.de === linea.text && previa.trad === "") return; // en vuelo
+      if (previa && previa.de === linea.text && previa.trad) return; // ya está
+      if (previa && previa.pedida === linea.text) return; // en vuelo esta versión
       // El idioma de origen viene en la línea: si ya es el tuyo, ni se pide
       // (ahorra red y rate limit; el render igual oculta las idénticas).
       const origen = (linea.sourceLang || "").split("-")[0].toLowerCase();
@@ -1096,13 +1096,30 @@
       // Techo de memoria para reuniones de horas: pasado el tope se vacía y
       // se re-traduce sólo lo visible (4 líneas), que es barato.
       if (traducciones.size > 400) traducciones.clear();
-      traducciones.set(linea.id, { de: linea.text, trad: "" }); // reserva: no pedir dos veces
+      // La foto del texto AL PEDIR: si la línea crece mientras la respuesta
+      // viaja, saldrá otro pedido por el texto largo y esta respuesta vieja
+      // no debe pisarlo. La reserva CONSERVA la traducción anterior: el
+      // overlay la usa de puente en vez de volver al idioma original.
+      const textoPedido = linea.text;
+      traducciones.set(linea.id, {
+        de: previa?.trad ? previa.de : "",
+        trad: previa?.trad ?? "",
+        pedida: textoPedido,
+      });
+      // Si el pedido termina mal (o llega tarde), la reserva vuelve a ser la
+      // traducción anterior sola, para que el próximo tick reintente.
+      const deshacerReserva = () => {
+        const v = traducciones.get(linea.id);
+        if (!v || v.pedida !== textoPedido) return; // ya la maneja otro pedido
+        if (v.trad) traducciones.set(linea.id, { de: v.de, trad: v.trad });
+        else traducciones.delete(linea.id);
+      };
       try {
         const res = await fetch(`${cfg.serverBase}/api/translate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            text: linea.text,
+            text: textoPedido,
             source: linea.sourceLang || "auto",
             target: cfg.lang,
             // Las otras líneas visibles como contexto: "no lo veo" se traduce
@@ -1113,19 +1130,29 @@
               .map((l) => `${l.speakerName ?? ""}: ${l.text ?? ""}`.slice(0, 240)),
           }),
         });
-        if (!res.ok) { traducciones.delete(linea.id); return; }
+        if (!res.ok) { deshacerReserva(); return; }
         const data = await res.json();
+        const vigente = traducciones.get(linea.id);
+        if (!vigente || vigente.pedida !== textoPedido) return; // llegó tarde
         if (typeof data.translatedText === "string") {
-          traducciones.set(linea.id, { de: linea.text, trad: data.translatedText });
+          traducciones.set(linea.id, { de: textoPedido, trad: data.translatedText });
+        } else {
+          deshacerReserva();
         }
       } catch {
-        traducciones.delete(linea.id); // red caída: se reintenta al próximo tick
+        deshacerReserva(); // red caída: se reintenta al próximo tick
       }
     };
-    // La traducción vigente de una línea, SOLO si es del texto actual.
+    // La traducción vigente de una línea. Si el texto CRECIÓ (el servidor
+    // fusiona fragmentos en una misma línea) y la traducción del texto nuevo
+    // todavía viaja, la anterior -- que es de un prefijo de esta frase --
+    // sirve de puente: mejor eso que saltar al idioma original y volver
+    // (el parpadeo de idioma en cada fusión).
     const tradDe = (linea) => {
       const t = traducciones.get(linea.id);
-      return t && t.de === linea.text && t.trad ? t.trad : null;
+      if (!t || !t.trad) return null;
+      if (t.de === linea.text) return t.trad;
+      return t.de && linea.text.length > t.de.length ? t.trad : null;
     };
 
     const pintar = (transcript, participantes) => {

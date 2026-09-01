@@ -26,6 +26,12 @@ export function useLineTranslations(lines: TranslatableLine[], targetLang: strin
   // so without this a line whose translation hasn't resolved yet would get
   // requested again on each re-run.
   const inFlightRef = useRef<Set<string>>(new Set());
+  // Última traducción RESUELTA por línea+idioma, con el largo del texto que
+  // tradujo. Cuando el servidor fusiona fragmentos el texto crece, la clave
+  // exacta deja de existir por un momento y el subtítulo VOLVÍA al idioma
+  // original hasta que llegara la traducción nueva: un parpadeo de idioma en
+  // cada fusión. Esto hace de puente mientras tanto.
+  const latestRef = useRef<Map<string, { len: number; value: string }>>(new Map());
   // Si el traductor del servidor no responde (no está configurado, o se cayó),
   // antes se descartaba el error en silencio: el usuario veía el texto original
   // y creía que la traducción estaba rota sin ninguna explicación. Ahora el
@@ -44,18 +50,29 @@ export function useLineTranslations(lines: TranslatableLine[], targetLang: strin
       // PARA SIEMPRE -- y el parche del servidor que llegaba después caía en
       // una clave ya ocupada y se ignoraba.
       const key = `${line.id}:${targetLang}:${line.text.length}`;
-      if (translations[key] || inFlightRef.current.has(key)) return;
+      // `in` y no truthiness: una traducción vacía legítima no debe
+      // re-pedirse en loop para siempre.
+      if (key in translations || inFlightRef.current.has(key)) return;
       if (shortLang(line.sourceLang) === shortLang(targetLang)) return;
+
+      const len = line.text.length;
+      const anotarUltima = (value: string) => {
+        const shortKey = `${line.id}:${targetLang}`;
+        const prev = latestRef.current.get(shortKey);
+        if (!prev || prev.len <= len) latestRef.current.set(shortKey, { len, value });
+      };
 
       const bundled = line.translations?.[shortLang(targetLang)];
       if (bundled) {
-        setTranslations((prev) => (prev[key] ? prev : { ...prev, [key]: bundled }));
+        anotarUltima(bundled);
+        setTranslations((prev) => (key in prev ? prev : { ...prev, [key]: bundled }));
         return;
       }
 
       inFlightRef.current.add(key);
       translate(line.text, line.sourceLang, targetLang)
         .then((translated) => {
+          anotarUltima(translated);
           if (!cancelled) setTranslations((prev) => ({ ...prev, [key]: translated }));
         })
         .then(() => {
@@ -75,7 +92,15 @@ export function useLineTranslations(lines: TranslatableLine[], targetLang: strin
 
   function getTranslation(line: { id: string; text: string }): string | undefined {
     if (targetLang === ORIGINAL_LANG) return undefined;
-    return translations[`${line.id}:${targetLang}:${line.text.length}`];
+    const exacta = translations[`${line.id}:${targetLang}:${line.text.length}`];
+    if (exacta !== undefined) return exacta;
+    // Puente: el texto creció (fusión) y la traducción nueva todavía viaja.
+    // Mostrar la anterior -- que es de un PREFIJO de este texto -- en vez de
+    // saltar al idioma original y volver. Sólo si el texto actual es más
+    // largo: una traducción de un texto MÁS largo diría cosas que ya no están.
+    const puente = latestRef.current.get(`${line.id}:${targetLang}`);
+    if (puente && puente.len < line.text.length) return puente.value;
+    return undefined;
   }
 
   return { getTranslation, translationFailed: failed };

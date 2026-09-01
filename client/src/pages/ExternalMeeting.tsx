@@ -986,13 +986,13 @@ export default function ExternalMeeting() {
     if (transcriptPip.length === 0 && !(captionsOn && interimCaption)) {
       const espera = win.document.createElement("div");
       espera.textContent = "Apenas alguien hable, los subtítulos (con su traducción) aparecen acá.";
-      espera.style.cssText = "font-size:15px;line-height:1.4;color:#9fb3d8";
+      espera.style.cssText = "font-size:16px;line-height:1.4;color:#9fb3d8";
       cont.appendChild(espera);
       return;
     }
     for (const l of transcriptPip.slice(-3)) {
       const fila = win.document.createElement("div");
-      fila.style.cssText = "font-size:15px;line-height:1.35";
+      fila.style.cssText = "font-size:16px;line-height:1.35";
       const quien = win.document.createElement("span");
       quien.textContent = `${l.speakerName}: `;
       quien.style.cssText = "color:#7fa5ff;font-weight:600";
@@ -1005,7 +1005,7 @@ export default function ExternalMeeting() {
     if (captionsOn && interimCaption) {
       const fila = win.document.createElement("div");
       fila.textContent = `${draft?.name || "Vos"}: ${interimCaption}`;
-      fila.style.cssText = "font-size:15px;line-height:1.35;opacity:.6;font-style:italic";
+      fila.style.cssText = "font-size:16px;line-height:1.35;opacity:.6;font-style:italic";
       cont.appendChild(fila);
     }
   });

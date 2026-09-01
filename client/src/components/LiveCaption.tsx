@@ -142,7 +142,9 @@ function CaptionBubble({
   const showingTranslation = Boolean(translatedText);
   return (
     <div className="caption-fade max-w-2xl rounded-2xl bg-black/75 px-4 py-2.5 text-center shadow-soft backdrop-blur-md ring-1 ring-white/10">
-      <p className="text-sm leading-snug text-on-accent sm:text-base">
+      {/* Grande: es el texto que se lee A LA DISTANCIA mientras se mira la
+          reunión, no una nota al pie. */}
+      <p className="text-base leading-snug text-on-accent sm:text-lg">
         {/* La foto va inline dentro del párrafo para que el texto siga fluyendo
             alrededor cuando la frase ocupa varias líneas, igual que en Zoom. */}
         <Avatar name={speakerName} src={avatarUrl} size={20} className="mr-1.5 align-middle" ring />
