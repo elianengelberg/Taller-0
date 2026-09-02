@@ -64,6 +64,13 @@ export interface TranscriptLine {
   // someone else in the meeting (keyed by short language code), attached at
   // broadcast time so most viewers don't need a separate translate request.
   translations?: Record<string, string>;
+  // La IA todavía no la corrigió: salió al instante con la lectura cruda
+  // del reconocimiento y el parche llega enseguida (misma id). Falso o
+  // ausente = versión definitiva.
+  provisional?: boolean;
+  // Última vez que el texto cambió (fusión o parche); `timestamp` es la de
+  // nacimiento. Lo usa el anti-eco para saber qué líneas son "recientes".
+  actualizadoEn?: number;
 }
 
 export interface MeetingSettings {

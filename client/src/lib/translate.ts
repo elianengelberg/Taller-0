@@ -6,7 +6,15 @@ function key(text: string, source: string, target: string): string {
   return `${source}|${target}|${text}`;
 }
 
-export async function translate(text: string, source: string, target: string): Promise<string> {
+// `context`: las últimas líneas de la charla (sin la que se traduce). "No lo
+// veo" se traduce distinto si venían hablando de un archivo o de una
+// persona; el servidor ordena a la IA no traducir el contexto, sólo usarlo.
+export async function translate(
+  text: string,
+  source: string,
+  target: string,
+  context: string[] = []
+): Promise<string> {
   const trimmed = text.trim();
   if (!trimmed) return "";
   if (source.split("-")[0] === target.split("-")[0]) return text;
@@ -18,7 +26,7 @@ export async function translate(text: string, source: string, target: string): P
   const response = await fetch(`${SERVER_URL}/api/translate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: trimmed, source, target }),
+    body: JSON.stringify({ text: trimmed, source, target, context: context.slice(-3) }),
   });
 
   if (!response.ok) {

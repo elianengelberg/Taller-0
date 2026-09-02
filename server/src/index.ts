@@ -57,6 +57,7 @@ import {
   moveMeetingToFolder,
   recordMessage,
   updateMessageText,
+  updateMessageSender,
   renameFolder,
   setMsRefreshToken,
   shareFolderWithEmail,
@@ -92,6 +93,8 @@ import {
   refreshAccessToken,
 } from "./microsoftAuth";
 import { addNamedTranscriptLine, getOrCreateCompanionMeeting, isLiveParticipant, onMeetingFinalized } from "./meetingStore";
+import { anthropicEnabled } from "./anthropicClient";
+import { buscarEco, esHablanteGenerico, filaDeLinea, recordarFilaDeLinea } from "./eco";
 import { cleanTranscriptFragment, translateFragmentToAll } from "./transcriptCleanup";
 import { mailerEnabled } from "./mailer";
 import { rateLimit, userOrIp } from "./rateLimit";
@@ -1750,6 +1753,10 @@ const ultimaLineaBridge = new Map<
   { speakerName: string; lineId: string; dbMessageId: number | null; lastAt: number }
 >();
 
+// Cuántos fragmentos de cada línea siguen esperando su corrección (una línea
+// deja de ser provisional recién cuando no le debe ninguna).
+const limpiezasPendientes = new Map<string, number>();
+
 function recordarLineaBridge(meetingId: string, speakerName: string, lineId: string): void {
   if (ultimaLineaBridge.size > 500) {
     const first = ultimaLineaBridge.keys().next().value;
@@ -2198,22 +2205,30 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
   // traducían los errores del reconocimiento.
   const recentContext = meeting.transcript.slice(-6).map((l) => `${l.speakerName}: ${l.text}`);
   const candidatas = [text, ...alts.filter((a) => a !== text)];
-  const cleanup = await cleanTranscriptFragment(candidatas, recentContext, lang);
-  const textoFinal = cleanup.text || text;
-  const mismatch = cleanup.detectedLang !== null && cleanup.detectedLang !== shortLang(lang);
-  const sourceLang = mismatch ? cleanup.detectedLang! : lang;
-  // Los destinos, contra el idioma DETECTADO: si se habló en otro idioma que
-  // el declarado, quienes "compartían idioma" también reciben su traducción.
-  const targetLangs = Array.from(
-    new Set(
-      Array.from(meeting.participants.values())
-        .map((p) => shortLang(p.language ?? ""))
-        .filter((c) => c && c !== shortLang(sourceLang))
-    )
-  );
+  const nombre = speaker.trim().slice(0, 60) || "Participante";
+  const speakerIdDeNombre = `caption:${nombre.toLowerCase()}`;
+
+  // EL ECO (ver eco.ts): si OTRO oído acaba de poner esta misma frase (los
+  // subtítulos de Meet y el oído de la pestaña, dos micrófonos en la misma
+  // sala), no se repite. Y si aquella línea era de un oído "sin cara"
+  // ("Voces de la reunión") y ésta trae nombre, el nombre gana.
+  const eco = buscarEco(meeting, speakerIdDeNombre, text);
+  if (eco) {
+    if (esHablanteGenerico(eco.speakerName) && !esHablanteGenerico(nombre)) {
+      eco.speakerName = nombre;
+      eco.speakerId = speakerIdDeNombre;
+      eco.actualizadoEn = Date.now();
+      io.to(roomFor(meeting.id)).emit("transcript-line", { line: eco });
+      const fila = filaDeLinea(eco.id);
+      if (fila != null) void updateMessageSender(fila, nombre);
+    }
+    res.json({ ok: true, dbId: meeting.dbId, lineId: eco.id, text, sourceLang: eco.sourceLang, idiomaDistinto: null, eco: true });
+    return;
+  }
+
   // ¿Este fragmento continúa la última línea del MISMO hablante? (Ver
-  // ultimaLineaBridge arriba.) No se fusiona si cambió el idioma detectado:
-  // un cambio de idioma es un pensamiento nuevo, no la cola del anterior.
+  // ultimaLineaBridge arriba.) Se decide con el idioma DECLARADO: la línea
+  // sale antes de que la IA diga en qué idioma vino de verdad.
   const memoria = ultimaLineaBridge.get(meeting.id);
   const ultima = meeting.transcript[meeting.transcript.length - 1];
   const mergeTarget =
@@ -2223,49 +2238,105 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
     ultima.speakerName === speaker &&
     Date.now() - memoria.lastAt < BRIDGE_MERGE_WINDOW_MS &&
     ultima.text.length < BRIDGE_MERGE_MAX_CHARS &&
-    shortLang(ultima.sourceLang) === shortLang(sourceLang)
+    shortLang(ultima.sourceLang) === shortLang(lang)
       ? ultima
       : undefined;
 
-  let line: ReturnType<typeof addNamedTranscriptLine>;
-  if (mergeTarget && memoria) {
-    mergeTarget.text = `${mergeTarget.text} ${textoFinal}`.trim();
-    // Las traducciones que hubiera eran de la versión corta: viejas.
-    mergeTarget.translations = undefined;
-    line = mergeTarget;
-    memoria.lastAt = Date.now();
-    // La MISMA fila del historial crece con la línea (si el insert original
-    // todavía está en vuelo, se acepta la divergencia: mejor que escribir en
-    // una fila ajena -- misma regla que el camino de voz).
-    if (memoria.dbMessageId != null) void updateMessageText(memoria.dbMessageId, line.text);
-  } else {
-    line = addNamedTranscriptLine(meeting, speaker, textoFinal, sourceLang);
-    recordarLineaBridge(meeting.id, speaker, line.id);
+  // Pega el fragmento a la línea anterior o abre una nueva, y deja el
+  // historial al día (la MISMA fila crece con la línea).
+  const abrirOFusionar = (fragmento: string, langDeLinea: string): ReturnType<typeof addNamedTranscriptLine> => {
+    if (mergeTarget && memoria) {
+      mergeTarget.text = `${mergeTarget.text} ${fragmento}`.trim().slice(0, 2000);
+      mergeTarget.translations = undefined; // eran de la versión corta: viejas
+      mergeTarget.actualizadoEn = Date.now();
+      memoria.lastAt = Date.now();
+      // (Si el insert original todavía está en vuelo, se acepta la
+      // divergencia un instante: la puesta al día de abajo la cierra.)
+      if (memoria.dbMessageId != null) void updateMessageText(memoria.dbMessageId, mergeTarget.text);
+      return mergeTarget;
+    }
+    const nueva = addNamedTranscriptLine(meeting, speaker, fragmento, langDeLinea);
+    recordarLineaBridge(meeting.id, speaker, nueva.id);
     const memoriaNueva = ultimaLineaBridge.get(meeting.id);
-    const lineaNueva = line;
-    const textoInsertado = line.text;
+    const textoInsertado = nueva.text;
     void recordMessage({
       meetingId: meeting.dbId,
       kind: "transcript",
-      senderName: line.speakerName,
+      senderName: nueva.speakerName,
       roleName: null,
-      text: line.text,
-      sourceLang: line.sourceLang,
+      text: nueva.text,
+      sourceLang: nueva.sourceLang,
       spokenAt: new Date(),
     }).then((dbMessageId) => {
+      recordarFilaDeLinea(nueva.id, dbMessageId);
       // Sólo si la memoria sigue apuntando a ESTA línea (pudo haber avanzado).
-      if (memoriaNueva && memoriaNueva.lineId === lineaNueva.id) memoriaNueva.dbMessageId = dbMessageId;
-      // Si la línea CRECIÓ por una fusión mientras el insert viajaba (con el
-      // reintento por clave foránea puede tardar casi un segundo), la fila
-      // del historial quedaba con el primer fragmento solo, para siempre si
-      // no venía otra fusión. Se la pone al día acá.
-      if (dbMessageId != null && lineaNueva.text !== textoInsertado) {
-        void updateMessageText(dbMessageId, lineaNueva.text);
+      if (memoriaNueva && memoriaNueva.lineId === nueva.id) memoriaNueva.dbMessageId = dbMessageId;
+      // Si la línea cambió mientras el insert viajaba (una fusión, o el
+      // parche de la IA sobre la versión provisional), la fila quedaba con
+      // el texto viejo. Se la pone al día.
+      if (dbMessageId != null && nueva.text !== textoInsertado) {
+        void updateMessageText(dbMessageId, nueva.text);
       }
     });
+    return nueva;
+  };
+
+  // PRIMERO SE MUESTRA, DESPUÉS SE CORRIGE. La IA tarda de medio segundo a
+  // varios, y antes la frase no aparecía en la web ni en el overlay hasta
+  // que volviera: eso era "se traba". Ahora sale al instante con la lectura
+  // cruda, marcada provisional, y el parche corregido llega sobre la MISMA
+  // id. (El panel de la extensión ya la mostraba al instante por su cuenta y
+  // adopta la corrección con la respuesta de acá, como siempre.) Sin IA
+  // configurada no hay nada que esperar: se emite una sola vez.
+  const provisional = anthropicEnabled;
+  let line: ReturnType<typeof addNamedTranscriptLine> | null = null;
+  let posicionCruda = -1;
+  if (provisional) {
+    line = abrirOFusionar(text, lang);
+    line.provisional = true;
+    limpiezasPendientes.set(line.id, (limpiezasPendientes.get(line.id) ?? 0) + 1);
+    posicionCruda = line.text.lastIndexOf(text);
+    io.to(roomFor(meeting.id)).emit("transcript-line", { line });
+  }
+
+  // La IA reconstruye la frase más probable a partir de las lecturas
+  // candidatas y el contexto reciente -- el reconocimiento confunde palabras
+  // que suenan parecido. Y se traduce LO CORREGIDO, nunca lo crudo.
+  const cleanup = await cleanTranscriptFragment(candidatas, recentContext, lang);
+  const textoFinal = cleanup.text || text;
+  const mismatch = cleanup.detectedLang !== null && cleanup.detectedLang !== shortLang(lang);
+  const sourceLang = mismatch ? cleanup.detectedLang! : lang;
+  if (!line) {
+    line = abrirOFusionar(textoFinal, sourceLang);
+  } else {
+    // El fragmento crudo se reemplaza por el corregido DENTRO de la línea,
+    // que pudo haber crecido por otra fusión mientras la IA pensaba.
+    const i = posicionCruda >= 0 ? line.text.indexOf(text, Math.max(0, posicionCruda - 40)) : -1;
+    if (i >= 0) {
+      line.text = (line.text.slice(0, i) + textoFinal + line.text.slice(i + text.length)).trim().slice(0, 2000);
+    }
+    if (!mergeTarget) line.sourceLang = sourceLang;
+    // Deja de ser provisional recién cuando NINGÚN fragmento de la línea
+    // sigue esperando su corrección.
+    const quedan = (limpiezasPendientes.get(line.id) ?? 1) - 1;
+    if (quedan <= 0) limpiezasPendientes.delete(line.id);
+    else limpiezasPendientes.set(line.id, quedan);
+    line.provisional = quedan > 0;
+    line.actualizadoEn = Date.now();
+    const fila = filaDeLinea(line.id);
+    if (fila != null) void updateMessageText(fila, line.text);
   }
   io.to(roomFor(meeting.id)).emit("transcript-line", { line });
 
+  // Los destinos, contra el idioma DETECTADO: si se habló en otro idioma que
+  // el declarado, quienes "compartían idioma" también reciben su traducción.
+  const targetLangs = Array.from(
+    new Set(
+      Array.from(meeting.participants.values())
+        .map((p) => shortLang(p.language ?? ""))
+        .filter((c) => c && c !== shortLang(sourceLang))
+    )
+  );
   // Se traduce la línea ENTERA (no sólo el fragmento): para quien lee en otro
   // idioma, la línea fusionada tiene que estar completa en su idioma.
   const lineaParaTraducir = line;
@@ -2273,23 +2344,20 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
   void translateFragmentToAll([line.text], recentContext, targetLangs, sourceLang).then((translations) => {
     if (Object.keys(translations).length === 0) return;
     // La línea pudo CRECER por otra fusión mientras esta traducción volvía:
-    // un parche del texto corto no puede pisar al de la línea completa (el
-    // camino de voz del socket ya tenía este mismo guarda; acá faltaba).
+    // un parche del texto corto no puede pisar al de la línea completa.
     if (lineaParaTraducir.text !== textoQueSeTraduce) return;
     lineaParaTraducir.translations = translations;
     io.to(roomFor(meeting.id)).emit("transcript-line-translations", { lineId: lineaParaTraducir.id, translations });
   });
   // Se devuelve el texto YA CORREGIDO por la IA (y en qué idioma venía de
-  // verdad). Sin esto, el panel de la extensión seguía mostrando la lectura
-  // cruda del reconocimiento mientras el historial guardaba la buena: la
-  // persona veía la peor de las dos versiones.
+  // verdad): el panel de la extensión reemplaza en su tarjeta lo que acaba
+  // de mandar por esto.
   res.json({
     ok: true,
     dbId: meeting.dbId,
     lineId: line.id,
-    // El FRAGMENTO corregido, no la línea entera: el panel de la extensión
-    // reemplaza en su tarjeta lo que acaba de mandar por esto -- si acá
-    // viajara la línea fusionada completa, el panel duplicaría lo anterior.
+    // El FRAGMENTO corregido, no la línea entera: si acá viajara la línea
+    // fusionada completa, el panel duplicaría lo anterior.
     text: textoFinal,
     sourceLang: line.sourceLang,
     // El idioma en el que Meet está escribiendo, cuando NO es el esperado:

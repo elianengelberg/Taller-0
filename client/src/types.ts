@@ -78,6 +78,9 @@ export interface TranscriptLine {
   sourceLang: string;
   timestamp: number;
   translations?: Record<string, string>;
+  // La IA todavía no la corrigió: salió al instante con la lectura cruda y
+  // el parche (misma id) llega enseguida. Mientras tanto no se traduce.
+  provisional?: boolean;
 }
 
 export interface MeetingSnapshot {

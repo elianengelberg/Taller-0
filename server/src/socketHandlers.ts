@@ -16,6 +16,8 @@ import {
   reviveMeeting,
   scheduleMeetingCleanupIfEmpty,
 } from "./meetingStore";
+import { anthropicEnabled } from "./anthropicClient";
+import { buscarEco, esHablanteGenerico, filaDeLinea, recordarFilaDeLinea } from "./eco";
 import { cleanTranscriptFragment, translateFragmentToAll } from "./transcriptCleanup";
 import { shortLang } from "./translate";
 import { ChatMode, Meeting, MODERATION_RANK, ModerationRole, Participant, SharePolicy, toSnapshot, TranscriptLine } from "./types";
@@ -618,15 +620,92 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       // language than they configured (switched languages, forgot to
       // change the setting, or is just being tested with foreign audio).
       const assumedSourceLang = payload?.lang || speaker.language;
+      const crudo = alternatives.find((a) => a.trim())?.trim() ?? "";
 
-      // PRIMERO se corrige, DESPUÉS se traduce. Antes las dos llamadas
-      // corrían en paralelo sobre las lecturas CRUDAS del reconocimiento
-      // (ganaba ~1 segundo), pero eso significaba traducir los errores:
-      // "commanders" traducido con toda seriedad en vez de "cómo andás".
-      // La traducción llega igual como parche posterior sobre la línea, así
-      // que ese segundo no le costaba nada a nadie -- y la calidad, todo.
+      // EL ECO (ver eco.ts): si OTRO oído acaba de poner esta misma frase,
+      // no se repite. Y si aquella línea era de un oído "sin cara" ("La
+      // reunión", "Pantalla de…") y ésta trae nombre, el nombre gana.
+      const eco = buscarEco(meeting, speaker.id, crudo);
+      if (eco) {
+        if (esHablanteGenerico(eco.speakerName) && !esHablanteGenerico(speaker.name)) {
+          eco.speakerName = speaker.name;
+          eco.speakerId = speaker.id;
+          eco.roleId = speaker.roleId;
+          eco.actualizadoEn = Date.now();
+          io.to(roomName(meeting.id)).emit("transcript-line", { line: eco });
+          const fila = filaDeLinea(eco.id);
+          if (fila != null) void db.updateMessageSender(fila, speaker.name);
+        }
+        return;
+      }
+
+      // Abre una línea nueva o reemplaza el texto de la última del mismo
+      // hablante (la fusión, ver MERGE_WINDOW_MS), y deja el historial al día.
+      const abrirOFusionar = (textoEntero: string, langDeLinea: string): TranscriptLine => {
+        if (mergeTarget) {
+          mergeTarget.text = textoEntero.slice(0, 2000);
+          mergeTarget.sourceLang = langDeLinea;
+          mergeTarget.translations = undefined; // eran de la versión corta: viejas
+          mergeTarget.actualizadoEn = Date.now();
+          const dbMessageId = recentUtterance?.dbMessageId ?? null;
+          if (dbMessageId != null) void db.updateMessageText(dbMessageId, mergeTarget.text);
+          recentUtterance = { lineId: mergeTarget.id, dbMessageId, finalizedAt: Date.now() };
+          return mergeTarget;
+        }
+        const nueva = addTranscriptLine(meeting, speaker, textoEntero, langDeLinea);
+        // Not carrying over the previous line's dbMessageId here -- a
+        // fragment merging into this new line before the insert below
+        // resolves must NOT write into an older, unrelated row.
+        recentUtterance = { lineId: nueva.id, dbMessageId: null, finalizedAt: Date.now() };
+        const textoInsertado = nueva.text;
+        void db
+          .recordMessage({
+            meetingId: meeting.dbId,
+            kind: "transcript",
+            senderName: speaker.name,
+            roleName: roleNameFor(meeting, speaker.roleId),
+            text: nueva.text,
+            sourceLang: nueva.sourceLang,
+            spokenAt,
+          })
+          .then((dbMessageId) => {
+            recordarFilaDeLinea(nueva.id, dbMessageId);
+            // Only update if this is still the line we think it is -- a
+            // merge could have already moved recentUtterance on by the time
+            // this insert resolves.
+            if (recentUtterance && recentUtterance.lineId === nueva.id) {
+              recentUtterance.dbMessageId = dbMessageId;
+            }
+            // Si la línea cambió mientras el insert viajaba (una fusión, o
+            // el parche de la IA sobre la versión provisional), la fila
+            // quedaba con el texto viejo. Se la pone al día.
+            if (dbMessageId != null && nueva.text !== textoInsertado) {
+              void db.updateMessageText(dbMessageId, nueva.text);
+            }
+          });
+        return nueva;
+      };
+
+      // PRIMERO SE MUESTRA, DESPUÉS SE CORRIGE. La IA tarda de medio segundo
+      // a varios (tope: su timeout) y antes la frase no aparecía hasta que
+      // volviera: eso era "se traba". Ahora sale al instante con la lectura
+      // cruda, marcada provisional, y el parche corregido llega sobre la
+      // MISMA id (la web la reemplaza en el lugar; el overlay repinta). Sin
+      // IA configurada no hay nada que esperar: se emite una sola vez.
+      const provisional = anthropicEnabled;
+      let line: TranscriptLine | null = null;
+      let textoCrudoPuesto = "";
+      if (provisional && crudo) {
+        line = abrirOFusionar(mergeTarget ? `${mergeTarget.text} ${crudo}`.trim() : crudo, assumedSourceLang);
+        line.provisional = true;
+        textoCrudoPuesto = line.text;
+        io.to(roomName(meeting.id)).emit("transcript-line", { line });
+      }
+
+      // PRIMERO se corrige, DESPUÉS se traduce (sobre lo corregido).
+      // Traducir las lecturas crudas era traducir los errores del
+      // reconocimiento: "commanders" con toda seriedad en vez de "cómo andás".
       const cleanup = await cleanTranscriptFragment(effectiveAlternatives, recentContext, assumedSourceLang);
-      if (!cleanup.text) return;
 
       // The meeting (or this participant) may have disappeared while we were
       // waiting on the cleanup call -- re-check before touching state.
@@ -639,56 +718,22 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       const mismatch = cleanup.detectedLang !== null && cleanup.detectedLang !== shortLang(assumedSourceLang);
       const sourceLang = mismatch ? cleanup.detectedLang! : assumedSourceLang;
 
-      // Broadcast the cleaned line right away -- viewers who share the
-      // speaker's language get their caption with no extra wait. Translations
-      // (already in flight since before the cleanup call even resolved) are
-      // pushed as a follow-up patch instead of holding up everyone's caption
-      // until every language is ready.
-      let line: TranscriptLine;
-      if (mergeTarget) {
-        mergeTarget.text = cleanup.text;
-        mergeTarget.sourceLang = sourceLang;
-        mergeTarget.translations = undefined; // stale -- they were for the shorter, now-superseded text
-        line = mergeTarget;
-        const dbMessageId = recentUtterance?.dbMessageId ?? null;
-        if (dbMessageId != null) {
-          void db.updateMessageText(dbMessageId, line.text);
-        }
-        recentUtterance = { lineId: line.id, dbMessageId, finalizedAt: Date.now() };
+      if (!line) {
+        if (!cleanup.text) return;
+        line = abrirOFusionar(cleanup.text, sourceLang);
       } else {
-        line = addTranscriptLine(meeting, speaker, cleanup.text, sourceLang);
-        // Not carrying over the previous line's dbMessageId here -- a
-        // fragment merging into this new line before the insert below
-        // resolves must NOT write into an older, unrelated row.
-        recentUtterance = { lineId: line.id, dbMessageId: null, finalizedAt: Date.now() };
-        const lineaNueva = line;
-        const textoInsertado = line.text;
-        void db
-          .recordMessage({
-            meetingId: meeting.dbId,
-            kind: "transcript",
-            senderName: speaker.name,
-            roleName: roleNameFor(meeting, speaker.roleId),
-            text: line.text,
-            sourceLang: line.sourceLang,
-            spokenAt,
-          })
-          .then((dbMessageId) => {
-            // Only update if this is still the line we think it is -- a
-            // merge could have already moved recentUtterance on by the time
-            // this insert resolves.
-            if (recentUtterance && recentUtterance.lineId === lineaNueva.id) {
-              recentUtterance.dbMessageId = dbMessageId;
-            }
-            // Si un fragmento se FUSIONÓ en esta línea mientras el insert
-            // viajaba (con el reintento por clave foránea, casi un segundo),
-            // la fila quedaba con el primer pedazo solo. Se la pone al día.
-            if (dbMessageId != null && lineaNueva.text !== textoInsertado) {
-              void db.updateMessageText(dbMessageId, lineaNueva.text);
-            }
-          });
+        // Si mientras la IA pensaba OTRO fragmento se pegó a esta línea, la
+        // limpieza de ese (que abarca la línea entera) es la que manda.
+        if (line.text !== textoCrudoPuesto) return;
+        line.text = (cleanup.text || textoCrudoPuesto).slice(0, 2000);
+        line.sourceLang = sourceLang;
+        line.provisional = false;
+        line.actualizadoEn = Date.now();
+        const dbMessageId = recentUtterance?.lineId === line.id ? recentUtterance.dbMessageId : null;
+        if (dbMessageId != null) void db.updateMessageText(dbMessageId, line.text);
       }
       io.to(roomName(meeting.id)).emit("transcript-line", { line });
+      const textoTraducido = line.text;
 
       // Los destinos se calculan con el idioma DETECTADO (no el supuesto):
       // si la persona habló en otro idioma que el configurado, el grupo que
@@ -699,7 +744,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
         if (shortLang(p.language) !== shortLang(sourceLang)) targetLangs.add(shortLang(p.language));
       }
       const translations = await translateFragmentToAll(
-        [cleanup.text],
+        [textoTraducido],
         recentContext,
         Array.from(targetLangs),
         sourceLang
@@ -711,7 +756,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       // A later fragment may have merged into (and replaced the text of)
       // this same line while translation was in flight -- don't let a
       // slower, now-stale translation overwrite the newer merged content.
-      if (recentUtterance?.lineId !== line.id || line.text !== cleanup.text) return;
+      if (recentUtterance?.lineId !== line.id || line.text !== textoTraducido) return;
 
       line.translations = translations;
       io.to(roomName(meeting.id)).emit("transcript-line-translations", { lineId: line.id, translations });

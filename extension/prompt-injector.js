@@ -1083,6 +1083,9 @@
     // en una clave ya ocupada y se ignoraba.
     const traducir = async (linea, visibles = []) => {
       if (!cfg.lang) return;
+      // Cruda (la IA todavía no la corrigió): en un segundo llega la buena,
+      // y traducir la cruda era pagar dos veces y mostrar errores.
+      if (linea.provisional) return;
       const previa = traducciones.get(linea.id);
       if (previa && previa.de === linea.text && previa.trad) return; // ya está
       if (previa && previa.pedida === linea.text) return; // en vuelo esta versión

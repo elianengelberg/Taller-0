@@ -107,6 +107,61 @@ const post = (p, b, token) => fetch(API + p, { method: "POST",
   const savedSpeakers = [...new Set(msgs.map((m) => m.senderName))];
   check("el historial conserva quién dijo cada cosa", savedSpeakers.length === 4, savedSpeakers.join(", "));
 
+  // EL ECO. Dos oídos que escuchan la misma voz producían la misma frase dos
+  // veces (los subtítulos de Meet y el oído de la pestaña; dos micrófonos en
+  // la misma sala, o uno sin auriculares). Ahora el servidor la reconoce por
+  // PARECIDO y no la repite -- y si la primera vino de un oído "sin cara",
+  // el nombre gana.
+  {
+    const antes = live.length;
+    const frase = "mañana cerramos el presupuesto con el equipo de ventas";
+    await post(`/api/meet-bridge/${code}/transcript`, { speaker: "Voces de la reunión", text: frase, lang: "es-AR" });
+    await sleep(300);
+    const generica = live[live.length - 1];
+    check("el oído de la pestaña pone la frase como «Voces de la reunión»",
+      live.length === antes + 1 && generica?.speakerName === "Voces de la reunión", String(generica?.speakerName));
+    // Meet la subtitula CON NOMBRE un instante después (con otro error de oído).
+    const r = await post(`/api/meet-bridge/${code}/transcript`,
+      { speaker: "Ana", text: "mañana cerramos el presupuesto con el equipo de venta", lang: "es-AR" });
+    await sleep(400);
+    const renombrada = live[live.length - 1];
+    const idsDeLaFrase = new Set(live.filter((l) => /cerramos el presupuesto/.test(l.text)).map((l) => l.id));
+    check("la misma frase con nombre NO se repite: se responde como eco", r.body?.eco === true, JSON.stringify(r.body).slice(0, 90));
+    check("y el nombre gana: la línea genérica pasa a ser de Ana (misma id, sin línea nueva)",
+      renombrada?.id === generica?.id && renombrada?.speakerName === "Ana" && idsDeLaFrase.size === 1,
+      `${renombrada?.speakerName} / ids=${idsDeLaFrase.size}`);
+    // El micrófono de Dani (misma sala) la oye por el parlante: eco, afuera.
+    const antesDani = live.length;
+    const rd = await post(`/api/meet-bridge/${code}/transcript`, { speaker: "Dani", text: frase, lang: "es-AR" });
+    await sleep(400);
+    check("el eco por el parlante de OTRO micrófono no entra",
+      rd.body?.eco === true && live.length === antesDani, `líneas nuevas=${live.length - antesDani}`);
+    // Y por el SOCKET (la voz de un participante de la web): mismo criterio.
+    const antesSocket = live.length;
+    s.emit("transcript-line", { alternatives: [frase], lang: "es-AR" });
+    await sleep(800);
+    check("tampoco entra el eco que llega por la voz de la web (socket)",
+      live.length === antesSocket, `líneas nuevas=${live.length - antesSocket}`);
+    s.emit("transcript-line", { alternatives: ["perfecto, entonces yo preparo la presentación"], lang: "es-AR" });
+    await sleep(800);
+    check("una frase DISTINTA por el socket sí entra (el anti-eco no come frases legítimas)",
+      live.length === antesSocket + 1 && /preparo la presentación/.test(live[live.length - 1]?.text ?? ""),
+      String(live[live.length - 1]?.text));
+    // Repetir una frase corta es normal ("sí, dale") y no se filtra.
+    const antesCorta = live.length;
+    await post(`/api/meet-bridge/${code}/transcript`, { speaker: "Bruno", text: "sí, dale", lang: "es-AR" });
+    await post(`/api/meet-bridge/${code}/transcript`, { speaker: "Caro", text: "sí, dale", lang: "es-AR" });
+    await sleep(400);
+    check("las frases cortas repetidas («sí, dale») no se consideran eco",
+      live.length === antesCorta + 2, `líneas nuevas=${live.length - antesCorta}`);
+    // El historial también aprendió el nombre.
+    const det2 = await fetch(`${API}/api/meetings/${dbId}`, { headers: { Authorization: `Bearer ${token}` } });
+    const msgs2 = (await det2.json())?.meeting?.messages ?? [];
+    const filas = msgs2.filter((m) => /cerramos el presupuesto/.test(m.text ?? ""));
+    check("y en el historial la frase quedó a nombre de Ana, no de «Voces de la reunión»",
+      filas.length === 1 && filas[0]?.senderName === "Ana", `${filas[0]?.senderName} / filas=${filas.length}`);
+  }
+
   // La IA del panel: debe pasar el control de acceso (falla solo por falta de clave).
   const ask = await post(`/api/meet-bridge/${code}/ask`, { question: "resumime la reunión" }, token);
   check("la IA del panel pasa el control de acceso",

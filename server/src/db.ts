@@ -1381,6 +1381,14 @@ export function updateMessageText(id: number, text: string): Promise<void> {
   }, undefined);
 }
 
+// El anti-eco descubrió quién dijo de verdad una línea que había entrado
+// como "La reunión"/"Voces de la reunión": el historial también se entera.
+export function updateMessageSender(id: number, senderName: string): Promise<void> {
+  return safe(async () => {
+    await pool!.query(`UPDATE messages SET sender_name = $2 WHERE id = $1`, [id, senderName]);
+  }, undefined);
+}
+
 // Cheap existence check used to validate meeting ids coming from
 // unauthenticated endpoints (recording upload) before doing work for them.
 export function meetingExists(id: string): Promise<boolean> {

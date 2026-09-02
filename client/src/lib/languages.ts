@@ -64,5 +64,22 @@ export function recordarIdioma(code: string): void {
 }
 
 export function etiquetaDeIdioma(code: string): string {
-  return LANGUAGES.find((l) => l.code === code)?.label ?? code;
+  // Vale también el código corto ("en"): el servidor detecta el idioma real
+  // de cada frase en dos letras, y "en" pelado no le dice nada a nadie.
+  return (
+    LANGUAGES.find((l) => l.code === code)?.label ??
+    LANGUAGES.find((l) => shortLang(l.code) === shortLang(code))?.label ??
+    code
+  );
+}
+
+// El código completo del selector para un código corto ("en" -> "en-US"):
+// así el reconocimiento recibe un código que conoce bien y el selector
+// refleja el cambio.
+export function codigoCompletoDe(code: string): string {
+  return (
+    LANGUAGES.find((l) => l.code === code)?.code ??
+    LANGUAGES.find((l) => shortLang(l.code) === shortLang(code))?.code ??
+    code
+  );
 }

@@ -21,6 +21,7 @@ import { useAuth } from "../context/AuthContext";
 import { useMeeting } from "../context/MeetingContext";
 import { askMeetingAI } from "../lib/api";
 import { recentCaptionEntries } from "../lib/captionLines";
+import { codigoCompletoDe, etiquetaDeIdioma, shortLang } from "../lib/languages";
 import { showToast } from "../lib/toasts";
 import { setUnsavedMeeting } from "../lib/unsavedMeeting";
 import { useActiveSpeakers } from "../hooks/useActiveSpeakers";
@@ -362,6 +363,24 @@ export default function Meeting() {
     },
   });
   const captionsProblem = micBloqueado ? MENSAJE_MIC_BLOQUEADO : captionsError;
+  // EL IDIOMA EQUIVOCADO, detectado y corregible en un toque (paridad con la
+  // reunión externa). La causa número uno de "no entiende nada de lo que
+  // digo" es hablar en un idioma distinto del configurado: el oído intenta
+  // encajar castellano en inglés y salen palabras inventadas. El servidor ya
+  // detecta el idioma real de cada frase (sourceLang); acá se mira si las
+  // últimas frases propias vienen en otro idioma y se ofrece el arreglo.
+  const idiomaDetectado = (() => {
+    if (!self) return null;
+    const mias = (meeting?.transcript ?? [])
+      .filter((l) => l.speakerId === self.id && !l.provisional)
+      .slice(-4);
+    const distintas = mias.filter(
+      (l) => l.sourceLang && shortLang(l.sourceLang) !== shortLang(self.language ?? ""),
+    );
+    // Dos frases seguidas en otro idioma ya no son casualidad.
+    if (distintas.length < 2) return null;
+    return shortLang(distintas[distintas.length - 1].sourceLang);
+  })();
   // El audio de la pantalla compartida (un video, una presentación con
   // sonido) también se transcribe: Chrome 139+ deja darle al reconocimiento
   // una pista en vez del micrófono. Llega al transcript como "Pantalla de
@@ -710,6 +729,21 @@ export default function Meeting() {
                 className="shrink-0 rounded-lg border border-brand-400/50 px-2.5 py-1 text-xs font-semibold hover:bg-brand-500/20"
               >
                 Reintentar
+              </button>
+            </div>
+          )}
+          {watchingTranscription && idiomaDetectado && self && (
+            <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-200">
+              <span className="min-w-0 flex-1">
+                Unify te está escuchando en {etiquetaDeIdioma(self.language ?? "es-AR")}, pero hablás en{" "}
+                {etiquetaDeIdioma(idiomaDetectado)} — por eso las palabras salen mal.
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelfLanguage(codigoCompletoDe(idiomaDetectado))}
+                className="min-h-[36px] shrink-0 rounded-lg bg-amber-400 px-3.5 py-1.5 text-xs font-semibold text-ink-950 hover:bg-amber-300"
+              >
+                Escuchar en {etiquetaDeIdioma(idiomaDetectado)}
               </button>
             </div>
           )}

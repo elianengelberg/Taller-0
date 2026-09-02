@@ -40,7 +40,7 @@ import {
   usePermisoDeMicrofono,
 } from "../hooks/usePermisoDeMicrofono";
 import { askMeetingAI } from "../lib/api";
-import { LANGUAGES, etiquetaDeIdioma, shortLang } from "../lib/languages";
+import { LANGUAGES, codigoCompletoDe, etiquetaDeIdioma, shortLang } from "../lib/languages";
 import { recentCaptionEntries } from "../lib/captionLines";
 import { comoVerLosDosALaVez, detectarDispositivo } from "../lib/dispositivo";
 import { esIOS, screenCaptureSupported } from "../lib/screenCapture";
@@ -1178,7 +1178,7 @@ export default function ExternalMeeting() {
                     idiomaDetectado
                       ? {
                           texto: `Escuchar en ${etiquetaDeIdioma(idiomaDetectado)}`,
-                          onClick: () => setSelfLanguage(idiomaDetectado),
+                          onClick: () => setSelfLanguage(codigoCompletoDe(idiomaDetectado)),
                         }
                       : null
                   }

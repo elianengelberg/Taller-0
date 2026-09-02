@@ -290,6 +290,15 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
     check("el bridge acepta la línea con sus lecturas candidatas", res.ok, `HTTP ${res.status}`);
     await new Promise((r) => setTimeout(r, 2000));
 
+    // EMISIÓN INMEDIATA: la lectura cruda sale al instante (provisional) y
+    // el parche corregido llega sobre la MISMA id. Antes no salía nada hasta
+    // que la IA volviera: "se traba".
+    check("la línea sale AL INSTANTE, cruda y marcada provisional",
+      lineas[0]?.provisional === true && lineas[0]?.text === "la lamina asul muestra la curba de bentas",
+      JSON.stringify(lineas[0]).slice(0, 120));
+    check("y el parche corregido llega sobre la MISMA id, ya definitivo",
+      lineas.some((l) => l.id === lineas[0]?.id && l.provisional === false && l.text === "la lámina azul muestra la curva de ventas"),
+      JSON.stringify(lineas.map((l) => [l.provisional, l.text])).slice(0, 160));
     check("la línea sale CORREGIDA por la IA, no la lectura cruda",
       lineas.some((l) => l.text === "la lámina azul muestra la curva de ventas"),
       JSON.stringify(lineas.map((l) => l.text)).slice(0, 100));
@@ -308,7 +317,7 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
     // LA FUSIÓN, con la IA prendida: el mismo hablante sigue enseguida y su
     // fragmento (ya corregido) se PEGA a la línea anterior -- misma id, la
     // web la re-renderiza, ninguna línea picada nueva.
-    const antesFusion = lineas.length;
+    const idsAntes = new Set(lineas.map((l) => l.id)).size;
     await fetch(`http://localhost:4009/api/meet-bridge/${encodeURIComponent(key)}/transcript`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ speaker: "Vos", text: "y sigue subiendo cada mes", lang: "es-AR" }),
@@ -316,7 +325,7 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
     await new Promise((r) => setTimeout(r, 2000));
     const fusionada = lineas[lineas.length - 1];
     check("el fragmento que sigue se FUSIONA a la línea corregida (misma id)",
-      lineas.length === antesFusion + 1 && fusionada?.id === linea?.id &&
+      new Set(lineas.map((l) => l.id)).size === idsAntes && fusionada?.id === linea?.id && fusionada?.provisional === false &&
       /curva de ventas y sigue subiendo cada mes$/.test(fusionada?.text ?? ""),
       String(fusionada?.text));
     check("y la traducción se pide sobre la línea ENTERA fusionada (no el pedacito)",
