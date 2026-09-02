@@ -125,10 +125,11 @@ async function remoteVideos(page) {
   if (await salir.count()) { await salir.click(); await sleep(1200); }
   const prompt = b.getByText(/¿Guardar esta reunión\?/i);
   if (await prompt.count()) {
-    for (const btn of await b.getByRole("button").all()) {
-      const t = (await btn.textContent()) || "";
-      if (/sin guardar|Seguir|No,|Descartar/i.test(t)) { await btn.click(); break; }
-    }
+    // Por NOMBRE, no por índice: recorrer la lista de botones y clicar el
+    // enésimo fallaba si mientras tanto se iba un botón transitorio (un
+    // aviso, un «Reintentar») y ese índice dejaba de existir.
+    const no = b.getByRole("button", { name: /sin guardar|Seguir|No, gracias|Descartar/i }).first();
+    if (await no.count()) await no.click();
   }
   await sleep(3000);
   check("cuando B se va, A suelta su video", (await remoteVideos(a)) === 0, `remotos en A=${await remoteVideos(a)}`);

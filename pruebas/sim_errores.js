@@ -156,11 +156,12 @@ async function joinExternal(page, link, name = "Tester") {
     // Elegimos la opción secundaria (seguir sin guardar).
     const secondary = page.getByRole("button", { name: /^(?!Guardar \(iniciar).*$/ }).last();
     if (await prompt.count()) {
-      const botones = await page.getByRole("button").all();
-      for (const b of botones) {
-        const t = (await b.textContent()) || "";
-        if (/sin guardar|Seguir|No,|Salir igual|Descartar/i.test(t)) { await b.click(); break; }
-      }
+      // Por NOMBRE, no por índice (ver sim_malla): un botón transitorio que
+      // se va mientras se recorre la lista corría los índices.
+      const no = page
+        .getByRole("button", { name: /sin guardar|Seguir|No, gracias|Salir igual|Descartar/i })
+        .first();
+      if (await no.count()) await no.click();
       await sleep(1800);
     }
     const path = await page.evaluate(() => location.pathname);
