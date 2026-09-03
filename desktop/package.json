@@ -1,10 +1,13 @@
 {
   "name": "unify-escritorio",
   "productName": "Unify",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Unify para Windows: detecta tus reuniones de Zoom, Microsoft Teams, Webex, Jitsi y más apps, y las graba con subtítulos, traducción e IA.",
   "main": "main.js",
-  "author": "Unify",
+  "author": {
+    "name": "Unify",
+    "url": "https://unify-meet.com"
+  },
   "license": "MIT",
   "scripts": {
     "start": "electron .",
@@ -24,7 +27,9 @@
       "cartel.html",
       "preload-cartel.js",
       "extensionLocal.js",
-      "grabador.html"
+      "grabador.html",
+      "preload-grabador.js",
+      "icono.png"
     ],
     "win": {
       "target": [
@@ -35,7 +40,13 @@
           ]
         }
       ],
-      "artifactName": "Unify-Setup.exe"
+      "artifactName": "Unify-Setup.exe",
+      "icon": "build/icon.ico",
+      "requestedExecutionLevel": "asInvoker",
+      "signingHashAlgorithms": [
+        "sha256"
+      ],
+      "legalTrademarks": "Unify"
     },
     "nsis": {
       "oneClick": false,
@@ -44,7 +55,12 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "shortcutName": "Unify",
+      "uninstallDisplayName": "Unify",
+      "deleteAppDataOnUninstall": false
     },
     "publish": [
       {
@@ -52,10 +68,12 @@
         "owner": "elianengelberg",
         "repo": "Taller-0"
       }
-    ]
+    ],
+    "copyright": "Copyright © 2026 Unify"
   },
   "dependencies": {
     "electron-updater": "^6.3.9",
     "extract-zip": "^2.0.1"
-  }
+  },
+  "homepage": "https://unify-meet.com"
 }

@@ -34,6 +34,56 @@ así siempre baja el último sin tocar la web.
 > El instalador NSIS se compila en Windows. (Desde Linux/macOS también suele
 > funcionar con `electron-builder`, pero probalo en Windows antes de publicar.)
 
+## Firma del instalador (que Windows no avise)
+
+Un `.exe` **sin firma digital** siempre dispara el aviso azul de SmartScreen
+("aplicación no reconocida") y, a veces, un falso positivo de Defender: la app
+graba la pantalla, mira el registro para detectar reuniones y arranca con
+Windows, que es justo lo que las heurísticas miran con desconfianza. La única
+solución de raíz es **firmar**. El workflow `instalador-windows.yml` firma
+solo, apenas existan los secretos de alguna de estas vías:
+
+| Vía | Costo | Qué hay que cargar en GitHub → Settings → Secrets |
+| --- | --- | --- |
+| **Azure Trusted Signing** (recomendada) | ~US$10/mes | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_SIGNING_PROFILE`, `AZURE_PUBLISHER_NAME` |
+| SignPath Foundation (código abierto) | gratis, requiere aprobación | `SIGNPATH_API_TOKEN`, `SIGNPATH_ORGANIZATION_ID`, `SIGNPATH_PROJECT_SLUG`, `SIGNPATH_POLICY_SLUG` |
+| Certificado propio exportable (.pfx) | según el emisor | `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` |
+
+### Azure Trusted Signing, paso a paso
+
+1. Cuenta de Azure (portal.azure.com) con un método de pago.
+2. Crear un recurso **Trusted Signing account** (región East US o West Europe;
+   el *endpoint* queda como `https://eus.codesigning.azure.net` o
+   `https://weu.codesigning.azure.net`).
+3. En el recurso → **Identity validation** → **New identity** → *Individual*
+   (o *Organization* si hay empresa registrada). Microsoft verifica identidad
+   con documento; tarda de horas a pocos días.
+4. Con la identidad aprobada → **Certificate profiles** → *Create* → tipo
+   **Public Trust**, elegí la identidad. El nombre del perfil es
+   `AZURE_SIGNING_PROFILE`; el nombre de la cuenta, `AZURE_SIGNING_ACCOUNT`.
+   El *Subject* del perfil (empieza con `CN=`) es `AZURE_PUBLISHER_NAME`.
+5. Microsoft Entra → **App registrations** → *New registration* ("unify-firma").
+   Copiá `Application (client) ID` (`AZURE_CLIENT_ID`) y `Directory (tenant) ID`
+   (`AZURE_TENANT_ID`). En *Certificates & secrets* creá un secreto
+   (`AZURE_CLIENT_SECRET`).
+6. Volvé al recurso Trusted Signing → **Access control (IAM)** → *Add role
+   assignment* → rol **Trusted Signing Certificate Profile Signer** → a la app
+   "unify-firma".
+7. Cargá los siete secretos en GitHub y corré el workflow ("Instalador de
+   Windows" → *Run workflow*). El `.exe` sale firmado; SmartScreen deja de
+   avisar de inmediato (los certificados de Trusted Signing nacen con
+   reputación).
+
+### Mientras no haya firma
+
+- SmartScreen: **Más información → Ejecutar de todas formas**.
+- Defender lo puso en cuarentena: **Seguridad de Windows → Protección
+  antivirus → Historial de protección → (el aviso) → Acciones → Permitir**, y
+  volver a abrir el instalador.
+- Reportar el falso positivo a Microsoft acelera que deje de pasar:
+  https://www.microsoft.com/wdsi/filesubmission (como desarrollador de
+  software).
+
 ## Probar sin Zoom (cualquier sistema)
 
 - `npm start` abre la app en la bandeja.

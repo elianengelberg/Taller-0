@@ -135,7 +135,8 @@ function abrirVentana(ruta) {
     autoHideMenuBar: true,
     show: false,
     icon: iconoBandeja(),
-    webPreferences: { contextIsolation: true, nodeIntegration: false },
+    // Carga la web (remota): renderer con sandbox, sin preload ni Node.
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   ventana.loadURL(`${WEB}${ruta || "/"}`);
   // Mostrarla SÓLO con "ready-to-show" es la receta de manual, pero si ese
@@ -242,10 +243,13 @@ async function iniciarGrabacionEscritorio() {
     const win = new BrowserWindow({
       show: false,
       webPreferences: {
-        // Ventana oculta que carga SOLO nuestro archivo local: puede usar
-        // ipcRenderer directo (nada remoto entra acá jamás).
-        nodeIntegration: true,
-        contextIsolation: false,
+        // Ventana oculta que carga SOLO nuestro archivo local. Aun así, sin
+        // Node en el renderer: lo único que necesita (mandar trozos y avisos
+        // a main) entra por un preload mínimo con contextBridge.
+        preload: path.join(__dirname, "preload-grabador.js"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
       },
     });
     // La fuente la decide este handler: getDisplayMedia en la ventana oculta
@@ -365,6 +369,7 @@ function mostrarCartel(segundos = 15) {
       preload: path.join(__dirname, "preload-cartel.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   });
   // El cartel nombra a la app detectada ("tu reunión de Microsoft Teams"):
@@ -598,6 +603,12 @@ function armarBandeja() {
 // Ícono de bandeja dibujado acá mismo (un punto azul Unify): sin archivos de
 // imagen que empaquetar ni rutas que se rompan al instalar.
 function iconoBandeja() {
+  // El ícono de verdad (el mismo de la web y del instalador). Si faltara,
+  // queda el punto azul dibujado a mano de abajo.
+  try {
+    const real = nativeImage.createFromPath(path.join(__dirname, "icono.png"));
+    if (!real.isEmpty()) return real;
+  } catch { /* sin archivo: respaldo */ }
   const talle = 16;
   const png = Buffer.alloc(talle * talle * 4);
   const cx = talle / 2 - 0.5;

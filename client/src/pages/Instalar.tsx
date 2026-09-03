@@ -819,6 +819,21 @@ export default function Instalar() {
                         ningún aviso. Unify es código abierto con licencia MIT — el código completo es
                         público y se puede revisar.
                       </p>
+                      {/* El OTRO susto, el peor: Defender lo pone en cuarentena como
+                          si fuera un virus (falso positivo de un instalador sin
+                          firma que graba pantalla y arranca con Windows). Sin
+                          estos pasos la persona no sabe ni por dónde empezar. */}
+                      <p className="mt-2 text-xs leading-relaxed text-ink-400">
+                        Si Windows Defender llegó a decir que{" "}
+                        <span className="font-semibold text-ink-200">“encontró una amenaza”</span> y
+                        borró el instalador, es un falso positivo: abrí{" "}
+                        <span className="font-semibold text-ink-200">
+                          Seguridad de Windows → Protección antivirus → Historial de protección
+                        </span>
+                        , tocá el aviso de Unify-Setup y elegí{" "}
+                        <span className="font-semibold text-ink-200">Acciones → Permitir</span>{" "}
+                        (o Restaurar). Después volvé a abrir el instalador.
+                      </p>
                     </div>
                   )}
                   <p className="font-medium text-strong">

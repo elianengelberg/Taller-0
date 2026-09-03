@@ -112,6 +112,29 @@ async function probarDetector(check) {
   check("Chrome con el micrófono NO dispara el cartel (eso es de la extensión)",
     appUsandoElMicrofono(bloque("NonPackaged\\C:#Program Files#Google#Chrome#Application#chrome.exe")) === null);
 
+  // EL PUENTE LOCAL (127.0.0.1:47125) ya no le contesta a cualquier página:
+  // sólo la web de Unify y las direcciones locales (CORS acotado). Un puerto
+  // local abierto a todo internet es lo que un antivirus mira con razón.
+  {
+    const { origenPermitido, crearPuente } = require(path.join(DESK, "puente.js"));
+    check("el puente acepta a la web de Unify",
+      origenPermitido("https://unify-meet.com") && origenPermitido("https://www.unify-meet.com"));
+    check("y a localhost (desarrollo y pruebas)",
+      origenPermitido("http://localhost:4174") && origenPermitido("http://127.0.0.1:5173"));
+    check("pero NO a cualquier otra página",
+      !origenPermitido("https://evil.example") && !origenPermitido("https://unify-meet.com.evil.example"));
+    const puente = crearPuente({ puerto: 47999 });
+    await puente.listo;
+    const ajena = await fetch("http://127.0.0.1:47999/estado", { headers: { Origin: "https://evil.example" } });
+    check("en vivo: una página ajena recibe 403 y sin CORS",
+      ajena.status === 403 && !ajena.headers.get("access-control-allow-origin"), `HTTP ${ajena.status}`);
+    const propia = await fetch("http://127.0.0.1:47999/estado", { headers: { Origin: "https://unify-meet.com" } });
+    check("y la web de Unify recibe el estado con su CORS",
+      propia.status === 200 && propia.headers.get("access-control-allow-origin") === "https://unify-meet.com",
+      `HTTP ${propia.status}`);
+    await puente.cerrar();
+  }
+
   // La sonda simulada distingue la app por el contenido del archivo.
   const ruta = path.join(os.tmpdir(), `unify-sonda-prueba-${Date.now()}`);
   const sonda = sondaArchivo(ruta);

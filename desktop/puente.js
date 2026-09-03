@@ -13,13 +13,34 @@ const http = require("http");
 
 const PUERTO_PUENTE = 47125;
 
+// Quién puede preguntar: la web de Unify y las direcciones locales.
+const ORIGENES_PERMITIDOS = ["https://unify-meet.com", "https://www.unify-meet.com"];
+function origenPermitido(origen) {
+  if (ORIGENES_PERMITIDOS.includes(origen)) return true;
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origen);
+}
+
 function crearPuente({ puerto = PUERTO_PUENTE } = {}) {
   let enReunion = false;
 
   const server = http.createServer((req, res) => {
-    // CORS abierto: el dato es un booleano público para la página que lo pida.
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    // CORS ACOTADO: sólo la web de Unify (y localhost, para desarrollo y
+    // pruebas) puede leer el estado. Era "*": el dato es inocuo, pero un
+    // puerto local abierto a cualquier página es la clase de cosa que un
+    // antivirus (con razón) mira con desconfianza.
+    const origen = req.headers.origin;
+    if (origen) {
+      if (!origenPermitido(origen)) {
+        res.statusCode = 403;
+        res.setHeader("Cache-Control", "no-store");
+        res.end("{}");
+        return;
+      }
+      res.setHeader("Access-Control-Allow-Origin", origen);
+      res.setHeader("Vary", "Origin");
+    }
     res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
     const ruta = (req.url || "/").split("?")[0];
     if (req.method === "GET" && ruta === "/estado") {
       res.setHeader("Content-Type", "application/json");
@@ -49,4 +70,4 @@ function crearPuente({ puerto = PUERTO_PUENTE } = {}) {
   };
 }
 
-module.exports = { crearPuente, PUERTO_PUENTE };
+module.exports = { crearPuente, PUERTO_PUENTE, origenPermitido };

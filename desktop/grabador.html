@@ -12,7 +12,8 @@
 // app corra ni si su ventana está minimizada. El micrófono se mezcla aparte,
 // porque el loopback trae lo que sale por el parlante y tu voz no sale por
 // el parlante.
-const { ipcRenderer } = require("electron");
+// El puente a main lo expone preload-grabador.js (sin Node acá adentro).
+const puente = window.grabadorPuente;
 
 let recorder = null;
 let ctx = null;
@@ -71,28 +72,28 @@ async function empezar() {
       if (e.data.size === 0) return;
       // Cada trozo viaja YA a main, que lo escribe a disco: nada de juntar
       // un giga en la memoria de una ventana oculta.
-      e.data.arrayBuffer().then((buf) => ipcRenderer.send("grabador:chunk", Buffer.from(buf)));
+      e.data.arrayBuffer().then((buf) => puente.chunk(buf));
     };
     recorder.onstop = () => {
       limpiar();
-      ipcRenderer.send("grabador:fin", { ok: true });
+      puente.fin({ ok: true });
     };
     recorder.onerror = () => {
       limpiar();
-      ipcRenderer.send("grabador:fin", { ok: false, error: "se cortó la grabación" });
+      puente.fin({ ok: false, error: "se cortó la grabación" });
     };
     if (video) video.addEventListener("ended", () => parar());
     recorder.start(1000);
-    ipcRenderer.send("grabador:listo", { conLoopback, conMic });
+    puente.listo({ conLoopback, conMic });
   } catch (err) {
     limpiar();
-    ipcRenderer.send("grabador:fin", { ok: false, error: String((err && err.message) || err) });
+    puente.fin({ ok: false, error: String((err && err.message) || err) });
   }
 }
 
 function parar() {
   if (recorder && recorder.state !== "inactive") recorder.stop();
-  else ipcRenderer.send("grabador:fin", { ok: true });
+  else puente.fin({ ok: true });
 }
 
 function limpiar() {
@@ -102,7 +103,7 @@ function limpiar() {
   ctx = null;
 }
 
-ipcRenderer.on("grabador:parar", () => parar());
+puente.alParar(() => parar());
 void empezar();
 </script>
 </body>
