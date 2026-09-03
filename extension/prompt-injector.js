@@ -26,7 +26,7 @@
 
   const DEFAULT_SERVER = "https://taller-0.onrender.com";
   const DEFAULT_APP = "https://www.unify-meet.com";
-  const cfg = { serverBase: DEFAULT_SERVER, appBase: DEFAULT_APP, token: null, lang: "", langVoz: "" };
+  const cfg = { serverBase: DEFAULT_SERVER, appBase: DEFAULT_APP, token: null, lang: "", langVoz: "", escalaFlotantes: 1 };
   // Traducciones por id de línea, para no volver a pedir la misma dos veces.
   // Se vacía al cambiar el idioma.
   const traducciones = new Map();
@@ -918,24 +918,94 @@
     flot.className = "no";
     flot.textContent = "Subtítulos flotantes";
     if (!("documentPictureInPicture" in window)) flot.style.display = "none";
-    const pintarPip = (lineas) => {
+    // LA VENTANITA, para leer de lejos: la traducción como lectura principal
+    // y el original debajo, chico; la última frase destacada; la letra
+    // ESCALA con el alto de la ventana y se ajusta con A− / A+ (recordado).
+    const ESTILO_PIP = `
+      html { font-size: calc(clamp(15px, 6.5vh, 40px) * var(--escala, 1)); }
+      body { margin: 0; background: linear-gradient(170deg, #ffffff, #f6f9ff); color: #101c40;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+      #subs { display: flex; flex-direction: column; justify-content: flex-end; gap: .4rem;
+        height: 100vh; padding: .5rem .8rem .55rem; box-sizing: border-box; }
+      .fila { font-size: 1rem; line-height: 1.28; opacity: .62; overflow: hidden; }
+      .fila.ultima { font-size: 1.22rem; opacity: 1; }
+      .fila.interina { font-style: italic; opacity: .8; }
+      .quien { color: #2563EB; font-weight: 700; margin-right: .3em; }
+      .original { display: block; font-size: .68em; font-style: italic; color: #64748b; margin-top: .05em; }
+      .espera { font-size: 1rem; line-height: 1.35; color: #64748b; }
+      .tamano { position: absolute; top: .3rem; right: .4rem; display: flex; gap: .25rem; opacity: .6; }
+      .tamano:hover, .tamano:focus-within { opacity: 1; }
+      .tamano button { font: 700 13px/1 system-ui, sans-serif; color: #1e293b; background: #fff;
+        border: 1px solid #cbd5e1; border-radius: 8px; padding: 4px 8px; cursor: pointer; min-width: 34px; min-height: 28px; }
+      .tamano button:hover { background: #eef4ff; }
+    `;
+    const prepararPip = (win) => {
+      const doc = win.document;
+      doc.title = "Subtítulos — Unify";
+      const estilo = doc.createElement("style");
+      estilo.textContent = ESTILO_PIP;
+      doc.head.appendChild(estilo);
+      doc.documentElement.style.setProperty("--escala", String(cfg.escalaFlotantes || 1));
+      const cont = doc.createElement("div");
+      cont.id = "subs";
+      doc.body.appendChild(cont);
+      const tamano = doc.createElement("div");
+      tamano.className = "tamano";
+      const boton = (texto, etiqueta, delta) => {
+        const b = doc.createElement("button");
+        b.type = "button";
+        b.textContent = texto;
+        b.title = etiqueta;
+        b.setAttribute("aria-label", etiqueta);
+        b.addEventListener("click", () => {
+          const e = Math.min(1.8, Math.max(0.8, Math.round(((cfg.escalaFlotantes || 1) + delta) * 10) / 10));
+          cfg.escalaFlotantes = e;
+          seguro(() => chrome.storage.local.set({ escalaFlotantes: e }));
+          doc.documentElement.style.setProperty("--escala", String(e));
+        });
+        return b;
+      };
+      tamano.append(boton("A−", "Texto más chico", -0.1), boton("A+", "Texto más grande", 0.1));
+      doc.body.appendChild(tamano);
+    };
+    // Siempre por textContent: lo dicho en la reunión es texto, nunca HTML.
+    const pintarPip = (lineas, interina = "") => {
       if (!pipWin) return;
       try {
-        const cont = pipWin.document.getElementById("subs");
+        const doc = pipWin.document;
+        const cont = doc.getElementById("subs");
         if (!cont) return;
         cont.textContent = "";
-        for (const linea of (lineas ?? []).slice(-3)) {
-          const filaPip = pipWin.document.createElement("div");
-          filaPip.style.cssText = "font-size:15px;line-height:1.35";
-          const quien = pipWin.document.createElement("span");
-          quien.textContent = `${linea.speakerName ?? "Alguien"}: `;
-          quien.style.cssText = "color:#2563EB;font-weight:700";
-          const texto = pipWin.document.createElement("span");
+        const frases = (lineas ?? []).slice(-3).map((linea) => {
           const trad = tradDe(linea);
-          texto.textContent = trad && trad !== linea.text ? trad : (linea.text ?? "");
-          filaPip.append(quien, texto);
-          cont.appendChild(filaPip);
+          const texto = trad && trad !== linea.text ? trad : (linea.text ?? "");
+          return { quien: linea.speakerName ?? "Alguien", texto, original: trad && trad !== linea.text ? linea.text : "" };
+        });
+        if (interina) frases.push({ quien: "Vos", texto: interina, original: "", interina: true });
+        if (frases.length === 0) {
+          const espera = doc.createElement("div");
+          espera.className = "espera";
+          espera.textContent = "Apenas alguien hable, los subtítulos (con su traducción) aparecen acá.";
+          cont.appendChild(espera);
+          return;
         }
+        frases.forEach((f, i) => {
+          const fila = doc.createElement("div");
+          fila.className = "fila" + (i === frases.length - 1 ? " ultima" : "") + (f.interina ? " interina" : "");
+          const quien = doc.createElement("span");
+          quien.className = "quien";
+          quien.textContent = `${f.quien}:`;
+          const texto = doc.createElement("span");
+          texto.textContent = f.texto;
+          fila.append(quien, texto);
+          if (f.original) {
+            const o = doc.createElement("span");
+            o.className = "original";
+            o.textContent = f.original;
+            fila.appendChild(o);
+          }
+          cont.appendChild(fila);
+        });
       } catch { /* la ventanita se cerró en el medio: el próximo pintar la ignora */ }
     };
     flot.addEventListener("click", async () => {
@@ -946,14 +1016,8 @@
         return;
       }
       try {
-        const win = await window.documentPictureInPicture.requestWindow({ width: 440, height: 190 });
-        win.document.body.style.cssText =
-          "margin:0;background:linear-gradient(170deg,#ffffff,#f6f9ff);color:#101c40;font-family:system-ui,sans-serif;overflow:hidden";
-        const cont = win.document.createElement("div");
-        cont.id = "subs";
-        cont.style.cssText =
-          "display:flex;flex-direction:column;justify-content:flex-end;gap:6px;height:100vh;padding:10px 14px;box-sizing:border-box";
-        win.document.body.appendChild(cont);
+        const win = await window.documentPictureInPicture.requestWindow({ width: 520, height: 230 });
+        prepararPip(win);
         win.addEventListener("pagehide", () => {
           pipWin = null;
           try { flot.textContent = "Subtítulos flotantes"; } catch { /* overlay ya no está */ }
@@ -1202,7 +1266,7 @@
       }
       // Espejo hacia la ventanita flotante (si está abierta), con lo mismo.
       ultimasLineas = ultimas;
-      pintarPip(ultimas);
+      pintarPip(ultimas, textoInterino);
       // La línea interina (lo que estás diciendo AHORA) va siempre última.
       if (textoInterino) pintarInterina();
       subs.scrollTop = subs.scrollHeight;
@@ -1340,12 +1404,13 @@
     return IDIOMAS.includes(dos) ? dos : "";
   }
   seguro(() =>
-    chrome.storage?.local?.get(["serverBase", "appBase", "token", "lang", "langVoz"], (v) => {
+    chrome.storage?.local?.get(["serverBase", "appBase", "token", "lang", "langVoz", "escalaFlotantes"], (v) => {
       if (v?.serverBase?.startsWith?.("http")) cfg.serverBase = v.serverBase.replace(/\/+$/, "");
       if (v?.appBase?.startsWith?.("http")) cfg.appBase = v.appBase.replace(/\/+$/, "");
       cfg.token = v?.token ?? null;
       cfg.lang = typeof v?.lang === "string" ? v.lang : idiomaDelNavegador();
       cfg.langVoz = typeof v?.langVoz === "string" ? v.langVoz : "";
+      cfg.escalaFlotantes = typeof v?.escalaFlotantes === "number" ? v.escalaFlotantes : 1;
     })
   );
   // La config puede cambiar con el overlay ya abierto (la persona inicia

@@ -1,6 +1,7 @@
 import { ReactNode, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import AccountMenu from "../components/AccountMenu";
+import TextoGrandeToggle from "../components/TextoGrandeToggle";
 import { useState } from "react";
 import Button from "../components/Button";
 import GradientBackdrop from "../components/GradientBackdrop";
@@ -92,6 +93,7 @@ export default function Home() {
               enlace es para quien entra por la web. (La página sigue estando
               en /instalar, enlazada desde el pie, porque la EXTENSIÓN se
               instala aparte y desde ahí se ve si está.) */}
+          <TextoGrandeToggle variante="enlace" />
           {!isStandalone() && (
             <Link
               to="/instalar"

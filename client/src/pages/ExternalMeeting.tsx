@@ -42,6 +42,12 @@ import {
 import { askMeetingAI } from "../lib/api";
 import { LANGUAGES, codigoCompletoDe, etiquetaDeIdioma, shortLang } from "../lib/languages";
 import { recentCaptionEntries } from "../lib/captionLines";
+import {
+  FraseFlotante,
+  pintarFlotantesEnCanvas,
+  pintarFlotantesEnDocumento,
+  prepararVentanaFlotante,
+} from "../lib/flotantes";
 import { comoVerLosDosALaVez, detectarDispositivo } from "../lib/dispositivo";
 import { esIOS, screenCaptureSupported } from "../lib/screenCapture";
 import { autoRecordEnabled, discardStashedDisplayStream, takeDisplayStream } from "../lib/autoRecord";
@@ -77,21 +83,6 @@ function videoPipSoportado(): boolean {
 }
 
 // Parte un texto en renglones que entran en el ancho del canvas.
-function partirEnRenglones(ctx: CanvasRenderingContext2D, texto: string, ancho: number): string[] {
-  const palabras = texto.split(/\s+/).filter(Boolean);
-  const renglones: string[] = [];
-  let actual = "";
-  for (const p of palabras) {
-    const prueba = actual ? `${actual} ${p}` : p;
-    if (ctx.measureText(prueba).width <= ancho || !actual) actual = prueba;
-    else {
-      renglones.push(actual);
-      actual = p;
-    }
-  }
-  if (actual) renglones.push(actual);
-  return renglones;
-}
 
 // Renders the actual external-meeting pane for a companion session. One branch
 // per embeddable platform; adding a new platform means adding a case here.
@@ -818,15 +809,11 @@ export default function ExternalMeeting() {
           };
         }
       ).documentPictureInPicture;
-      const win = await api.requestWindow({ width: 440, height: 190 });
-      win.document.title = "Subtítulos — Unify";
-      win.document.body.style.cssText =
-        "margin:0;background:#0b1020;color:#fff;font-family:system-ui,sans-serif;overflow:hidden";
-      const cont = win.document.createElement("div");
-      cont.id = "subs";
-      cont.style.cssText =
-        "display:flex;flex-direction:column;justify-content:flex-end;gap:6px;height:100vh;padding:10px 14px;box-sizing:border-box";
-      win.document.body.appendChild(cont);
+      // Más grande de entrada y con la letra que ESCALA con la ventana, más
+      // A− / A+ propios que se recuerdan (ver lib/flotantes): para leer de
+      // lejos, con la traducción como lectura principal y el original debajo.
+      const win = await api.requestWindow({ width: 520, height: 230 });
+      prepararVentanaFlotante(win);
       win.addEventListener("pagehide", () => {
         pipRef.current = null;
         setPipAbierto(false);
@@ -844,8 +831,10 @@ export default function ExternalMeeting() {
   // cuando la reunión vive en la app de Meet y Unify quedó en Safari.
   async function abrirFlotantesDeVideo() {
     const canvas = document.createElement("canvas");
-    canvas.width = 720;
-    canvas.height = 240;
+    // El doble de resolución que antes: en una pantalla retina el texto
+    // salía borroso, y flotante se lee de lejos.
+    canvas.width = 1200;
+    canvas.height = 400;
     pintarCanvasPip(canvas);
     let video: VideoConPip | null = null;
     let stream: MediaStream | null = null;
@@ -923,53 +912,22 @@ export default function ExternalMeeting() {
   }
   // Dibuja las últimas frases (con su traducción) en el canvas del PiP de
   // video: fondo blanco Unify, quién habla en azul, el texto en oscuro.
-  function pintarCanvasPip(canvas: HTMLCanvasElement) {
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const W = canvas.width;
-    const H = canvas.height;
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, W, H);
-    const margen = 22;
-    const ancho = W - margen * 2;
-    // Frases de la más nueva a la más vieja, dibujadas de abajo hacia arriba.
-    const frases: { quien: string; texto: string; interina?: boolean }[] = [];
-    // Sin frases todavía, la ventanita queda EN BLANCO y parece rota (pasó en
-    // una prueba real con Zoom). Que diga qué está esperando.
-    const pintarEsperando = () => {
-      ctx.font = "600 20px system-ui, sans-serif";
-      ctx.fillStyle = "#2563EB";
-      ctx.fillText("Unify — subtítulos flotantes", margen, H / 2 - 18);
-      ctx.font = "22px system-ui, sans-serif";
-      ctx.fillStyle = "#475569";
-      ctx.fillText("Apenas alguien hable, las frases aparecen acá.", margen, H / 2 + 16);
-    };
+  // Las frases para los flotantes (ventanita o video): la traducción como
+  // lectura principal con el original debajo, y lo que estás diciendo ahora.
+  function frasesFlotantes(): FraseFlotante[] {
+    const frases: FraseFlotante[] = transcriptPip.slice(-3).map((l) => {
+      const trad = getTranslation(l);
+      return trad && trad !== l.text
+        ? { quien: l.speakerName, texto: trad, original: l.text }
+        : { quien: l.speakerName, texto: l.text };
+    });
     if (captionsOn && interimCaption) {
       frases.push({ quien: draft?.name || "Vos", texto: interimCaption, interina: true });
     }
-    for (const l of [...transcriptPip.slice(-3)].reverse()) {
-      frases.push({ quien: l.speakerName, texto: getTranslation(l) ?? l.text });
-    }
-    if (frases.length === 0) {
-      pintarEsperando();
-      return;
-    }
-    let y = H - 18;
-    for (const f of frases) {
-      ctx.font = f.interina ? "italic 24px system-ui, sans-serif" : "24px system-ui, sans-serif";
-      ctx.fillStyle = f.interina ? "#64748b" : "#1e293b";
-      const renglones = partirEnRenglones(ctx, f.texto, ancho);
-      for (let i = renglones.length - 1; i >= 0; i--) {
-        if (y < 60) return;
-        ctx.fillText(renglones[i], margen, y);
-        y -= 30;
-      }
-      if (y < 60) return;
-      ctx.font = "600 17px system-ui, sans-serif";
-      ctx.fillStyle = "#2563EB";
-      ctx.fillText(f.quien, margen, y);
-      y -= 32;
-    }
+    return frases;
+  }
+  function pintarCanvasPip(canvas: HTMLCanvasElement) {
+    pintarFlotantesEnCanvas(canvas, frasesFlotantes());
   }
   // Cada frase nueva (o su traducción, que llega después) repinta la ventana.
   // Siempre por textContent, nunca innerHTML: lo dicho en la reunión es texto.
@@ -978,35 +936,10 @@ export default function ExternalMeeting() {
     if (videoPipRef.current) pintarCanvasPip(videoPipRef.current.canvas);
     const win = pipRef.current;
     if (!pipAbierto || !win) return;
-    const cont = win.document.getElementById("subs");
-    if (!cont) return;
-    cont.textContent = "";
-    // Vacía parece rota: mientras no haya ni una frase, la ventanita explica
-    // qué está esperando (pasó en una prueba real con Zoom).
-    if (transcriptPip.length === 0 && !(captionsOn && interimCaption)) {
-      const espera = win.document.createElement("div");
-      espera.textContent = "Apenas alguien hable, los subtítulos (con su traducción) aparecen acá.";
-      espera.style.cssText = "font-size:16px;line-height:1.4;color:#9fb3d8";
-      cont.appendChild(espera);
-      return;
-    }
-    for (const l of transcriptPip.slice(-3)) {
-      const fila = win.document.createElement("div");
-      fila.style.cssText = "font-size:16px;line-height:1.35";
-      const quien = win.document.createElement("span");
-      quien.textContent = `${l.speakerName}: `;
-      quien.style.cssText = "color:#7fa5ff;font-weight:600";
-      const texto = win.document.createElement("span");
-      texto.textContent = getTranslation(l) ?? l.text;
-      fila.appendChild(quien);
-      fila.appendChild(texto);
-      cont.appendChild(fila);
-    }
-    if (captionsOn && interimCaption) {
-      const fila = win.document.createElement("div");
-      fila.textContent = `${draft?.name || "Vos"}: ${interimCaption}`;
-      fila.style.cssText = "font-size:16px;line-height:1.35;opacity:.6;font-style:italic";
-      cont.appendChild(fila);
+    try {
+      pintarFlotantesEnDocumento(win.document, frasesFlotantes());
+    } catch {
+      /* la ventanita se cerró en el medio: el próximo repintado la ignora */
     }
   });
   // Al irse de la pantalla, la ventanita no queda flotando huérfana.

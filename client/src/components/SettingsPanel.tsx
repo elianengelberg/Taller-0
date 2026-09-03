@@ -1,6 +1,7 @@
 import { MediaDevices } from "../hooks/useLocalMedia";
 import { CameraIcon, MicIcon, SpeakerIcon } from "./icons";
 import SidePanel from "./SidePanel";
+import TextoGrandeToggle from "./TextoGrandeToggle";
 
 interface Props {
   devices: MediaDevices;
@@ -62,6 +63,14 @@ export default function SettingsPanel({
             fallback="Parlante"
           />
         )}
+        <div className="border-t border-ink-700 pt-4">
+          <p className="mb-2 text-sm font-semibold text-strong">Tamaño de la letra</p>
+          <TextoGrandeToggle />
+          <p className="mt-2 text-xs text-ink-500">
+            Agranda los subtítulos, el chat y todos los textos de Unify, en todas las pantallas. Se
+            recuerda para la próxima.
+          </p>
+        </div>
         <p className="text-xs text-ink-500">
           Si conectás o desconectás un dispositivo, la lista se actualiza sola. El cambio se aplica al
           instante, sin salir de la reunión.

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { GlobeIcon, PeopleIcon, ShareIcon } from "./icons";
+import TextoGrandeToggle from "./TextoGrandeToggle";
 import { LANGUAGES } from "../lib/languages";
 import { AUTO_LANG, ORIGINAL_LANG } from "../hooks/useLineTranslations";
 
@@ -139,6 +140,10 @@ export default function CompanionDock({
             {flotantesActivo ? "Flotantes ✓" : "Subtítulos flotantes"}
           </button>
         )}
+
+        <span className="hidden h-5 w-px bg-white/10 sm:block" aria-hidden />
+
+        <TextoGrandeToggle />
 
         <span className="hidden h-5 w-px bg-white/10 sm:block" aria-hidden />
 

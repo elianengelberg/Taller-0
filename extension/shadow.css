@@ -121,6 +121,8 @@ input, select, textarea { font-family: inherit; }
 /* ===================== SUBTÍTULOS FLOTANTES (abajo, centrados) =========== */
 .subs {
   position: fixed;
+  display: flex;
+  flex-direction: column;
   left: 50%;
   bottom: 104px;
   transform: translateX(-50%);
@@ -144,13 +146,13 @@ input, select, textarea { font-family: inherit; }
    encima del video (pasó en una reunión real). Con el recorte a tres
    renglones, ninguna línea puede volver a hacerlo -- venga de donde venga. */
 .subs .orig {
-  font-size: 17px; line-height: 1.38;
+  font-size: 20px; line-height: 1.32;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
   overflow: hidden;
 }
 .subs .tr {
   margin-top: 7px; padding-top: 7px; border-top: 1px dashed var(--line-2);
-  font-size: 15px; color: var(--violet-2);
+  font-size: 18px; color: var(--violet-2);
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
   overflow: hidden;
 }
@@ -318,3 +320,14 @@ input, select, textarea { font-family: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .drawer, .subs { transition: none; }
 }
+
+/* Sobre el video, con traducción: la traducción es la lectura principal
+   (grande, primero) y el original queda debajo, chico y en cursiva. */
+.subs .who { order: 0; }
+.subs .orig { order: 1; }
+.subs .tr { order: 2; }
+.subs.traducido .tr {
+  order: 1; margin-top: 0; padding-top: 0; border-top: 0; margin-bottom: 5px;
+  font-size: 21px; line-height: 1.3; color: inherit;
+}
+.subs.traducido .orig { order: 2; font-size: 15px; line-height: 1.3; opacity: 0.72; font-style: italic; }

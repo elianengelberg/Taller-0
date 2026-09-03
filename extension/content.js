@@ -864,6 +864,9 @@
       } else {
         el.subTr.hidden = true;
       }
+      // Con traducción, ESA es la lectura principal (grande, arriba) y el
+      // original queda debajo, chico: a eso vino quien traduce.
+      el.subs.classList.toggle("traducido", Boolean(line.translated));
       el.subs.classList.add("is-on");
       clearTimeout(subsTimer);
       subsTimer = setTimeout(() => el.subs.classList.remove("is-on"), 6500);

@@ -144,6 +144,22 @@ async function entrarComoCompanion(ctx, nombre, conAudio) {
       textoPip.slice(0, 90) || "(vacía)");
     check("y el botón queda marcado como activo",
       (await ana.getByRole("button", { name: /Flotantes ✓/ }).count()) > 0);
+    // Leer de lejos: la letra escala con la ventana y tiene A− / A+ propio
+    // (recordado); la última frase va destacada.
+    const tamPip = () => pip.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize)).catch(() => 0);
+    const antesA = await tamPip();
+    const masGrande = pip.getByRole("button", { name: /Texto más grande/i });
+    check("la ventanita tiene su propio A+ (texto más grande)", (await masGrande.count()) > 0);
+    if (await masGrande.count()) {
+      await masGrande.click();
+      await dormir(200);
+      const despuesA = await tamPip();
+      check("y tocarlo agranda la letra de la ventanita", despuesA > antesA, `${antesA}px -> ${despuesA}px`);
+      check("y el ajuste se recuerda (para la próxima ventanita)",
+        (await ana.evaluate(() => localStorage.getItem("unify_flotantes_escala"))) === "1.1");
+    }
+    check("la última frase va destacada (más grande que las anteriores)",
+      await pip.evaluate(() => document.querySelector(".fila.ultima") !== null).catch(() => false));
     await pip.close();
   }
 

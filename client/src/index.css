@@ -63,6 +63,12 @@ body,
   height: 100%;
 }
 
+/* TEXTO GRANDE (ver lib/textoGrande.ts): casi todos los tamaños son rem, así
+   que agrandar la raíz agranda toda la app de una vez. Opt-in, recordado. */
+html.texto-grande {
+  font-size: 118%;
+}
+
 body {
   @apply bg-ink-950 text-ink-50 antialiased;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";

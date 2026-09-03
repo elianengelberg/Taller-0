@@ -312,6 +312,33 @@ async function detectAndJoin(page, link, { passcode } = {}) {
     await p.close();
   }
 
+  // ---- TEXTO GRANDE: un interruptor que agranda toda la app y se recuerda --
+  // Para quien ve chico (abuelos, sin anteojos a mano): un toque, en todas
+  // las pantallas, sin tocar el sistema ni el zoom del navegador.
+  {
+    const p = await ctx.newPage();
+    await p.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+    await p.waitForTimeout(500);
+    const tam = () => p.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
+    const base = await tam();
+    const boton = p.getByRole("button", { name: /Texto grande/i }).first();
+    check("en el inicio hay un botón «Texto grande»", (await boton.count()) > 0);
+    await boton.click();
+    await p.waitForTimeout(300);
+    const grande = await tam();
+    check("tocarlo agranda la letra de toda la app", grande > base * 1.1, `${base}px -> ${grande}px`);
+    check("y el botón pasa a decir «Texto normal»",
+      (await p.getByRole("button", { name: /Texto normal/i }).count()) > 0);
+    await p.reload({ waitUntil: "domcontentloaded" });
+    await p.waitForTimeout(500);
+    const trasRecargar = await tam();
+    check("se recuerda al recargar", trasRecargar > base * 1.1, `${trasRecargar}px`);
+    await p.getByRole("button", { name: /Texto normal/i }).first().click();
+    await p.waitForTimeout(300);
+    check("y se vuelve al tamaño normal", Math.abs((await tam()) - base) < 0.5, `${await tam()}px`);
+    await p.close();
+  }
+
   await browser.close();
   const failed = results.filter((r) => !r).length;
   console.log(`\n${results.length - failed}/${results.length} OK`);
