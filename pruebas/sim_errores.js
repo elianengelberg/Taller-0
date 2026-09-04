@@ -187,6 +187,34 @@ async function joinExternal(page, link, name = "Tester") {
     await page.close();
   }
 
+  // ================= 2b. «Guardar (iniciar sesión)» llega a /ingresar =================
+  // Regresión de react-router 7: leaveMeeting() vacía el draft, la pantalla
+  // se re-renderiza sin draft ANTES de irse y su guardia la mandaba a
+  // /externa pisando el destino real (lo mismo le pasaba al historial al
+  // cerrarse Zoom desde la app de escritorio: sim_persona_zoom).
+  {
+    const page = await ctx.newPage();
+    const bag = [];
+    watch(page, bag);
+    const letras = (n) => Array.from({ length: n }, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join("");
+    const entro = await joinExternal(page, `https://meet.google.com/${letras(3)}-${letras(4)}-${letras(3)}`, "Invitada");
+    await page.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
+    check("la invitada entra a la reunión externa", entro && page.url().includes("/externa/reunion"), page.url());
+    const salir = page.getByRole("button", { name: /Salir de la reunión/i });
+    if (await exigir(salir, "la invitada tiene el botón para salir")) await salir.click();
+    const guardar = page.getByRole("button", { name: /Guardar \(iniciar sesión\)/i }).first();
+    await guardar.waitFor({ state: "visible", timeout: 6000 }).catch(() => {});
+    if (await exigir(guardar, "al salir puede elegir «Guardar (iniciar sesión)»")) {
+      await guardar.click();
+      await page.waitForURL(/\/ingresar/, { timeout: 8000 }).catch(() => {});
+      await sleep(1200);
+    }
+    check("«Guardar» la lleva a iniciar sesión, no de vuelta al formulario de la externa",
+      new URL(page.url()).pathname === "/ingresar", page.url());
+    check("sin errores de JS al guardar y salir", bag.length === 0, bag.slice(0, 2).join(" | "));
+    await page.close();
+  }
+
   // ================= 3. Refrescar la URL de la reunión =================
   {
     const page = await ctx.newPage();

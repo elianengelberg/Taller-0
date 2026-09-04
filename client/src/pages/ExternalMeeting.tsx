@@ -254,9 +254,22 @@ export default function ExternalMeeting() {
   const spokenLang = self?.language ?? (draft?.mode === "companion" ? draft.language : "es-AR");
   const targetLang = targetLangChoice === AUTO_LANG ? spokenLang : targetLangChoice;
 
+  // SALIR A PROPÓSITO. leaveMeeting() vacía el draft y react-router 7 pinta
+  // la pantalla nueva en una transición: esta pantalla llega a re-renderizarse
+  // SIN draft antes de irse, y la guardia de abajo ("no hay draft: afuera")
+  // la mandaba a su propio destino pisando el real (el historial, la pantalla
+  // de guardar). Se marca antes de irse y la guardia no actúa.
+  const saliendoRef = useRef(false);
+  const irse = (destino: string, opciones?: { state?: unknown }) => {
+    saliendoRef.current = true;
+    leaveMeeting();
+    navigate(destino, { replace: true, ...opciones });
+  };
+
   // No companion draft (e.g. someone refreshed this URL directly) -> there's
   // nothing to connect to; send them back to paste a link.
   useEffect(() => {
+    if (saliendoRef.current) return;
     if (!draft || draft.mode !== "companion") {
       navigate("/externa", { replace: true });
       return;
@@ -672,8 +685,7 @@ export default function ExternalMeeting() {
       return;
     }
     exitWhenSaved(() => {
-      leaveMeeting();
-      navigate("/", { replace: true });
+      irse("/");
     });
   }
 
@@ -699,8 +711,7 @@ export default function ExternalMeeting() {
       return;
     }
     exitWhenSaved(() => {
-      leaveMeeting();
-      navigate(user && dbId ? `/historial/${dbId}` : "/", { replace: true });
+      irse(user && dbId ? `/historial/${dbId}` : "/");
     });
   };
   useEffect(() => {
@@ -959,8 +970,7 @@ export default function ExternalMeeting() {
     const dbId = pendingLeave!;
     setPendingLeave(null);
     exitWhenSaved(() => {
-      leaveMeeting();
-      navigate("/ingresar", { state: { claimMeetingId: dbId }, replace: true });
+      irse("/ingresar", { state: { claimMeetingId: dbId } });
     });
   }
   function skipSaveMeeting() {
@@ -969,8 +979,7 @@ export default function ExternalMeeting() {
     setPendingLeave(null);
     exitWhenSaved(() => {
       setUnsavedMeeting({ dbId, joinCode, endedAt: Date.now() });
-      leaveMeeting();
-      navigate("/", { replace: true });
+      irse("/");
     });
   }
 

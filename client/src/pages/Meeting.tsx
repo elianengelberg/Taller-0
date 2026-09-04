@@ -101,16 +101,25 @@ export default function Meeting() {
   const mediaRef = useRef(media);
   mediaRef.current = media;
 
+  // SALIR A PROPÓSITO. leaveMeeting() vacía el draft y react-router 7 pinta
+  // la pantalla nueva en una transición: esta pantalla llega a re-renderizarse
+  // SIN draft antes de irse, y la guardia de abajo ("no hay draft: afuera")
+  // la mandaba a su propio destino pisando el real (el historial, la pantalla
+  // de guardar). Se marca antes de irse y la guardia no actúa.
+  const saliendoRef = useRef(false);
+  const irse = (destino: string, opciones?: { state?: unknown }) => {
+    saliendoRef.current = true;
+    leaveMeeting();
+    navigate(destino, { replace: true, ...opciones });
+  };
+
   // Zoom-style moderation events aimed at ME. Kicked/ended send us home with
   // an explanation; force-mute obeys immediately; requests show a toast with
   // a one-tap action (the browser can't let a host remote-control someone's
   // devices -- consent by design, like Zoom's "the host asks you to unmute").
   useEffect(() => {
     const socket = getSocket();
-    const goHome = (notice: string) => {
-      leaveMeeting();
-      navigate("/", { replace: true, state: { notice } });
-    };
+    const goHome = (notice: string) => irse("/", { state: { notice } });
     const onKicked = ({ by }: { by?: string }) =>
       goHome(`${by ?? "El anfitrión"} te quitó de la reunión.`);
     const onEnded = ({ by }: { by?: string }) =>
@@ -230,6 +239,7 @@ export default function Meeting() {
   }
 
   useEffect(() => {
+    if (saliendoRef.current) return;
     if (!draft) {
       navigate("/", { replace: true });
       return;
@@ -494,8 +504,7 @@ export default function Meeting() {
   function salirYa() {
     if (leftRef.current) return;
     leftRef.current = true;
-    leaveMeeting();
-    navigate("/", { replace: true });
+    irse("/");
   }
 
   function handleLeave() {
@@ -535,13 +544,11 @@ export default function Meeting() {
   }, [savingRecording, recorder.status, recorder.uploadStatus]);
   function confirmSaveMeeting() {
     const dbId = pendingLeave!;
-    leaveMeeting();
-    navigate("/ingresar", { state: { claimMeetingId: dbId }, replace: true });
+    irse("/ingresar", { state: { claimMeetingId: dbId } });
   }
   function skipSaveMeeting() {
     setUnsavedMeeting({ dbId: pendingLeave!, joinCode: meeting?.id ?? "", endedAt: Date.now() });
-    leaveMeeting();
-    navigate("/", { replace: true });
+    irse("/");
   }
 
   // El backend vive en un plan que duerme: la primera conexión del día puede

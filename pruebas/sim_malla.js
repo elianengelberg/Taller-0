@@ -146,6 +146,63 @@ async function remoteVideos(page) {
   check("sin errores de JS en A", bagA.length === 0, bagA.slice(0, 2).join(" | "));
   check("sin errores de JS en B", bagB.length === 0, bagB.slice(0, 2).join(" | "));
 
+  // ── LAS SALIDAS LLEGAN A DESTINO ──
+  // Regresión de react-router 7: leaveMeeting() vacía el draft y el router
+  // pinta la pantalla nueva en una transición, así que la reunión llegaba a
+  // re-renderizarse SIN draft antes de irse y su guardia ("sin draft → al
+  // inicio") pisaba el destino real: la invitada que quería GUARDAR no
+  // llegaba a iniciar sesión, y el expulsado llegaba al inicio sin el aviso.
+  const anfitriona = sio(API, { transports: ["websocket"], forceNew: true, reconnection: false });
+  await new Promise((r, x) => { anfitriona.on("connect", r); anfitriona.on("connect_error", x); });
+  const entrantes = [];
+  anfitriona.on("participant-joined", (p) => entrantes.push(p?.participant ?? p));
+  const creada2 = await new Promise((res) => anfitriona.timeout(8000).emit("create-meeting",
+    { hostName: "Anfitriona", hostLanguage: "es-AR", roles: [] }, (e, r) => res(r)));
+  const code2 = creada2?.meeting?.id;
+  check("se crea la segunda reunión (la anfitriona se queda, por socket)", Boolean(code2), String(code2));
+  const ctxC = await mk(), ctxD = await mk();
+  const c = await ctxC.newPage(), d = await ctxD.newPage();
+  const bagC = [], bagD = [];
+  watch(c, bagC); watch(d, bagD);
+  for (const [page, name] of [[c, "Carla"], [d, "Diego"]]) {
+    await page.goto(`${B}/unirse/${code2}`, { waitUntil: "domcontentloaded" });
+    await page.getByLabel(/Tu nombre/i).fill(name);
+    await page.waitForTimeout(500);
+    await page.getByRole("button", { name: /Unirme|Entrar/i }).last().click();
+    await page.waitForURL(/\/reunion/, { timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(1500);
+  }
+  check("Carla y Diego entran como invitados", c.url().includes("/reunion") && d.url().includes("/reunion"), `${c.url()} ${d.url()}`);
+
+  // 1) Carla se va y quiere GUARDAR la reunión en una cuenta: tiene que
+  //    llegar a /ingresar (que después reclama la reunión), no al inicio.
+  const salirC = c.getByRole("button", { name: /Salir/i }).first();
+  if (await exigir(salirC, "Carla tiene el botón Salir")) await salirC.click();
+  const guardar = c.getByRole("button", { name: /Guardar \(iniciar sesión\)/i }).first();
+  await guardar.waitFor({ state: "visible", timeout: 6000 }).catch(() => {});
+  if (await exigir(guardar, "al salir, la invitada puede elegir «Guardar (iniciar sesión)»")) {
+    await guardar.click();
+    await c.waitForURL(/\/ingresar/, { timeout: 8000 }).catch(() => {});
+    await sleep(1200);
+  }
+  check("«Guardar» la lleva a iniciar sesión (no la devuelve al inicio)",
+    new URL(c.url()).pathname === "/ingresar", c.url());
+
+  // 2) La anfitriona expulsa a Diego: tiene que llegar al INICIO con el aviso
+  //    de por qué (sin el aviso parece que la app se cayó).
+  const diego = entrantes.find((p) => p?.name === "Diego");
+  check("la anfitriona vio entrar a Diego", Boolean(diego?.id), JSON.stringify(entrantes).slice(0, 120));
+  const echado = await new Promise((res) => anfitriona.timeout(6000).emit("moderate",
+    { action: "kick", targetId: diego?.id }, (e, r) => res(r ?? { ok: false })));
+  check("la anfitriona puede expulsarlo", echado?.ok === true, JSON.stringify(echado));
+  await d.waitForURL((u) => u.pathname === "/", { timeout: 8000 }).catch(() => {});
+  await sleep(1200);
+  const cuerpoD = (await d.locator("body").textContent()) || "";
+  check("el expulsado llega al inicio", new URL(d.url()).pathname === "/", d.url());
+  check("y ve POR QUÉ salió (el aviso de la expulsión)", /te quitó de la reunión/i.test(cuerpoD), cuerpoD.slice(0, 160).replace(/\s+/g, " "));
+  check("sin errores de JS en Carla y Diego", bagC.length === 0 && bagD.length === 0, (bagC[0] || bagD[0] || ""));
+  anfitriona.disconnect();
+
   await browser.close();
   const failed = results.filter((r) => !r).length;
   console.log(`\n${results.length - failed}/${results.length} OK`);
