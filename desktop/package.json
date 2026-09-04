@@ -73,7 +73,8 @@
   },
   "dependencies": {
     "electron-updater": "^6.3.9",
-    "extract-zip": "^2.0.1"
+    "extract-zip": "^2.0.1",
+    "yauzl": "^2.10.0"
   },
   "homepage": "https://unify-meet.com"
 }

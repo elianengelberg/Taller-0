@@ -52,6 +52,63 @@ async function probarExtensionLocal(check) {
   check("sin red, la extensión instalada queda intacta (no se rompe nada)",
     r4.estado === "error" && versionInstalada(path.join(base, "extension")) === publicada,
     r4.estado);
+
+  // ZIP MALICIOSO. extract-zip no valida enlaces simbólicos ni rutas que se
+  // salen de la carpeta (aviso de seguridad conocido): ahora el ZIP se
+  // revisa ANTES de abrirlo, y si la web publica su sha256, tiene que
+  // coincidir. Acá una web falsa sirve zips armados a mano.
+  {
+    const http = require("http");
+    const crypto = require("crypto");
+    // Un zip "store" mínimo con UNA entrada (mismo formato que pack-extension).
+    const zipCon = (nombre, datos, { symlink = false } = {}) => {
+      const n = Buffer.from(nombre, "utf8");
+      const crcTabla = new Uint32Array(256);
+      for (let i = 0; i < 256; i++) { let c = i; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; crcTabla[i] = c >>> 0; }
+      let crc = 0xffffffff; for (const b of datos) crc = crcTabla[(crc ^ b) & 0xff] ^ (crc >>> 8); crc = (crc ^ 0xffffffff) >>> 0;
+      const local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(0x0800, 6);
+      local.writeUInt32LE(crc, 14); local.writeUInt32LE(datos.length, 18); local.writeUInt32LE(datos.length, 22); local.writeUInt16LE(n.length, 26);
+      const central = Buffer.alloc(46); central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(3 << 8 | 20, 4); central.writeUInt16LE(20, 6);
+      central.writeUInt16LE(0x0800, 8); central.writeUInt32LE(crc, 16); central.writeUInt32LE(datos.length, 20); central.writeUInt32LE(datos.length, 24);
+      central.writeUInt16LE(n.length, 28); central.writeUInt32LE(symlink ? 0xa1ff0000 : 0, 38); central.writeUInt32LE(0, 42);
+      const dir = Buffer.concat([central, n]);
+      const eocd = Buffer.alloc(22); eocd.writeUInt32LE(0x06054b50, 0); eocd.writeUInt16LE(1, 8); eocd.writeUInt16LE(1, 10);
+      eocd.writeUInt32LE(dir.length, 12); eocd.writeUInt32LE(30 + n.length + datos.length, 16);
+      return Buffer.concat([local, n, datos, dir, eocd]);
+    };
+    // Relleno: el módulo descarta zips de menos de 1 KB como "sospechosos".
+    const manifiesto = Buffer.from(JSON.stringify({ version: "99.0.0", relleno: "x".repeat(1200) }));
+    let respuesta = { version: "99.0.0" };
+    let zip = zipCon("../evil.txt", manifiesto);
+    const srv = http.createServer((req, res) => {
+      if (req.url === "/version-extension.json") { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(respuesta)); return; }
+      if (req.url === "/unify-extension.zip") { res.end(zip); return; }
+      res.statusCode = 404; res.end();
+    });
+    await new Promise((r) => srv.listen(4598, r));
+    const web2 = "http://localhost:4598";
+    const rA = await refrescarExtension({ baseDir: base, web: web2 });
+    // (yauzl ya rechaza "../" al abrir, con su propio mensaje; el filtro
+    // propio cubre lo que yauzl deja pasar: symlinks, rutas absolutas, "\\".)
+    check("un zip con una ruta que se sale de la carpeta (..) se rechaza",
+      rA.estado === "error" && /rechazado|invalid relative path/.test(rA.detalle || ""), `${rA.estado}: ${rA.detalle}`);
+    zip = zipCon("manifest.json", manifiesto, { symlink: true });
+    const rB = await refrescarExtension({ baseDir: base, web: web2 });
+    check("un zip con un enlace simbólico se rechaza",
+      rB.estado === "error" && /rechazado/.test(rB.detalle || ""), `${rB.estado}: ${rB.detalle}`);
+    zip = zipCon("manifest.json", manifiesto);
+    respuesta = { version: "99.0.0", sha256: "0".repeat(64) };
+    const rC = await refrescarExtension({ baseDir: base, web: web2 });
+    check("si el zip no coincide con el sha256 publicado, se rechaza",
+      rC.estado === "error" && /sha256/.test(rC.detalle || ""), `${rC.estado}: ${rC.detalle}`);
+    check("y tras los tres rechazos la extensión instalada sigue intacta",
+      versionInstalada(path.join(base, "extension")) === publicada && !fs.existsSync(path.join(base, "evil.txt")));
+    respuesta = { version: "99.0.0", sha256: crypto.createHash("sha256").update(zip).digest("hex") };
+    const rD = await refrescarExtension({ baseDir: base, web: web2 });
+    check("con el sha256 correcto, un zip limpio se instala",
+      rD.estado === "actualizada" && versionInstalada(path.join(base, "extension")) === "99.0.0", `${rD.estado}: ${rD.detalle || ""}`);
+    await new Promise((r) => srv.close(r));
+  }
   fs.rmSync(base, { recursive: true, force: true });
 }
 

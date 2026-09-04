@@ -186,6 +186,10 @@ const app = express();
 // Behind Render's proxy: trust the first hop so req.ip is the real client IP
 // (needed for the auth rate limiter below), not the proxy's address.
 app.set("trust proxy", 1);
+// El "query parser" simple (querystring de Node) en vez de qs: esta API sólo
+// lee parámetros planos (?code=&state=&regenerate=1) y qs arrastra avisos de
+// seguridad (límite de arrays, DoS por isBuffer) que así ni se alcanzan.
+app.set("query parser", "simple");
 app.disable("x-powered-by");
 app.use(cors(corsDelegate));
 // Baseline security headers on every API response. (The API serves JSON, not

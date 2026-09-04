@@ -13,7 +13,41 @@
 
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
+const yauzl = require("yauzl");
 const extract = require("extract-zip");
+
+// Revisa el ZIP ANTES de abrirlo: ninguna entrada puede ser un enlace
+// simbólico ni salirse de la carpeta. extract-zip no lo controla (tiene un
+// aviso de seguridad conocido por symlinks). El ZIP es nuestro y viaja por
+// HTTPS, pero una defensa así no cuesta nada y cierra el aviso.
+function revisarZip(ruta) {
+  return new Promise((resolve, reject) => {
+    yauzl.open(ruta, { lazyEntries: true }, (err, zip) => {
+      if (err) return reject(err);
+      let entradas = 0;
+      zip.on("entry", (e) => {
+        entradas += 1;
+        const nombre = String(e.fileName || "");
+        const esSymlink = ((e.externalFileAttributes >>> 16) & 0xf000) === 0xa000;
+        const seSale =
+          nombre.split("/").includes("..") ||
+          path.isAbsolute(nombre) ||
+          /^[a-zA-Z]:/.test(nombre) ||
+          nombre.includes("\\");
+        if (esSymlink || seSale || entradas > 500) {
+          zip.close();
+          reject(new Error(`zip rechazado: entrada sospechosa "${nombre}"`));
+          return;
+        }
+        zip.readEntry();
+      });
+      zip.on("end", () => resolve(entradas));
+      zip.on("error", reject);
+      zip.readEntry();
+    });
+  });
+}
 
 // Techo del ZIP: la extensión pesa ~200 KB; si el servidor devolviera
 // cualquier otra cosa (una página de error, un redirect raro), no la
@@ -44,8 +78,12 @@ async function refrescarExtension({ baseDir, web }) {
   try {
     const r = await fetch(`${web}/version-extension.json`, { signal: AbortSignal.timeout(10_000) });
     if (!r.ok) throw new Error(`version-extension.json: HTTP ${r.status}`);
-    const publicada = String((await r.json()).version || "");
+    const info = await r.json();
+    const publicada = String(info.version || "");
     if (!publicada) throw new Error("version-extension.json sin version");
+    // El sha256 del ZIP, publicado al lado de la versión: si viene, el ZIP
+    // tiene que coincidir (un proxy que cambie bytes, una descarga cortada).
+    const hashPublicado = typeof info.sha256 === "string" ? info.sha256.toLowerCase() : "";
 
     const instalada = versionInstalada(carpeta);
     if (instalada === publicada) return { estado: "al-dia", version: publicada };
@@ -57,6 +95,10 @@ async function refrescarExtension({ baseDir, web }) {
     if (cuerpo.length < 1000 || cuerpo.length > MAX_ZIP_BYTES) {
       throw new Error(`zip de tamaño sospechoso: ${cuerpo.length} bytes`);
     }
+    if (hashPublicado) {
+      const real = crypto.createHash("sha256").update(cuerpo).digest("hex");
+      if (real !== hashPublicado) throw new Error("el zip no coincide con el sha256 publicado");
+    }
     fs.mkdirSync(baseDir, { recursive: true });
     const zipTmp = path.join(baseDir, "extension-descarga.zip");
     fs.writeFileSync(zipTmp, cuerpo);
@@ -65,6 +107,7 @@ async function refrescarExtension({ baseDir, web }) {
     // falla a mitad de camino, la vieja sigue entera.
     const staging = path.join(baseDir, "extension-nueva");
     fs.rmSync(staging, { recursive: true, force: true });
+    await revisarZip(zipTmp);
     await extract(zipTmp, { dir: staging });
     fs.rmSync(zipTmp, { force: true });
     if (!versionInstalada(staging)) throw new Error("el zip no trae un manifest válido");
@@ -90,4 +133,4 @@ async function refrescarExtension({ baseDir, web }) {
   }
 }
 
-module.exports = { refrescarExtension, versionInstalada };
+module.exports = { refrescarExtension, versionInstalada, revisarZip };

@@ -8,6 +8,7 @@
 // formato ZIP sin compresión son tres estructuras y un CRC32. Chrome y la
 // Web Store lo aceptan igual que uno comprimido.
 import fs from "node:fs";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -123,7 +124,11 @@ eocd.writeUInt32LE(dirCentral.length, 12);
 eocd.writeUInt32LE(offset, 16);
 
 fs.mkdirSync(path.dirname(OUT), { recursive: true });
-fs.writeFileSync(OUT, Buffer.concat([...partes, dirCentral, eocd]));
+const zipFinal = Buffer.concat([...partes, dirCentral, eocd]);
+fs.writeFileSync(OUT, zipFinal);
+// El sha256 del ZIP viaja con la versión: la app de escritorio lo verifica
+// antes de abrir lo que bajó.
+const sha256 = crypto.createHash("sha256").update(zipFinal).digest("hex");
 const kb = (fs.statSync(OUT).size / 1024).toFixed(0);
 console.log(`[pack-extension] ${archivos.length} archivos -> ${OUT} (${kb} KB)`);
 
@@ -134,5 +139,5 @@ console.log(`[pack-extension] ${archivos.length} archivos -> ${OUT} (${kb} KB)`)
 // número de versión público que una extensión necesita leer desde su origen.
 const manifest = JSON.parse(fs.readFileSync(path.join(EXT, "manifest.json"), "utf8"));
 const VERS = path.resolve(aca, "../dist/version-extension.json");
-fs.writeFileSync(VERS, JSON.stringify({ version: manifest.version }) + "\n");
+fs.writeFileSync(VERS, JSON.stringify({ version: manifest.version, sha256 }) + "\n");
 console.log(`[pack-extension] version ${manifest.version} -> ${VERS}`);
