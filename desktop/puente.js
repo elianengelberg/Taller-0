@@ -20,7 +20,7 @@ function origenPermitido(origen) {
   return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origen);
 }
 
-function crearPuente({ puerto = PUERTO_PUENTE } = {}) {
+function crearPuente({ puerto = PUERTO_PUENTE, estadoExtra = {} } = {}) {
   let enReunion = false;
 
   const server = http.createServer((req, res) => {
@@ -44,7 +44,7 @@ function crearPuente({ puerto = PUERTO_PUENTE } = {}) {
     const ruta = (req.url || "/").split("?")[0];
     if (req.method === "GET" && ruta === "/estado") {
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ app: "unify-escritorio", enReunion }));
+      res.end(JSON.stringify({ app: "unify-escritorio", enReunion, ...estadoExtra }));
       return;
     }
     res.statusCode = 404;

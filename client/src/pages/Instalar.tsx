@@ -39,6 +39,11 @@ const CHROME_WEB_STORE_URL = "https://chromewebstore.google.com/detail/elnehilol
 // "latest" de GitHub Releases, así publicar una versión nueva no toca la web.
 const DESCARGA_WINDOWS =
   "https://github.com/elianengelberg/Taller-0/releases/latest/download/Unify-Setup.exe";
+// La ficha de Unify en la Microsoft Store: la vía SIN avisos (la tienda
+// firma el paquete con su certificado). Se prende con VITE_MSSTORE_URL en el
+// entorno del deploy cuando la ficha esté publicada; hasta entonces la
+// página dice que está en certificación.
+const TIENDA_WINDOWS = (import.meta.env.VITE_MSSTORE_URL as string | undefined)?.trim() || "";
 
 type Plataforma = "windows" | "mac" | "ios" | "android" | "otro";
 
@@ -795,8 +800,30 @@ export default function Instalar() {
                         , te pregunta si la querés grabar — con subtítulos, traducción e IA — y al
                         terminar te abre todo en tu historial.
                       </p>
+                      {TIENDA_WINDOWS ? (
+                        <div className="mt-3 rounded-xl border border-brand-500/40 bg-brand-500/10 p-3">
+                          <p className="text-sm font-semibold text-strong">
+                            Desde la Microsoft Store: sin ningún aviso
+                          </p>
+                          <p className="mt-1 text-xs leading-relaxed text-ink-300">
+                            La tienda revisa y firma el programa, así que Windows lo instala sin el
+                            cartel azul ni el susto de Defender, y lo mantiene actualizado sola.
+                          </p>
+                          <a href={TIENDA_WINDOWS} className="mt-2 inline-block" rel="noreferrer">
+                            <Button>Instalar desde la Microsoft Store</Button>
+                          </a>
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-xs leading-relaxed text-ink-400">
+                          Muy pronto también en la{" "}
+                          <span className="font-semibold text-ink-200">Microsoft Store</span> (está en
+                          certificación): desde la tienda se instala sin ningún aviso de seguridad.
+                        </p>
+                      )}
                       <a href={DESCARGA_WINDOWS} className="mt-3 inline-block">
-                        <Button>Descargar Unify para Windows</Button>
+                        <Button variant={TIENDA_WINDOWS ? "secondary" : "primary"}>
+                          Descargar Unify para Windows
+                        </Button>
                       </a>
                       <p className="mt-2 text-xs text-ink-400">
                         Un instalador común (.exe): siguiente, siguiente, listo. De ahí en más se

@@ -547,6 +547,27 @@ const UA = {
   // Adentro de la app instalada, ofrecer "instalar la app" es ruido: ya está
   // instalada. Se simula el modo standalone como lo ve el navegador
   // (display-mode: standalone), que es lo que mira isStandalone().
+  console.log("\n── 7a2. Windows: el programa completo, la descarga y la Microsoft Store ──");
+  {
+    const ctx = await browser.newContext({ userAgent: UA.windows });
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => errs.push(e.message.slice(0, 140)));
+    await page.goto(`${B}/instalar`, { waitUntil: "networkidle" });
+    await page.waitForTimeout(600);
+    const cuerpo = (await page.locator("body").textContent()) || "";
+    check("en Windows se ofrece el programa completo", /Unify para Windows: el programa completo/.test(cuerpo));
+    const descarga = page.locator('a[href*="releases/latest/download/Unify-Setup.exe"]');
+    check("con la descarga directa del instalador (.exe de GitHub Releases)", (await descarga.count()) === 1);
+    // La vía sin avisos: la Microsoft Store. Este build no lleva
+    // VITE_MSSTORE_URL (la ficha no está publicada), así que la página lo
+    // dice como "en certificación" y NO inventa un botón a ninguna parte.
+    check("menciona la Microsoft Store como la vía sin avisos (en certificación)",
+      /Microsoft Store/.test(cuerpo) && /certificación/.test(cuerpo));
+    check("sin ficha publicada, no hay botón de la tienda",
+      (await page.getByRole("link", { name: /Instalar desde la Microsoft Store/i }).count()) === 0);
+    await ctx.close();
+  }
+
   console.log("\n── 7b. Ya usando la app instalada ──");
   {
     const ctx = await browser.newContext({ userAgent: UA.windows });

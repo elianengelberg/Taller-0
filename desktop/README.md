@@ -34,6 +34,69 @@ así siempre baja el último sin tocar la web.
 > El instalador NSIS se compila en Windows. (Desde Linux/macOS también suele
 > funcionar con `electron-builder`, pero probalo en Windows antes de publicar.)
 
+## Microsoft Store (la vía sin avisos)
+
+La tienda revisa el paquete y lo **firma con su propio certificado**: la
+instalación desde la Store no pasa por SmartScreen ni por el "editor
+desconocido", y las actualizaciones las trae la tienda. No hace falta comprar
+certificado ni token. Es lo que corresponde para una persona sola (SignPath
+Foundation pide visibilidad pública que el proyecto todavía no tiene y Azure
+Trusted Signing no se ofrece en Argentina).
+
+El workflow `instalador-windows.yml` arma el paquete en cada corrida
+(`Unify-Store.appx`, target `appx` de electron-builder, **sin firmar**: así lo
+pide la tienda) y lo deja como artefacto del run. La copia de la tienda se
+comporta distinto en tres cosas, todas en `tienda.js`: no usa
+electron-updater (la tienda actualiza), arranca con Windows por la
+StartupTask de `build/appx-extensiones.xml` (no por el registro, que dentro
+del paquete está virtualizado) y decide "abrir oculta" por la edad de la
+sesión (la tarea de inicio no puede pasar `--oculto`). Los íconos de la
+tienda salen de `build/appx/` (generados del ícono de la web).
+
+Paso a paso, una sola vez:
+
+1. **Cuenta de desarrollador**: https://partner.microsoft.com/dashboard →
+   registrarse como *Individual* (cuota única de ~US$19; pide identidad y
+   una tarjeta). Aparece "Apps and games".
+2. **Reservar el nombre**: Apps and games → *New product* → *MSIX or PWA
+   app* → nombre `Unify` (si está tomado, `Unify Meet`).
+3. **Identidad del producto**: dentro del producto, *Product management →
+   Product identity*. Copiar los tres valores y cargarlos en GitHub →
+   Settings → Secrets → Actions:
+
+   | Partner Center | Secreto |
+   | --- | --- |
+   | `Package/Identity/Name` (p. ej. `12345Elian.Unify`) | `MSSTORE_IDENTITY_NAME` |
+   | `Package/Identity/Publisher` (`CN=XXXXXXXX-XXXX-...`) | `MSSTORE_PUBLISHER_ID` |
+   | `Package/Properties/PublisherDisplayName` | `MSSTORE_PUBLISHER_DISPLAY_NAME` |
+
+4. **Armar el paquete**: Actions → *Instalador de Windows* → *Run workflow*.
+   Al terminar, bajar el artefacto `paquete-microsoft-store` (si dice
+   `-SIN-identidad-de-tienda`, faltan los secretos: ese paquete NO sirve
+   para la tienda).
+5. **Enviar**: en el producto → *Start your submission*.
+   - *Packages*: subir `Unify-Store.appx`. La tienda avisa que usa
+     `runFullTrust`: es normal para una app de escritorio (Electron); si
+     pregunta por qué, la respuesta es que detecta reuniones mirando los
+     procesos y graba la pantalla a pedido de la persona.
+   - *Properties*: categoría *Productivity*; *Age ratings*: contestar el
+     cuestionario (sin contenido sensible).
+   - *Store listing* (español, y opcional inglés): descripción, 2 o 3
+     capturas (1366×768 o mayores), política de privacidad
+     `https://www.unify-meet.com/privacidad`, sitio `https://www.unify-meet.com`.
+   - *Pricing and availability*: gratis, todos los mercados.
+   - *Submit*. La certificación tarda de horas a 3 días; los reparos llegan
+     por email con el motivo exacto.
+6. **Cuando esté publicada**: en la ficha figura la *Store ID* (algo como
+   `9NBLGGH4R315`). Cargarla como `MSSTORE_PRODUCT_ID` (la app abre su
+   ficha desde el menú) y poner en Vercel la variable
+   `VITE_MSSTORE_URL=https://apps.microsoft.com/detail/<StoreID>` para que
+   /instalar muestre el botón «Instalar desde la Microsoft Store».
+7. **Versiones nuevas**: subir `version` en `package.json`, correr el
+   workflow, subir el `.appx` nuevo en una submission nueva (la tienda
+   exige que la versión sea mayor que la publicada). El instalador `.exe`
+   sigue existiendo para quien tenga la tienda bloqueada.
+
 ## Firma del instalador (que Windows no avise)
 
 Un `.exe` **sin firma digital** siempre dispara el aviso azul de SmartScreen

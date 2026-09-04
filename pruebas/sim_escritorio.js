@@ -211,6 +211,43 @@ async function probarDetector(check) {
 // ── 0b. El cartel de Zoom: 15 segundos y automático (Playwright, HTML real) ─
 // El cartel de la app da tiempo a LEER (con 8 segundos no llegabas a elegir
 // entre grabar, subtítulos y demás) y, si nadie toca nada, cuenta como SÍ.
+// ── 0c. La copia de la MICROSOFT STORE (tienda.js) ──
+// En la tienda no hay electron-updater ni clave Run: las reglas viven en un
+// módulo puro y se prueban acá sin levantar Electron, y el puente le cuenta a
+// la web de dónde vino la copia.
+async function probarTienda(check) {
+  const { esDeTienda, arrancaOculto, enlaceTienda, UMBRAL_ARRANQUE_SEG } = require(path.join(DESK, "tienda.js"));
+  check("una copia común no es de la tienda", esDeTienda({ windowsStore: undefined, env: {} }) === false);
+  check("la copia AppX sí (process.windowsStore)", esDeTienda({ windowsStore: true, env: {} }) === true);
+  check("y UNIFY_TIENDA=1 la finge para las pruebas", esDeTienda({ windowsStore: undefined, env: { UNIFY_TIENDA: "1" } }) === true);
+  check("--oculto siempre arranca en la bandeja", arrancaOculto({ argv: ["x", "--oculto"], deTienda: false, uptimeSeg: 99999 }) === true);
+  check("la copia común sin --oculto abre la ventana", arrancaOculto({ argv: ["x"], deTienda: false, uptimeSeg: 10 }) === false);
+  check("la copia de la tienda recién iniciada Windows queda en la bandeja (la abrió Windows)",
+    arrancaOculto({ argv: ["x"], deTienda: true, uptimeSeg: UMBRAL_ARRANQUE_SEG - 1 }) === true);
+  check("y más tarde abre la ventana (la abrió la persona)",
+    arrancaOculto({ argv: ["x"], deTienda: true, uptimeSeg: UMBRAL_ARRANQUE_SEG + 1 }) === false);
+  check("la ficha de la tienda se arma con el Store ID", enlaceTienda("9NBLGGH4R315") === "ms-windows-store://pdp/?productid=9NBLGGH4R315");
+  check("sin Store ID (o uno raro) no hay ficha", enlaceTienda("") === null && enlaceTienda("../x y") === null);
+  const { crearPuente } = require(path.join(DESK, "puente.js"));
+  const puente = crearPuente({ puerto: 47998, estadoExtra: { tienda: true, actualizaciones: "tienda" } });
+  await puente.listo;
+  const r = await fetch("http://127.0.0.1:47998/estado", { headers: { Origin: "https://unify-meet.com" } });
+  const est = await r.json();
+  check("el puente le dice a la web que la copia es de la tienda y que actualiza la tienda",
+    est.tienda === true && est.actualizaciones === "tienda" && est.app === "unify-escritorio", JSON.stringify(est));
+  await puente.cerrar();
+  // El paquete de la tienda lleva la extensión de arranque y todos los íconos.
+  const ext = fs.readFileSync(path.join(DESK, "build/appx-extensiones.xml"), "utf8");
+  check("el manifiesto de la tienda declara el arranque con Windows (StartupTask)",
+    /windows\.startupTask/.test(ext) && /Executable="app\\Unify\.exe"/.test(ext) && /TaskId="UnifyArranque"/.test(ext));
+  const iconos = ["Square44x44Logo.png", "Square150x150Logo.png", "StoreLogo.png", "Wide310x150Logo.png"];
+  check("los íconos que exige la tienda están", iconos.every((n) => fs.existsSync(path.join(DESK, "build/appx", n))));
+  const pkg = JSON.parse(fs.readFileSync(path.join(DESK, "package.json"), "utf8"));
+  check("electron-builder tiene el target appx configurado (identidad de relleno, la real la pone el workflow)",
+    pkg.build?.appx?.customExtensionsPath === "build/appx-extensiones.xml" && pkg.build?.files?.includes("tienda.js")
+    && pkg.build?.appx?.artifactName === "Unify-Store.appx");
+}
+
 async function probarCartel(check) {
   const { chromium } = require("/opt/node22/lib/node_modules/playwright/node_modules/playwright-core");
   const b = await chromium.launch({ args: ["--no-sandbox"] });
@@ -382,6 +419,7 @@ hijo.on("exit", async (c) => {
   const check = (n, c, d = "") => { ok.push(c); console.log(`${c ? "PASS" : "FAIL"} ${n}${d ? " — " + d : ""}`); };
   await probarDetector(check).catch((e) => check("detector Zoom/Teams", false, String(e.message)));
   await probarExtensionLocal(check).catch((e) => check("módulo de extensión local", false, String(e.message)));
+  await probarTienda(check).catch((e) => check("copia de la Microsoft Store", false, String(e.message)));
   await probarCartel(check).catch((e) => check("cartel de escritorio", false, String(e.message)));
   await probarGrabadorSilencioso(check).catch((e) => check("grabador silencioso", false, String(e.message)));
   // La MISMA película, pero la reunión simulada es de TEAMS: la sala subida

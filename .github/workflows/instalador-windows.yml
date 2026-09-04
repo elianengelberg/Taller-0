@@ -1,5 +1,6 @@
 # Compila el instalador de la app de escritorio EN WINDOWS y lo publica en
-# GitHub Releases como "latest".
+# GitHub Releases como "latest". Al final arma también el paquete MSIX para
+# la Microsoft Store (queda como artefacto del run: se sube a Partner Center).
 #
 # Por qué existe: el botón "Descargar Unify para Windows" de /instalar apunta a
 #   https://github.com/elianengelberg/Taller-0/releases/latest/download/Unify-Setup.exe
@@ -168,3 +169,48 @@ jobs:
             desktop/dist/latest.yml
             desktop/dist/*.blockmap
           make_latest: "true"
+
+      # ── Paquete para la MICROSOFT STORE (MSIX/AppX) ──
+      # La vía sin avisos: la tienda escanea y FIRMA el paquete con su propio
+      # certificado, así que acá sale SIN firmar (electron-builder lo dice:
+      # "Windows Store only build"). La identidad tiene que ser EXACTAMENTE la
+      # que Partner Center reservó para la app (Producto → Identidad del
+      # producto): MSSTORE_IDENTITY_NAME (Package/Identity/Name),
+      # MSSTORE_PUBLISHER_ID (Package/Identity/Publisher, el "CN=...") y
+      # MSSTORE_PUBLISHER_DISPLAY_NAME. Sin esos secretos se empaqueta igual
+      # con una identidad de relleno, para que el circuito esté probado, y el
+      # artefacto lo dice en el nombre. MSSTORE_PRODUCT_ID (la "Store ID" de
+      # la ficha, p. ej. 9NBLGGH4R315) es opcional: la app lo usa para abrir
+      # su ficha desde el menú. Paso a paso en desktop/README.md.
+      - name: Compilar el paquete para la Microsoft Store
+        id: tienda
+        working-directory: desktop
+        shell: pwsh
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false" # la tienda firma; acá NUNCA
+          MSSTORE_IDENTITY_NAME: ${{ secrets.MSSTORE_IDENTITY_NAME }}
+          MSSTORE_PUBLISHER_ID: ${{ secrets.MSSTORE_PUBLISHER_ID }}
+          MSSTORE_PUBLISHER_DISPLAY_NAME: ${{ secrets.MSSTORE_PUBLISHER_DISPLAY_NAME }}
+          MSSTORE_PRODUCT_ID: ${{ secrets.MSSTORE_PRODUCT_ID }}
+        run: |
+          $conIdentidad = [bool]$env:MSSTORE_IDENTITY_NAME -and [bool]$env:MSSTORE_PUBLISHER_ID
+          $nombre = if ($conIdentidad) { $env:MSSTORE_IDENTITY_NAME } else { "Unify" }
+          $editor = if ($conIdentidad) { $env:MSSTORE_PUBLISHER_ID } else { "Unify" }
+          if ($editor -notmatch '^CN=') { $editor = "CN=$editor" }
+          $mostrar = if ($env:MSSTORE_PUBLISHER_DISPLAY_NAME) { $env:MSSTORE_PUBLISHER_DISPLAY_NAME } else { "Unify" }
+          $producto = if ($env:MSSTORE_PRODUCT_ID) { $env:MSSTORE_PRODUCT_ID } else { "" }
+          "identidad=$(if ($conIdentidad) { 'tienda' } else { 'relleno' })" >> $env:GITHUB_OUTPUT
+          npx electron-builder --win appx --publish never `
+            "-c.appx.identityName=$nombre" `
+            "-c.appx.publisher=$editor" `
+            "-c.appx.publisherDisplayName=$mostrar" `
+            "-c.extraMetadata.tienda.productId=$producto"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem dist\*.appx | ForEach-Object { "$($_.Name)  $([math]::Round($_.Length / 1MB, 1)) MB" }
+
+      - name: Guardar el paquete de la tienda (artefacto del run)
+        uses: actions/upload-artifact@v4
+        with:
+          name: paquete-microsoft-store${{ steps.tienda.outputs.identidad == 'relleno' && '-SIN-identidad-de-tienda' || '' }}
+          path: desktop/dist/*.appx
+          if-no-files-found: error

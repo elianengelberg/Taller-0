@@ -1,0 +1,8 @@
+        <!-- Arranque con Windows para la copia de la MICROSOFT STORE. Dentro del
+             paquete la clave Run del registro está virtualizada, así que el
+             arranque lo declara esta tarea de inicio (la persona la puede
+             apagar en Configuración → Aplicaciones → Inicio). Ejecuta el .exe
+             pelado: main.js decide "oculto" por la edad de la sesión. -->
+        <desktop:Extension Category="windows.startupTask" Executable="app\Unify.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="UnifyArranque" Enabled="true" DisplayName="Unify" />
+        </desktop:Extension>

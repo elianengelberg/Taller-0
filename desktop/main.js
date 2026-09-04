@@ -27,6 +27,12 @@ const { refrescarExtension } = require("./extensionLocal");
 // instalador nuevo y lo deja listo. Acá sólo se decide CUÁNDO mirar y cómo
 // contarlo; el trabajo sucio es de él.
 const { autoUpdater } = require("electron-updater");
+const { esDeTienda, arrancaOculto, enlaceTienda } = require("./tienda");
+// ¿Esta copia vino de la MICROSOFT STORE? (ver tienda.js). Ahí las
+// actualizaciones las trae la tienda y el arranque con Windows lo declara el
+// manifiesto. El productId de la ficha lo inyecta el workflow al empaquetar.
+const EN_TIENDA = esDeTienda({ windowsStore: process.windowsStore, env: process.env });
+const TIENDA = (() => { try { return require("./package.json").tienda || {}; } catch { return {}; } })();
 
 // La web de Unify. En desarrollo se puede apuntar a un build local:
 //   UNIFY_WEB=http://localhost:4174 npm start
@@ -85,14 +91,20 @@ if (!app.requestSingleInstanceLock()) {
 function arrancar() {
   // Arrancar con la sesión (queda en segundo plano, como pide el flujo:
   // instalás una vez y te olvidás). Sólo tiene sentido empaquetada.
-  if (process.platform === "win32" && app.isPackaged) {
+  // En la copia de la tienda NO: la clave Run del registro está virtualizada
+  // dentro del paquete y no arranca nada; ahí lo hace la StartupTask del
+  // manifiesto (build/appx-extensiones.xml).
+  if (process.platform === "win32" && app.isPackaged && !EN_TIENDA) {
     // Con "--oculto": el arranque automático con Windows deja a Unify atento
     // en la bandeja SIN abrir la ventana en la cara. Cuando la abrís vos (o
     // recién instalada), sí se muestra.
     app.setLoginItemSettings({ openAtLogin: true, args: ["--oculto"] });
   }
 
-  puente = crearPuente();
+  puente = crearPuente({
+    // La web (y las pruebas) pueden saber de dónde vino esta copia.
+    estadoExtra: { tienda: EN_TIENDA, actualizaciones: EN_TIENDA ? "tienda" : "github" },
+  });
   puente.listo.catch(() => {
     // Puerto tomado (otra instancia vieja): la app sigue, sin puente la barra
     // simplemente no se corta sola.
@@ -105,13 +117,19 @@ function arrancar() {
   });
 
   armarBandeja();
-  arrancarActualizador();
+  if (!EN_TIENDA) arrancarActualizador();
 
   // LA APP TIENE VENTANA. Antes esto era sólo un ícono al lado del reloj y
   // todo lo demás abría el navegador: se instalaba y no pasaba nada visible
   // -- se sentía una página web, no un programa. Ahora abre en su propia
   // ventana, en la pantalla de inicio, como cualquier app de Windows.
-  if (!process.argv.includes("--oculto")) abrirVentana("/");
+  // En la tienda, la tarea de inicio no puede pasar "--oculto": en los
+  // primeros minutos de la sesión se asume que la abrió Windows.
+  const oculto = arrancaOculto({ argv: process.argv, deTienda: EN_TIENDA, uptimeSeg: os.uptime() });
+  if (!oculto) abrirVentana("/");
+  else if (EN_TIENDA && !process.argv.includes("--oculto")) {
+    globo("Unify", "Quedó atenta a tus reuniones al lado del reloj. Tocá el ícono para abrirla.");
+  }
 }
 
 // La ventana de la app. Se crea una sola vez y se reusa: cerrarla la esconde
@@ -476,6 +494,7 @@ function globo(titulo, cuerpo) {
 }
 
 function etiquetaDeUpdate() {
+  if (EN_TIENDA) return "Actualizaciones: las trae la Microsoft Store";
   switch (estadoUpdate.fase) {
     case "buscando": return "Buscando actualización…";
     case "descargando": return `Bajando la versión ${estadoUpdate.version || "nueva"}…`;
@@ -486,6 +505,15 @@ function etiquetaDeUpdate() {
 }
 
 function clicEnUpdate() {
+  if (EN_TIENDA) {
+    // La tienda actualiza sola; el botón abre la ficha (si se conoce) y de
+    // paso pone al día la extensión por zip, como siempre.
+    const ficha = enlaceTienda(TIENDA.productId);
+    if (ficha) void shell.openExternal(ficha);
+    else globo("Unify", "Esta copia se actualiza sola desde la Microsoft Store.");
+    void refrescarExtensionLocal(true);
+    return;
+  }
   if (estadoUpdate.fase === "listo") {
     app.cerrandoDeVerdad = true;
     autoUpdater.quitAndInstall();

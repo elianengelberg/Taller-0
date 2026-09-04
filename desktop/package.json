@@ -29,7 +29,8 @@
       "extensionLocal.js",
       "grabador.html",
       "preload-grabador.js",
-      "icono.png"
+      "icono.png",
+      "tienda.js"
     ],
     "win": {
       "target": [
@@ -69,7 +70,24 @@
         "repo": "Taller-0"
       }
     ],
-    "copyright": "Copyright © 2026 Unify"
+    "copyright": "Copyright © 2026 Unify",
+    "appx": {
+      "applicationId": "Unify",
+      "identityName": "Unify",
+      "publisher": "CN=Unify",
+      "publisherDisplayName": "Unify",
+      "displayName": "Unify",
+      "backgroundColor": "#0f172a",
+      "languages": [
+        "es-AR",
+        "es-ES",
+        "en-US",
+        "pt-BR"
+      ],
+      "showNameOnTiles": true,
+      "customExtensionsPath": "build/appx-extensiones.xml",
+      "artifactName": "Unify-Store.appx"
+    }
   },
   "dependencies": {
     "electron-updater": "^6.3.9",
