@@ -223,7 +223,7 @@ jobs:
           $entrada = $zip.Entries | Where-Object { $_.FullName -eq "AppxManifest.xml" }
           $lector = New-Object IO.StreamReader($entrada.Open())
           $xml = $lector.ReadToEnd(); $lector.Close(); $zip.Dispose()
-          ($xml | Select-String -Pattern '<Identity[^>]*>', '<DisplayName>[^<]*</DisplayName>', '<PublisherDisplayName>[^<]*</PublisherDisplayName>', 'StartupTask[^>]*>' -AllMatches).Matches.Value
+          ([regex]::Matches($xml, '<Identity[^>]*>|<DisplayName>[^<]*</DisplayName>|<PublisherDisplayName>[^<]*</PublisherDisplayName>|<desktop:StartupTask[^>]*>') | ForEach-Object { $_.Value })
 
       - name: Guardar el paquete de la tienda (artefacto del run)
         uses: actions/upload-artifact@v4
