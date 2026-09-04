@@ -227,8 +227,12 @@ async function join(page, link, name = "Tester") {
     // --- Cambio de idioma del hablante al vuelo ---
     await p.getByRole("button", { name: /Ver la transcripción completa/i }).click();
     await p.waitForTimeout(500);
-    const spoken = p.getByLabel(/Idioma en el que hablás|idioma que hablás/i);
-    if (await exigir(spoken, "el panel tiene el selector del idioma que hablás")) { await spoken.first().selectOption("en-US"); await p.waitForTimeout(1200); }
+    const spoken = p.getByLabel(/En qué idioma estás hablando vos/i);
+    if (await exigir(spoken, "el panel tiene el selector del idioma que hablás")) {
+      await spoken.first().selectOption("en-US");
+      await p.waitForTimeout(1200);
+      check("el idioma hablado queda cambiado (en-US)", (await spoken.first().inputValue()) === "en-US");
+    }
     check("cambiar el idioma hablado al vuelo no rompe nada", bag.length === 0, bag[0] || "");
     await p.getByRole("button", { name: /Cerrar/i }).first().click().catch(() => {});
     await p.waitForTimeout(400);

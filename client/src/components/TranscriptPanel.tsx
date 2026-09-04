@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useId, useMemo, useRef } from "react";
 import { useMeeting } from "../context/MeetingContext";
 import { AUTO_LANG, ORIGINAL_LANG } from "../hooks/useLineTranslations";
 import { LANGUAGES, shortLang } from "../lib/languages";
@@ -34,6 +34,9 @@ export default function TranscriptPanel({
   const transcript = meeting?.transcript ?? [];
   // Paragraph blocks (Otter-style): consecutive lines from the same speaker
   // read as one flowing card instead of a stack of one-liners.
+  // La etiqueta apunta al select: el lector de pantalla (y las pruebas) lo
+  // encuentran por su texto.
+  const idHablado = useId();
   const paragraphs = useMemo(
     () =>
       groupConsecutive(transcript, (line) => ({
@@ -68,6 +71,7 @@ export default function TranscriptPanel({
       side={side}
       headerExtra={
         <select
+          aria-label="Idioma en el que ves los subtítulos"
           className="w-full rounded-lg border border-ink-600 bg-ink-800 px-2 py-1 text-xs text-strong focus:border-brand-400 focus:outline-none"
           value={targetLangChoice}
           onChange={(e) => onTargetLangChange(e.target.value)}
@@ -83,10 +87,11 @@ export default function TranscriptPanel({
       }
     >
       <div className="mb-4 rounded-xl border border-ink-700 bg-ink-800/60 p-3">
-        <label className="mb-1.5 block text-xs font-medium text-ink-300">
+        <label htmlFor={idHablado} className="mb-1.5 block text-xs font-medium text-ink-300">
           ¿En qué idioma estás hablando vos?
         </label>
         <select
+          id={idHablado}
           className="w-full rounded-lg border border-ink-600 bg-ink-800 px-2.5 py-2 text-sm text-strong focus:border-brand-400 focus:outline-none"
           value={spokenLang}
           onChange={(e) => onSpokenLangChange(e.target.value)}

@@ -119,16 +119,15 @@ async function videoTracks(page) {
       // EL OTRO BUG: cambiar de cámara mataba la pantalla y dejaba el estado
       // colgado en "compartiendo" para siempre.
       let switched = false;
-      const settings = p.getByRole("button", { name: /Ajustes|Configuración/i }).first();
-      if (await exigir(settings, "hay botón de Ajustes/Configuración")) {
+      const settings = p.getByRole("button", { name: /Opciones: elegir micrófono/i }).first();
+      if (await exigir(settings, "hay botón de Opciones (micrófono, cámara y parlante)")) {
         await settings.click();
         await p.waitForTimeout(700);
-        const camSelect = p.locator("select").filter({ hasText: /fake|camera|cámara/i }).first();
-        const anySelect = (await camSelect.count()) ? camSelect : p.locator("select").nth(1);
-        if (await anySelect.count()) {
-          const opts = await anySelect.locator("option").count();
+        const camSelect = p.getByLabel(/^Cámara$/).first();
+        if (await exigir(camSelect, "el panel de opciones tiene el selector de cámara")) {
+          const opts = await camSelect.locator("option").count();
           if (opts > 1) {
-            await anySelect.selectOption({ index: 1 });
+            await camSelect.selectOption({ index: 1 });
             await p.waitForTimeout(1500);
             switched = true;
           }

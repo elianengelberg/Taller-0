@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { MediaDevices } from "../hooks/useLocalMedia";
 import { CameraIcon, MicIcon, SpeakerIcon } from "./icons";
 import SidePanel from "./SidePanel";
@@ -96,13 +97,15 @@ function DeviceSelect({
   fallback: string;
 }) {
   const empty = devices.length === 0;
+  const id = useId();
   return (
     <div>
-      <label className="mb-1.5 flex items-center gap-2 text-sm font-medium text-ink-200">
+      <label htmlFor={id} className="mb-1.5 flex items-center gap-2 text-sm font-medium text-ink-200">
         <span className="text-brand-300">{icon}</span>
         {label}
       </label>
       <select
+        id={id}
         className="w-full rounded-xl border border-ink-600 bg-ink-800 px-3 py-2.5 text-sm text-ink-50 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500/40 disabled:opacity-50"
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value)}
