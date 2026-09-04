@@ -79,10 +79,7 @@
       "displayName": "Unify-meet",
       "backgroundColor": "#0f172a",
       "languages": [
-        "es-AR",
-        "es-ES",
-        "en-US",
-        "pt-BR"
+        "es-AR"
       ],
       "showNameOnTiles": true,
       "customExtensionsPath": "build/appx-extensiones.xml",

@@ -72,6 +72,11 @@ Paso a paso, una sola vez:
    | Nombre reservado de la app | `build.appx.displayName` | `Unify-meet` |
    | Id. de Store | `tienda.productId` | `9P6WLSGRZB1Q` |
 
+   El paquete declara UN solo idioma (`build.appx.languages: ["es-AR"]`): la
+   tienda exige una descripción completa (texto + capturas) por cada idioma
+   que el paquete declare. Los idiomas extra de la ficha se agregan aparte,
+   en *Descripciones de Store → Administrar más idiomas*, sin tocar el paquete.
+
    El nombre del paquete (`displayName`) tiene que ser EXACTAMENTE uno de los
    nombres reservados en *Administrar los nombres de las aplicaciones*; si
    se reserva otro (p. ej. «Unify»), cambiarlo acá. Los secretos
