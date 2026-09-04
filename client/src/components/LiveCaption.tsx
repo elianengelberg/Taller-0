@@ -57,6 +57,10 @@ export default function LiveCaption({ lines = [], localInterim, roleFor, avatarF
   useEffect(() => {
     const now = performance.now();
     const map = visibleRef.current;
+    // Sin líneas (la persona apagó los subtítulos) no hay nada que sostener:
+    // antes las burbujas seguían en pantalla hasta vencer su tiempo, y
+    // «ocultar» parecía no hacer nada.
+    if (lines.length === 0 && map.size > 0) map.clear();
     for (const entry of lines) {
       const contentKey = `${entry.id}|${entry.text}`;
       const existing = map.get(entry.speakerId);
