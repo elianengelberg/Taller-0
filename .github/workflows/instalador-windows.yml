@@ -231,3 +231,14 @@ jobs:
           name: paquete-microsoft-store${{ steps.tienda.outputs.identidad == 'relleno' && '-SIN-identidad-de-tienda' || '' }}
           path: desktop/dist/*.appx
           if-no-files-found: error
+
+      # El mismo paquete, colgado del release: queda con un enlace directo y
+      # estable (releases/latest/download/Unify-Store.appx), sin entrar a
+      # Actions ni descomprimir nada. No se puede instalar a mano (va sin
+      # firma: lo firma la tienda), así que publicarlo no expone nada.
+      - name: Colgar el paquete de la tienda del release
+        if: steps.tienda.outputs.identidad == 'tienda'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: escritorio-b${{ github.run_number }}
+          files: desktop/dist/Unify-Store.appx
