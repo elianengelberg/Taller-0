@@ -10,6 +10,14 @@ const { io: sio } = require("/home/user/Taller-0/client/node_modules/socket.io-c
 const B = "http://localhost:4174", API = "http://localhost:4001";
 const results = [];
 const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" : "FAIL"} ${n}${d ? " — " + d : ""}`); };
+// Un elemento que TIENE que estar: si no está, es FAIL (no un salto en
+// silencio que deja la suite en verde con la pantalla rota).
+const exigir = async (loc, nombre) => {
+  const n = await loc.count().catch(() => 0);
+  if (n > 0) return true;
+  check(nombre, false, "no está en la pantalla");
+  return false;
+};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const IGNORABLE = /fonts\.g|favicon|ERR_ABORTED|ResizeObserver|Download the React|speech|recognition/i;
@@ -140,7 +148,7 @@ async function botonesChicos(p, minimo = 40) {
       // En iPhone compartir pantalla NO existe (regla de Apple): el botón
       // tiene que EXPLICARLO, no abrir un selector roto ni tirar error.
       const compartir = p.getByRole("button", { name: /Compartir/i }).first();
-      if (await compartir.count()) {
+      if (await exigir(compartir, "en iPhone el botón de compartir está (para explicar que no se puede)")) {
         await compartir.tap();
         await p.waitForTimeout(800);
         const texto = (await p.locator("body").textContent()) || "";
@@ -250,9 +258,13 @@ async function botonesChicos(p, minimo = 40) {
     }
     await pf.getByRole("button", { name: /Unirme acá dentro/i }).first().tap();
     await pf.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
+    check("entra a la reunión desde el teléfono", /\/externa\/reunion/.test(pf.url()), pf.url());
     const botonFlot = pf.getByRole("button", { name: /Subtítulos flotantes/i });
-    check("el botón de subtítulos flotantes está en el teléfono", (await botonFlot.count()) > 0);
-    if (await botonFlot.count()) {
+    // La URL cambia antes de que el router pinte la pantalla nueva (la
+    // navegación va en una transición): se espera al botón, no se lo mira
+    // en el instante en que cambió la dirección.
+    await botonFlot.first().waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
+    if (await exigir(botonFlot, "el botón de subtítulos flotantes está en el teléfono")) {
       await botonFlot.first().tap();
       await pf.waitForTimeout(1200);
       check("tocarlo flota el video con los subtítulos (PiP de video)",
@@ -359,7 +371,7 @@ async function botonesChicos(p, minimo = 40) {
           /subtítulos están en pausa/i.test(grabando));
         // Y al detenerla, los subtítulos vuelven solos.
         const detener = pm.getByRole("button", { name: /Detener grabación/i });
-        if (await detener.count()) {
+        if (await exigir(detener, "y mientras graba hay un botón para detener la grabación")) {
           await detener.first().tap();
           await pm.waitForTimeout(2500);
           const luego = (await pm.locator("body").textContent()) || "";

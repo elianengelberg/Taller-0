@@ -225,9 +225,15 @@ const json = (obj) => ({ method: "POST", headers: { "Content-Type": "application
     subidas.length > 0, subidas[0] || "sin requests de subida");
   // El detalle carga la reunión del servidor: se le da el tiempo que tarda.
   await p.getByText(/arrancamos con el presupuesto/i).first().waitFor({ timeout: 20000 }).catch(() => {});
-  check("la transcripción del detalle tiene lo de Ana", (await p.getByText(/arrancamos con el presupuesto/i).count()) > 0);
-  await p.getByText("La reunión").first().waitFor({ timeout: 10000 }).catch(() => {});
-  check("y lo de los demás («La reunión»)", (await p.getByText("La reunión").count()) > 0);
+  const cuerpoDetalle = () => p.locator("body").textContent().then((t) => (t || "").replace(/\s+/g, " ").slice(0, 300));
+  check("la transcripción del detalle tiene lo de Ana", (await p.getByText(/arrancamos con el presupuesto/i).count()) > 0,
+    await cuerpoDetalle());
+  // Lo de los demás: la FRASE de «La reunión», no la etiqueta (la palabra
+  // "reunión" aparece en media pantalla y no prueba nada).
+  await p.getByText(/el presupuesto quedó aprobado/i).first().waitFor({ timeout: 10000 }).catch(() => {});
+  check("y lo de los demás («La reunión»)",
+    (await p.getByText(/el presupuesto quedó aprobado/i).count()) > 0 && (await p.getByText("La reunión", { exact: true }).count()) > 0,
+    await cuerpoDetalle());
 
   check("cero errores de JavaScript en todo el recorrido", errs.length === 0, errs[0] || "");
   await ctx.close();

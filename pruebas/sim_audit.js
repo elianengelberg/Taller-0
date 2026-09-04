@@ -9,6 +9,14 @@ const { io } = require("/home/user/Taller-0/client/node_modules/socket.io-client
 const B = "http://localhost:4174", API = "http://localhost:4001";
 const results = [];
 const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" : "FAIL"} ${n}${d ? " — " + d : ""}`); };
+// Un elemento que TIENE que estar: si no está, es FAIL (no un salto en
+// silencio que deja la suite en verde con la pantalla rota).
+const exigir = async (loc, nombre) => {
+  const n = await loc.count().catch(() => 0);
+  if (n > 0) return true;
+  check(nombre, false, "no está en la pantalla");
+  return false;
+};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const rnd = (n) => Array.from({ length: n }, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join("");
 const meetCode = () => `${rnd(3)}-${rnd(4)}-${rnd(3)}`;
@@ -196,7 +204,7 @@ async function join(page, link, name = "Tester") {
       r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ translatedText: "translated line" }) }));
     await join(p, `https://meet.google.com/${code}`, "Anfitrión");
     const lang = p.getByTitle(/Idioma en el que ves los subtítulos/i);
-    if (await lang.count()) await lang.selectOption("en-US");
+    if (await exigir(lang, "el selector «Traducir a» está en el dock")) await lang.selectOption("en-US");
 
     const socks = [];
     for (const n of ["Ana", "Bruno", "Caro"]) {
@@ -220,7 +228,7 @@ async function join(page, link, name = "Tester") {
     await p.getByRole("button", { name: /Ver la transcripción completa/i }).click();
     await p.waitForTimeout(500);
     const spoken = p.getByLabel(/Idioma en el que hablás|idioma que hablás/i);
-    if (await spoken.count()) { await spoken.first().selectOption("en-US"); await p.waitForTimeout(1200); }
+    if (await exigir(spoken, "el panel tiene el selector del idioma que hablás")) { await spoken.first().selectOption("en-US"); await p.waitForTimeout(1200); }
     check("cambiar el idioma hablado al vuelo no rompe nada", bag.length === 0, bag[0] || "");
     await p.getByRole("button", { name: /Cerrar/i }).first().click().catch(() => {});
     await p.waitForTimeout(400);
@@ -306,7 +314,7 @@ async function join(page, link, name = "Tester") {
       /Grabando audio/i.test(body), body.match(/Grabando\w*/)?.[0] || "no graba");
     check("en modo audio ofrece agregar la pantalla después", /Agregar pantalla/i.test(body));
     const rec = p.getByRole("button", { name: /Detener grabación/i });
-    if (await rec.count()) { await rec.first().click(); await p.waitForTimeout(3000); }
+    if (await exigir(rec, "está grabando (hay botón «Detener grabación»)")) { await rec.first().click(); await p.waitForTimeout(3000); }
     const dl = await p.locator("a[download]").first().getAttribute("download").catch(() => "");
     check("la grabación automática queda como audio", /\.(m4a|webm)$/.test(dl || ""), `archivo=${dl}`);
     check("modo audio sin errores", bag.length === 0, bag[0] || "");
@@ -340,7 +348,7 @@ async function join(page, link, name = "Tester") {
 
     // Detener y volver a grabar no rompe.
     const rec = p.getByRole("button", { name: /Detener grabación|Grabar la reunión/i });
-    if (await rec.count()) { await rec.first().click(); await p.waitForTimeout(1500); }
+    if (await exigir(rec, "hay botón de grabación")) { await rec.first().click(); await p.waitForTimeout(1500); }
     check("detener la grabación no rompe la pantalla", !p.isClosed() && bag.length === 0, bag[0] || "");
     await p.close();
   }

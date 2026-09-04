@@ -12,6 +12,7 @@ const B = "http://localhost:4174", API = "http://localhost:4001";
 const results = [];
 const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" : "FAIL"} ${n}${d ? " — " + d : ""}`); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const { CORPUS, guion, INYECTAR_HABLAR } = require("./lib/voz");
 
 const IGNORABLE = /fonts\.g|favicon|ERR_ABORTED|ResizeObserver|Download the React|speech|recognition/i;
 function watch(page, bag) {
@@ -408,6 +409,7 @@ async function indicadoresMute(page) {
       window.SpeechRecognition = Doble;
       window.webkitSpeechRecognition = Doble;
     });
+    await pn.addInitScript(INYECTAR_HABLAR);
     await pn.goto(`${B}/unirse/${codeN}`, { waitUntil: "domcontentloaded" });
     await pn.getByLabel(/Tu nombre/i).fill("Norma");
     await pn.waitForTimeout(400);
@@ -433,6 +435,15 @@ async function indicadoresMute(page) {
     const okRuido = await manejar("ruido");
     await pn.waitForTimeout(900);
     const okSuelta = await manejar("suelta");
+    await pn.waitForTimeout(900);
+    // Y con VOZ REALISTA (pruebas/lib/voz.js): interinos palabra por palabra,
+    // una corrección a mitad de frase, el final con lecturas alternativas y
+    // una confusión fonética típica -- como escribe un reconocedor de verdad.
+    const okReal = await pn.evaluate((pasos) => window.__hablar(pasos), guion(CORPUS[0]));
+    await pn.waitForTimeout(1200);
+    const okRealCorte = await pn.evaluate((pasos) => window.__hablar(pasos), guion(CORPUS[4], { cortar: true }));
+    await pn.waitForTimeout(1200);
+    const okRealRuido = await pn.evaluate((pasos) => window.__hablar(pasos), guion(CORPUS[6], { retractar: true }));
     await pn.waitForTimeout(2500);
     check("el oído de la reunión normal aceptó los cuatro patrones",
       okNormal && okCorte && okRuido && okSuelta);
@@ -450,6 +461,13 @@ async function indicadoresMute(page) {
       !/zumbido/.test(todo), todo.slice(0, 150));
     check("la palabra suelta de fondo tampoco",
       !/\beh\b/.test(todo), todo.slice(0, 150));
+    check("voz realista: los tres guiones corrieron sobre el oído", okReal && okRealCorte && okRealRuido);
+    check("voz realista: la frase con interinos, corrección y alternativas sale UNA vez",
+      (todo.match(/tenemos que cerrar el prosupuesto antes del viernes/g) || []).length === 1, todo.slice(-160));
+    check("voz realista: lo interino de una sesión cortada se rescata",
+      /no lo veo me lo podes mandar por mail/.test(todo), todo.slice(-160));
+    check("voz realista: una frase retractada por el reconocedor no entra",
+      !/dale lo vemos el jueves/.test(todo), todo.slice(-160));
     check("sin errores de JS en la reunión normal de la prueba", bagN.length === 0, bagN[0] || "");
     oy.disconnect();
     await pn.close();

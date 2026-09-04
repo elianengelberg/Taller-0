@@ -244,10 +244,17 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
                   "la lámina azul muestra la curva de ventas";
                 return `IDIOMA: es\nTEXTO: ${alt}`;
               })();
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ id: "msg_1", type: "message", role: "assistant", model: "x",
-          content: [{ type: "text", text: texto }], stop_reason: "end_turn",
-          usage: { input_tokens: 1, output_tokens: 1 } }));
+        const responder = () => {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ id: "msg_1", type: "message", role: "assistant", model: "x",
+            content: [{ type: "text", text: texto }], stop_reason: "end_turn",
+            usage: { input_tokens: 1, output_tokens: 1 } }));
+        };
+        // "lento" en el fragmento = una IA que tarda 1,5 s en corregir (un
+        // día malo de la API): las traducciones siguen instantáneas.
+        const esCorreccion = !/TRAD_/.test(sys) && !sys.includes("Translate the user's message");
+        if (esCorreccion && /lento/.test(contenidoUser)) setTimeout(responder, 1500);
+        else responder();
       });
     });
     await new Promise((r) => stub.listen(4179, r));
@@ -275,7 +282,7 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
     const key = `zoom:7${Date.now() % 1e9}${Math.floor(Math.random() * 9)}`;
     const socket = io("http://localhost:4009", { transports: ["websocket"] });
     const lineas = []; const parches = [];
-    socket.on("transcript-line", (p) => lineas.push(p.line));
+    socket.on("transcript-line", (p) => lineas.push({ ...p.line, __t: Date.now() }));
     socket.on("transcript-line-translations", (p) => parches.push(p));
     await new Promise((resolve) => {
       socket.emit("join-companion", { externalKey: key, name: "Viewer EN", language: "en-US" }, resolve);
@@ -334,6 +341,26 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
         const user = Array.isArray(v.messages) ? String(v.messages[0]?.content ?? "") : "";
         return /TRAD_/.test(sys) && user.includes("curva de ventas y sigue subiendo cada mes");
       }));
+
+    // BAJO UNA IA LENTA (1,5 s): la línea cruda tiene que aparecer igual al
+    // instante y la corregida recién cuando la IA responde. Antes, con la IA
+    // lenta, no aparecía NADA hasta que volviera -- eso era "se traba".
+    {
+      const t0 = Date.now();
+      await fetch(`http://localhost:4009/api/meet-bridge/${encodeURIComponent(key)}/transcript`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ speaker: "Lenta", text: "el informe lento del cliente queda para el lunes", lang: "es-AR" }),
+      });
+      await new Promise((r) => setTimeout(r, 2600));
+      const deLenta = lineas.filter((l) => l.speakerName === "Lenta");
+      const cruda = deLenta.find((l) => l.provisional === true);
+      const final = deLenta.find((l) => l.provisional === false);
+      check("con la IA lenta, la línea cruda aparece en menos de medio segundo",
+        Boolean(cruda) && cruda.__t - t0 < 600, cruda ? `${cruda.__t - t0} ms` : "no llegó la provisional");
+      check("y la corregida llega después, cuando la IA responde (≥ 1,4 s), sobre la misma id",
+        Boolean(final) && final.__t - t0 >= 1400 && final.id === cruda?.id,
+        final ? `${final.__t - t0} ms` : "no llegó la definitiva");
+    }
 
     // EL CONTEXTO en la traducción por línea (la del panel de la extensión):
     // "no lo veo" se traduce distinto si venían hablando de un archivo o de

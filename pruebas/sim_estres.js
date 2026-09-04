@@ -8,6 +8,14 @@ const { chromium } = require("/opt/node22/lib/node_modules/playwright/node_modul
 const B = "http://localhost:4174";
 const results = [];
 const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" : "FAIL"} ${n}${d ? " — " + d : ""}`); };
+// Un elemento que TIENE que estar: si no está, es FAIL (no un salto en
+// silencio que deja la suite en verde con la pantalla rota).
+const exigir = async (loc, nombre) => {
+  const n = await loc.count().catch(() => 0);
+  if (n > 0) return true;
+  check(nombre, false, "no está en la pantalla");
+  return false;
+};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const rnd = (n) => Array.from({ length: n }, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join("");
 
@@ -91,7 +99,7 @@ async function videoTracks(page) {
     if (isSharing) {
       // EL BUG: apagar la cámara mientras compartís apagaba la PANTALLA.
       const camBtn = p.getByRole("button", { name: /Apagar cámara/i }).first();
-      if (await camBtn.count()) { await camBtn.click(); await p.waitForTimeout(1200); }
+      if (await exigir(camBtn, "hay botón «Apagar cámara»")) { await camBtn.click(); await p.waitForTimeout(1200); }
       const afterCamOff = await videoTracks(p);
       const screenTrack = afterCamOff.find((t) => t.screen);
       check("apagar la cámara NO apaga la pantalla compartida",
@@ -102,7 +110,7 @@ async function videoTracks(page) {
 
       // Volver a prender la cámara no debe romper nada.
       const camOn = p.getByRole("button", { name: /Activar cámara/i }).first();
-      if (await camOn.count()) { await camOn.click(); await p.waitForTimeout(1000); }
+      if (await exigir(camOn, "hay botón «Activar cámara»")) { await camOn.click(); await p.waitForTimeout(1000); }
       const afterCamOn = await videoTracks(p);
       check("prender la cámara tampoco pisa la pantalla",
         afterCamOn.some((t) => t.screen && t.state === "live"),
@@ -112,7 +120,7 @@ async function videoTracks(page) {
       // colgado en "compartiendo" para siempre.
       let switched = false;
       const settings = p.getByRole("button", { name: /Ajustes|Configuración/i }).first();
-      if (await settings.count()) {
+      if (await exigir(settings, "hay botón de Ajustes/Configuración")) {
         await settings.click();
         await p.waitForTimeout(700);
         const camSelect = p.locator("select").filter({ hasText: /fake|camera|cámara/i }).first();
@@ -141,7 +149,7 @@ async function videoTracks(page) {
 
       // Dejar de compartir devuelve la cámara.
       const stopBtn = p.getByRole("button", { name: /Dejar de compartir|Compartiendo/i }).first();
-      if (await stopBtn.count()) { await stopBtn.click(); await p.waitForTimeout(1800); }
+      if (await exigir(stopBtn, "hay botón «Dejar de compartir»")) { await stopBtn.click(); await p.waitForTimeout(1800); }
       const afterStop = await videoTracks(p);
       check("al dejar de compartir vuelve la cámara",
         afterStop.some((t) => !t.screen && t.state === "live") && !afterStop.some((t) => t.screen),

@@ -34,6 +34,13 @@ function joinCompanion(s, externalKey, name, token) {
   const ra = await joinCompanion(a, key, "Ana", tokenA);
   check("A entra a la sala companion", ra.ok === true);
   const dbId = ra.meeting?.dbId;
+  // LA CARRERA DEL GRABADOR. La fila de la reunión se inserta sin esperar y
+  // el grabador automático arranca en el mismo instante: su primer pedido
+  // llegaba ANTES que el insert y recibía 404 (visto en una corrida real).
+  // Ahora el servidor le da un respiro a la fila recién nacida. Se pega al
+  // endpoint en el MISMO tick que el ack: lo peor que puede pasar.
+  const carrera = await fetch(`http://localhost:4001/api/meetings/${dbId}/recording-started`, { method: "POST" });
+  check("un pedido de grabación en el mismo instante del alta no recibe 404", carrera.status === 200, `HTTP ${carrera.status}`);
 
   let aSawJoin = false;
   a.on("participant-joined", () => { aSawJoin = true; });

@@ -8,6 +8,14 @@ const { io: sio } = require("/home/user/Taller-0/client/node_modules/socket.io-c
 const B = "http://localhost:4174", API = "http://localhost:4001";
 const results = [];
 const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" : "FAIL"} ${n}${d ? " — " + d : ""}`); };
+// Un elemento que TIENE que estar: si no está, es FAIL (no un salto en
+// silencio que deja la suite en verde con la pantalla rota).
+const exigir = async (loc, nombre) => {
+  const n = await loc.count().catch(() => 0);
+  if (n > 0) return true;
+  check(nombre, false, "no está en la pantalla");
+  return false;
+};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const IGNORABLE = /fonts\.g|favicon|ERR_ABORTED|ResizeObserver|Download the React/i;
@@ -103,11 +111,11 @@ async function remoteVideos(page) {
 
   // El chat viaja entre los dos.
   const chatBtn = a.getByRole("button", { name: /Chat/i }).first();
-  if (await chatBtn.count()) {
+  if (await exigir(chatBtn, "A tiene el botón de Chat")) {
     await chatBtn.click();
     await a.waitForTimeout(600);
     const input = a.getByPlaceholder(/mensaje|Escribí/i).first();
-    if (await input.count()) {
+    if (await exigir(input, "el chat tiene el campo para escribir")) {
       await input.fill("hola bruno, me escuchas");
       await input.press("Enter");
       await sleep(2200);
@@ -116,20 +124,20 @@ async function remoteVideos(page) {
   const chatB = a.getByRole("button", { name: /Chat/i }).first();
   if (await chatB.count()) { /* ya abierto en A */ }
   const bChat = b.getByRole("button", { name: /Chat/i }).first();
-  if (await bChat.count()) { await bChat.click(); await b.waitForTimeout(900); }
+  if (await exigir(bChat, "B tiene el botón de Chat")) { await bChat.click(); await b.waitForTimeout(900); }
   check("el chat de A le llega a B",
     ((await b.locator("body").textContent()) || "").includes("me escuchas"));
 
   // B se va: A tiene que soltar su conexión sin romperse.
   const salir = b.getByRole("button", { name: /Salir/i }).first();
-  if (await salir.count()) { await salir.click(); await sleep(1200); }
+  if (await exigir(salir, "B tiene el botón Salir")) { await salir.click(); await sleep(1200); }
   const prompt = b.getByText(/¿Guardar esta reunión\?/i);
   if (await prompt.count()) {
     // Por NOMBRE, no por índice: recorrer la lista de botones y clicar el
     // enésimo fallaba si mientras tanto se iba un botón transitorio (un
     // aviso, un «Reintentar») y ese índice dejaba de existir.
     const no = b.getByRole("button", { name: /sin guardar|Seguir|No, gracias|Descartar/i }).first();
-    if (await no.count()) await no.click();
+    if (await exigir(no, "el diálogo de guardar tiene su «No, gracias»")) await no.click();
   }
   await sleep(3000);
   check("cuando B se va, A suelta su video", (await remoteVideos(a)) === 0, `remotos en A=${await remoteVideos(a)}`);

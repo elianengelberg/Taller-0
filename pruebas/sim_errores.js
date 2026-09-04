@@ -6,6 +6,14 @@ const { io } = require("/home/user/Taller-0/client/node_modules/socket.io-client
 const B = "http://localhost:4174", API = "http://localhost:4001";
 const results = [];
 const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" : "FAIL"} ${n}${d ? " — " + d : ""}`); };
+// Un elemento que TIENE que estar: si no está, es FAIL (no un salto en
+// silencio que deja la suite en verde con la pantalla rota).
+const exigir = async (loc, nombre) => {
+  const n = await loc.count().catch(() => 0);
+  if (n > 0) return true;
+  check(nombre, false, "no está en la pantalla");
+  return false;
+};
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const rnd = (n) => Array.from({ length: n }, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join("");
 const meetCode = () => `${rnd(3)}-${rnd(4)}-${rnd(3)}`;
@@ -77,7 +85,10 @@ async function joinExternal(page, link, name = "Tester") {
       await page.close();
       continue;
     }
-    check(`${label}: entra sin romperse`, true);
+    check(`${label}: entra sin romperse (en la reunión y con la capa conectada)`,
+      page.url().includes("/externa/reunion") &&
+        /Companion activo/.test((await page.locator("body").textContent()) || ""),
+      page.url());
 
     if (joined) {
       // Recorrer TODOS los paneles y controles, que es donde suele romperse.
@@ -109,9 +120,13 @@ async function joinExternal(page, link, name = "Tester") {
     await page.route("**/api/translate", (r) =>
       r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ translatedText: "translated line" }) })
     );
-    await joinExternal(page, `https://meet.google.com/${code}`, "Anfitrión");
+    const entro = await joinExternal(page, `https://meet.google.com/${code}`, "Anfitrión");
+    check("entra a la reunión externa y conecta la capa de Unify",
+      entro && page.url().includes("/externa/reunion") &&
+        /Companion activo/.test((await page.locator("body").textContent()) || ""),
+      page.url());
     const lang = page.getByTitle(/Idioma en el que ves los subtítulos/i);
-    if (await lang.count()) await lang.selectOption("en-US");
+    if (await exigir(lang, "el selector «Traducir a» está en el dock")) await lang.selectOption("en-US");
 
     // Tres personas hablando desde otros dispositivos.
     const socks = [];
@@ -146,7 +161,7 @@ async function joinExternal(page, link, name = "Tester") {
 
     // ---- Salir limpio ----
     const salir = page.getByRole("button", { name: /Salir de la reunión/i });
-    if (await salir.count()) { await salir.click(); await sleep(1200); }
+    if (await exigir(salir, "hay un botón para salir de la reunión")) { await salir.click(); await sleep(1200); }
     // Como invitado, Unify pregunta si querés guardar la reunión en una cuenta
     // antes de salir: es lo correcto, hay que responderle.
     const prompt = page.getByText(/¿Guardar esta reunión\?/i);

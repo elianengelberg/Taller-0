@@ -1364,6 +1364,18 @@ app.post("/api/meetings/:id/report", requireAuth, aiLimit, async (req, res) => {
   res.json({ report: result.answer });
 });
 
+// La fila de una reunión companion se inserta sin esperar (fire-and-forget)
+// apenas alguien entra, y el grabador automático arranca en el mismo
+// instante: su primer pedido podía llegar ANTES que el insert y recibir un
+// 404 ("no encontramos esa reunión") por una carrera de milisegundos. Misma
+// regla que recordMessage/claimMeeting: si no está, se le da un respiro y se
+// vuelve a mirar una vez.
+async function meetingExistsPaciente(id: string): Promise<boolean> {
+  if (await meetingExists(id)) return true;
+  await new Promise((r) => setTimeout(r, 800));
+  return meetingExists(id);
+}
+
 app.post("/api/meetings/:id/recording-upload-url", uploadLimit, async (req, res) => {
   if (!storageEnabled) {
     res.status(503).json({ error: "El almacenamiento de grabaciones no está configurado." });
@@ -1376,7 +1388,7 @@ app.post("/api/meetings/:id/recording-upload-url", uploadLimit, async (req, res)
   const contentType = normalizeRecordingType(req.body?.contentType);
   // The meeting id is unauthenticated by design (guests record too), but it
   // must at least reference a real meeting -- not be a free upload endpoint.
-  if (dbEnabled && !(await meetingExists(req.params.id))) {
+  if (dbEnabled && !(await meetingExistsPaciente(req.params.id))) {
     res.status(404).json({ error: "No encontramos esa reunión." });
     return;
   }
@@ -1396,7 +1408,7 @@ app.post("/api/meetings/:id/recording-upload-url", uploadLimit, async (req, res)
 // Pinged the instant a recording starts, so we anchor the video's t=0 to a
 // real server-clock timestamp (skew-free, no upload delay) for transcript sync.
 app.post("/api/meetings/:id/recording-started", async (req, res) => {
-  if (dbEnabled && !(await meetingExists(req.params.id))) {
+  if (dbEnabled && !(await meetingExistsPaciente(req.params.id))) {
     res.status(404).json({ error: "No encontramos esa reunión." });
     return;
   }
@@ -1456,7 +1468,7 @@ app.post("/api/meetings/:id/recording-upload", uploadLimit, async (req, res) => 
     res.status(413).json({ error: "La grabación es demasiado grande." });
     return;
   }
-  if (dbEnabled && !(await meetingExists(req.params.id))) {
+  if (dbEnabled && !(await meetingExistsPaciente(req.params.id))) {
     res.status(404).json({ error: "No encontramos esa reunión." });
     return;
   }
@@ -1635,6 +1647,14 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 const httpServer = createServer(app);
+// Node cierra las conexiones keep-alive ociosas a los 5 s. El proxy de
+// Render (y cualquier cliente con pool, como el fetch de Node) puede reusar
+// esa conexión JUSTO cuando se está cerrando: el pedido muere con "socket
+// hang up" / 502 sin haber llegado nunca acá. Se deja la conexión viva más
+// que el ocio del proxy (60 s) y el plazo de cabeceras un poco por encima,
+// como pide Node.
+httpServer.keepAliveTimeout = 65_000;
+httpServer.headersTimeout = 66_000;
 const io = new Server(httpServer, {
   cors: { origin: corsOrigin },
   // Backgrounded/throttled browser tabs can delay the heartbeat past the
