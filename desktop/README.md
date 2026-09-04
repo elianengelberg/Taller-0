@@ -60,20 +60,33 @@ Paso a paso, una sola vez:
    una tarjeta). Aparece "Apps and games".
 2. **Reservar el nombre**: Apps and games → *New product* → *MSIX or PWA
    app* → nombre `Unify` (si está tomado, `Unify Meet`).
-3. **Identidad del producto**: dentro del producto, *Product management →
-   Product identity*. Copiar los tres valores y cargarlos en GitHub →
-   Settings → Secrets → Actions:
+3. **Identidad del producto**: dentro del producto, *Administración de
+   productos → Identidad del producto*. Esos valores NO son secretos (van
+   dentro de cualquier paquete publicado) y viven en `package.json`:
 
-   | Partner Center | Secreto |
-   | --- | --- |
-   | `Package/Identity/Name` (p. ej. `12345Elian.Unify`) | `MSSTORE_IDENTITY_NAME` |
-   | `Package/Identity/Publisher` (`CN=XXXXXXXX-XXXX-...`) | `MSSTORE_PUBLISHER_ID` |
-   | `Package/Properties/PublisherDisplayName` | `MSSTORE_PUBLISHER_DISPLAY_NAME` |
+   | Partner Center | `package.json` | Hoy |
+   | --- | --- | --- |
+   | `Package/Identity/Name` | `build.appx.identityName` | `Eluch.Unify-meet` |
+   | `Package/Identity/Publisher` | `build.appx.publisher` | `CN=4B454654-01F8-48D4-9D39-E543404B77C5` |
+   | `Package/Properties/PublisherDisplayName` | `build.appx.publisherDisplayName` | `Eluch` |
+   | Nombre reservado de la app | `build.appx.displayName` | `Unify-meet` |
+   | Id. de Store | `tienda.productId` | `9P6WLSGRZB1Q` |
 
-4. **Armar el paquete**: Actions → *Instalador de Windows* → *Run workflow*.
-   Al terminar, bajar el artefacto `paquete-microsoft-store` (si dice
-   `-SIN-identidad-de-tienda`, faltan los secretos: ese paquete NO sirve
-   para la tienda).
+   El nombre del paquete (`displayName`) tiene que ser EXACTAMENTE uno de los
+   nombres reservados en *Administrar los nombres de las aplicaciones*; si
+   se reserva otro (p. ej. «Unify»), cambiarlo acá. Los secretos
+   `MSSTORE_IDENTITY_NAME`, `MSSTORE_PUBLISHER_ID`,
+   `MSSTORE_PUBLISHER_DISPLAY_NAME` y `MSSTORE_PRODUCT_ID` son opcionales:
+   si existen, pisan lo del `package.json` (otra cuenta de tienda sin tocar
+   el repo).
+
+4. **Armar el paquete**: Actions → *Instalador de Windows* → *Run workflow*
+   (o cualquier push que toque `desktop/`). Al terminar, bajar el artefacto
+   `paquete-microsoft-store` (si dice `-SIN-identidad-de-tienda`, la
+   identidad sigue siendo la de relleno: ese paquete NO sirve para la
+   tienda). El paso «Mostrar la identidad del paquete» imprime en el log lo
+   que quedó adentro del `.appx`, para cotejar con Partner Center antes de
+   subirlo.
 5. **Enviar**: en el producto → *Start your submission*.
    - *Packages*: subir `Unify-Store.appx`. La tienda avisa que usa
      `runFullTrust`: es normal para una app de escritorio (Electron); si
@@ -87,11 +100,11 @@ Paso a paso, una sola vez:
    - *Pricing and availability*: gratis, todos los mercados.
    - *Submit*. La certificación tarda de horas a 3 días; los reparos llegan
      por email con el motivo exacto.
-6. **Cuando esté publicada**: en la ficha figura la *Store ID* (algo como
-   `9NBLGGH4R315`). Cargarla como `MSSTORE_PRODUCT_ID` (la app abre su
-   ficha desde el menú) y poner en Vercel la variable
-   `VITE_MSSTORE_URL=https://apps.microsoft.com/detail/<StoreID>` para que
-   /instalar muestre el botón «Instalar desde la Microsoft Store».
+6. **Cuando esté publicada**: poner en Vercel la variable
+   `VITE_MSSTORE_URL=https://apps.microsoft.com/detail/9P6WLSGRZB1Q` (y
+   redesplegar) para que /instalar muestre el botón «Instalar desde la
+   Microsoft Store». La app ya abre su ficha desde el menú con la Id. de
+   Store del `package.json`.
 7. **Versiones nuevas**: subir `version` en `package.json`, correr el
    workflow, subir el `.appx` nuevo en una submission nueva (la tienda
    exige que la versión sea mayor que la publicada). El instalador `.exe`

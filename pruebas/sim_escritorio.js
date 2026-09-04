@@ -243,9 +243,18 @@ async function probarTienda(check) {
   const iconos = ["Square44x44Logo.png", "Square150x150Logo.png", "StoreLogo.png", "Wide310x150Logo.png"];
   check("los íconos que exige la tienda están", iconos.every((n) => fs.existsSync(path.join(DESK, "build/appx", n))));
   const pkg = JSON.parse(fs.readFileSync(path.join(DESK, "package.json"), "utf8"));
-  check("electron-builder tiene el target appx configurado (identidad de relleno, la real la pone el workflow)",
+  check("electron-builder tiene el target appx configurado (extensiones, tienda.js, nombre del artefacto)",
     pkg.build?.appx?.customExtensionsPath === "build/appx-extensiones.xml" && pkg.build?.files?.includes("tienda.js")
     && pkg.build?.appx?.artifactName === "Unify-Store.appx");
+  // La identidad es la que Partner Center reservó, no la de relleno: con
+  // la de relleno la tienda rechaza el paquete en el primer paso.
+  check("la identidad del paquete es la de Partner Center (no la de relleno)",
+    pkg.build?.appx?.identityName === "Eluch.Unify-meet"
+    && /^CN=[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/.test(pkg.build?.appx?.publisher || "")
+    && pkg.build?.appx?.displayName === "Unify-meet",
+    `${pkg.build?.appx?.identityName} / ${pkg.build?.appx?.publisher} / ${pkg.build?.appx?.displayName}`);
+  check("y la Id. de Store de la ficha viaja en el paquete (el menú abre la ficha)",
+    enlaceTienda(pkg.tienda?.productId) === "ms-windows-store://pdp/?productid=9P6WLSGRZB1Q", String(pkg.tienda?.productId));
 }
 
 async function probarCartel(check) {

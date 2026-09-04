@@ -174,14 +174,15 @@ jobs:
       # La vía sin avisos: la tienda escanea y FIRMA el paquete con su propio
       # certificado, así que acá sale SIN firmar (electron-builder lo dice:
       # "Windows Store only build"). La identidad tiene que ser EXACTAMENTE la
-      # que Partner Center reservó para la app (Producto → Identidad del
-      # producto): MSSTORE_IDENTITY_NAME (Package/Identity/Name),
-      # MSSTORE_PUBLISHER_ID (Package/Identity/Publisher, el "CN=...") y
-      # MSSTORE_PUBLISHER_DISPLAY_NAME. Sin esos secretos se empaqueta igual
-      # con una identidad de relleno, para que el circuito esté probado, y el
-      # artefacto lo dice en el nombre. MSSTORE_PRODUCT_ID (la "Store ID" de
-      # la ficha, p. ej. 9NBLGGH4R315) es opcional: la app lo usa para abrir
-      # su ficha desde el menú. Paso a paso en desktop/README.md.
+      # que Partner Center reservó (Producto → Identidad del producto) y vive
+      # en desktop/package.json (build.appx: identityName = Package/Identity/
+      # Name, publisher = Package/Identity/Publisher "CN=...",
+      # publisherDisplayName, displayName = el nombre reservado; tienda.productId
+      # = la Id. de Store). No son secretos: van dentro de cualquier paquete
+      # publicado. Los secretos MSSTORE_* son OPCIONALES y, si existen, pisan
+      # lo del package.json (para otra cuenta de tienda sin tocar el repo).
+      # Si la identidad sigue siendo la de relleno ("CN=Unify"), el artefacto
+      # lo dice en el nombre: ese paquete NO sirve para la tienda.
       - name: Compilar el paquete para la Microsoft Store
         id: tienda
         working-directory: desktop
@@ -193,20 +194,36 @@ jobs:
           MSSTORE_PUBLISHER_DISPLAY_NAME: ${{ secrets.MSSTORE_PUBLISHER_DISPLAY_NAME }}
           MSSTORE_PRODUCT_ID: ${{ secrets.MSSTORE_PRODUCT_ID }}
         run: |
-          $conIdentidad = [bool]$env:MSSTORE_IDENTITY_NAME -and [bool]$env:MSSTORE_PUBLISHER_ID
-          $nombre = if ($conIdentidad) { $env:MSSTORE_IDENTITY_NAME } else { "Unify" }
-          $editor = if ($conIdentidad) { $env:MSSTORE_PUBLISHER_ID } else { "Unify" }
-          if ($editor -notmatch '^CN=') { $editor = "CN=$editor" }
-          $mostrar = if ($env:MSSTORE_PUBLISHER_DISPLAY_NAME) { $env:MSSTORE_PUBLISHER_DISPLAY_NAME } else { "Unify" }
-          $producto = if ($env:MSSTORE_PRODUCT_ID) { $env:MSSTORE_PRODUCT_ID } else { "" }
-          "identidad=$(if ($conIdentidad) { 'tienda' } else { 'relleno' })" >> $env:GITHUB_OUTPUT
-          npx electron-builder --win appx --publish never `
-            "-c.appx.identityName=$nombre" `
-            "-c.appx.publisher=$editor" `
-            "-c.appx.publisherDisplayName=$mostrar" `
-            "-c.extraMetadata.tienda.productId=$producto"
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $extra = @()
+          if ($env:MSSTORE_IDENTITY_NAME) { $extra += "-c.appx.identityName=$env:MSSTORE_IDENTITY_NAME" }
+          if ($env:MSSTORE_PUBLISHER_ID) {
+            $editor = $env:MSSTORE_PUBLISHER_ID
+            if ($editor -notmatch '^CN=') { $editor = "CN=$editor" }
+            $extra += "-c.appx.publisher=$editor"
+          }
+          if ($env:MSSTORE_PUBLISHER_DISPLAY_NAME) { $extra += "-c.appx.publisherDisplayName=$env:MSSTORE_PUBLISHER_DISPLAY_NAME" }
+          if ($env:MSSTORE_PRODUCT_ID) { $extra += "-c.extraMetadata.tienda.productId=$env:MSSTORE_PRODUCT_ID" }
+          $editorFinal = if ($env:MSSTORE_PUBLISHER_ID) { $env:MSSTORE_PUBLISHER_ID } else { $pkg.build.appx.publisher }
+          $relleno = ($editorFinal -eq "CN=Unify")
+          "identidad=$(if ($relleno) { 'relleno' } else { 'tienda' })" >> $env:GITHUB_OUTPUT
+          npx electron-builder --win appx --publish never @extra
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-ChildItem dist\*.appx | ForEach-Object { "$($_.Name)  $([math]::Round($_.Length / 1MB, 1)) MB" }
+
+      # La identidad que quedó ADENTRO del paquete, a la vista en el log: es
+      # lo primero que la tienda rechaza si no coincide con lo reservado.
+      - name: Mostrar la identidad del paquete
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $appx = (Get-ChildItem dist\*.appx | Select-Object -First 1).FullName
+          $zip = [IO.Compression.ZipFile]::OpenRead($appx)
+          $entrada = $zip.Entries | Where-Object { $_.FullName -eq "AppxManifest.xml" }
+          $lector = New-Object IO.StreamReader($entrada.Open())
+          $xml = $lector.ReadToEnd(); $lector.Close(); $zip.Dispose()
+          ($xml | Select-String -Pattern '<Identity[^>]*>', '<DisplayName>[^<]*</DisplayName>', '<PublisherDisplayName>[^<]*</PublisherDisplayName>', 'StartupTask[^>]*>' -AllMatches).Matches.Value
 
       - name: Guardar el paquete de la tienda (artefacto del run)
         uses: actions/upload-artifact@v4

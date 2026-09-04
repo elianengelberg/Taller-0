@@ -73,10 +73,10 @@
     "copyright": "Copyright © 2026 Unify",
     "appx": {
       "applicationId": "Unify",
-      "identityName": "Unify",
-      "publisher": "CN=Unify",
-      "publisherDisplayName": "Unify",
-      "displayName": "Unify",
+      "identityName": "Eluch.Unify-meet",
+      "publisher": "CN=4B454654-01F8-48D4-9D39-E543404B77C5",
+      "publisherDisplayName": "Eluch",
+      "displayName": "Unify-meet",
       "backgroundColor": "#0f172a",
       "languages": [
         "es-AR",
@@ -94,5 +94,8 @@
     "extract-zip": "^2.0.1",
     "yauzl": "^2.10.0"
   },
-  "homepage": "https://unify-meet.com"
+  "homepage": "https://unify-meet.com",
+  "tienda": {
+    "productId": "9P6WLSGRZB1Q"
+  }
 }
