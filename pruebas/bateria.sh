@@ -66,9 +66,10 @@ correr() { # nombre comando...
   local dur=$(( $(date +%s) - t0 ))
   local resumen
   resumen=$(grep -E "^[0-9]+/[0-9]+ OK$" "$log" | tail -1)
-  local fails
+  local fails skips
   fails=$(grep -c "^FAIL" "$log")
-  echo "$n | exit=$code | ${dur}s | FAIL=$fails | $resumen" >> "$OUT"
+  skips=$(grep -c "^SKIP" "$log")
+  echo "$n | exit=$code | ${dur}s | FAIL=$fails | SKIP=$skips | $resumen" >> "$OUT"
 }
 
 # Las de interfaz primero (fallan rápido si se rompió una pantalla), después
