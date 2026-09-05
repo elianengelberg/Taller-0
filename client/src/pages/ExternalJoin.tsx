@@ -258,6 +258,7 @@ export default function ExternalJoin() {
       // NOMBRES_APP del detector de la app de Windows.
       const APPS_ESCRITORIO: Record<string, { nombre: string; enlace: string }> = {
         zoom: { nombre: "Zoom", enlace: "https://zoom.us/join" },
+        meet: { nombre: "Google Meet", enlace: "https://meet.google.com" },
         teams: { nombre: "Microsoft Teams", enlace: "https://teams.microsoft.com" },
         webex: { nombre: "Webex", enlace: "https://www.webex.com" },
         jitsi: { nombre: "Jitsi", enlace: "https://meet.jit.si" },
@@ -269,6 +270,13 @@ export default function ExternalJoin() {
       };
       const infoApp = APPS_ESCRITORIO[sala.split("-")[0]] ?? APPS_ESCRITORIO.zoom;
       const nombreApp = infoApp.nombre;
+      // Un Meet detectado en el navegador viene con su enlace real: la barra
+      // entra a la MISMA sala que usaría la extensión (google-meet:<código>),
+      // así la transcripción, el video y el historial son uno solo aunque la
+      // persona tenga la extensión en otro navegador.
+      const codigoMeet = (searchParams.get("url") ?? "").match(/meet\.google\.com\/([a-z]{3}-[a-z]{4}-[a-z]{3})\b/i)?.[1]?.toLowerCase();
+      const externalKey = codigoMeet ? `google-meet:${codigoMeet}` : `escritorio:${sala}`;
+      const enlaceReunion = codigoMeet ? `https://meet.google.com/${codigoMeet}` : infoApp.enlace;
       // La barra sabe que la vigila el puente local de la app (y que el VIDEO
       // lo graba la app misma). El modo escritorio viaja EN el draft, no en
       // sessionStorage: un remontaje del componente no lo puede perder.
@@ -280,12 +288,12 @@ export default function ExternalJoin() {
         // Formato plataforma:cola, el mismo que valida el bridge: así el
         // grabador silencioso de la app de Windows encuentra ESTA sala (y su
         // dbId) para subirle el video.
-        externalKey: `escritorio:${sala}`,
-        roomLabel: `${nombreApp} (app de escritorio)`,
+        externalKey,
+        roomLabel: codigoMeet ? `Google Meet · ${codigoMeet}` : `${nombreApp} (app de escritorio)`,
         embed: {
           kind: "external",
           label: nombreApp,
-          joinLink: infoApp.enlace,
+          joinLink: enlaceReunion,
         },
         escritorio: true,
       });

@@ -165,6 +165,29 @@ solo, apenas existan los secretos de alguna de estas vías:
   https://www.microsoft.com/wdsi/filesubmission (como desarrollador de
   software).
 
+## Cómo detecta una reunión (tres señales)
+
+1. **Zoom (app)**: el proceso `CptHost.exe`, que Zoom levanta al entrar a una
+   reunión y baja al salir.
+2. **Las demás apps** (Teams, Webex, Jitsi, Chime, GoTo, RingCentral, Slack,
+   Discord): el registro de Windows de "quién tiene el micrófono"
+   (`CapabilityAccessManager\ConsentStore\microphone`, `LastUsedTimeStop = 0`).
+3. **Reuniones en el navegador** (Meet en Chrome, Edge u Opera GX; Teams,
+   Zoom, Webex o Jitsi en su versión web): el **título de la ventana**. Meet
+   pone el código en el título de la pestaña ("Meet – abc-defg-hij") y el
+   navegador lo copia en el de su ventana, minimizada también. Un PowerShell
+   que queda vivo (`SCRIPT_VENTANAS` en detector.js: `EnumWindows` +
+   `ConvertTo-Json` cada 3 s) enumera TODAS las ventanas; la tabla
+   `REUNIONES_POR_TITULO` decide. Como el título se va al cambiar de pestaña,
+   la lectura se sostiene 90 s (`GRACIA_NAVEGADOR_MS`) antes de dar la
+   reunión por terminada. Con el código de Meet, la barra y el video van a
+   la MISMA sala que usaría la extensión (`google-meet:<código>`), así que
+   no hace falta la extensión en ese navegador. Los títulos con «Unify» se
+   ignoran (la barra no se detecta a sí misma).
+
+La sonda simulada (`UNIFY_SIMULACION`) acepta `meet:abc-defg-hij` para
+fingir un Meet del navegador con su código.
+
 ## Probar sin Zoom (cualquier sistema)
 
 - `npm start` abre la app en la bandeja.

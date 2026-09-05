@@ -164,10 +164,61 @@ async function probarDetector(check) {
   check("con Discord de fondo Y Teams en reunión, gana Teams",
     appUsandoElMicrofono(dosALaVez) === "teams", String(appUsandoElMicrofono(dosALaVez)));
 
-  // Un navegador con el micrófono NO es detectable como reunión (podría ser
-  // cualquier página: de eso se encarga la extensión, que ve QUÉ página es).
-  check("Chrome con el micrófono NO dispara el cartel (eso es de la extensión)",
+  // Un navegador con el micrófono NO es detectable como reunión por el
+  // micrófono (podría ser cualquier página)...
+  check("Chrome con el micrófono NO dispara el cartel por el micrófono (podría ser cualquier página)",
     appUsandoElMicrofono(bloque("NonPackaged\\C:#Program Files#Google#Chrome#Application#chrome.exe")) === null);
+
+  // ...pero SÍ por el TÍTULO de la ventana: Meet pone el código de la reunión
+  // en el título de la pestaña y el navegador lo copia en su ventana (Chrome,
+  // Opera GX, Edge; minimizada también). Lo que le pasó al usuario: un Meet
+  // abierto desde el mail en Opera GX, sin la extensión, y ningún cartel.
+  const { reunionEnTitulos, crearMemoriaDeNavegador, crearSondaVentanas, SCRIPT_VENTANAS, GRACIA_NAVEGADOR_MS } = require(path.join(DESK, "detector.js"));
+  const titulo = (t) => JSON.stringify(reunionEnTitulos(t));
+  check("un Meet en Chrome se detecta por el título, con su código",
+    titulo(["Correo - Gmail - Google Chrome", "Meet – abc-defg-hij – Google Chrome"]) === '{"plataforma":"meet","codigo":"abc-defg-hij"}',
+    titulo(["Meet – abc-defg-hij – Google Chrome"]));
+  check("y en Opera GX (el título termina en «Opera»), minimizada o no",
+    titulo(["Meet - xyz-abcd-efg - Opera"]) === '{"plataforma":"meet","codigo":"xyz-abcd-efg"}');
+  check("la portada de Meet (sin código) NO es una reunión",
+    reunionEnTitulos(["Google Meet - Google Chrome"]) === null);
+  check("la propia barra de Unify («… · Unify») NO se detecta a sí misma",
+    reunionEnTitulos(["Google Meet · abc-defg-hij · Unify"]) === null);
+  check("Teams web se detecta por «Reunión | Microsoft Teams»",
+    titulo(["Reunión | Microsoft Teams - Google Chrome"]) === '{"plataforma":"teams"}');
+  check("Zoom web se detecta por «Zoom Meeting»",
+    titulo(["Zoom Meeting - Zoom - Opera"]) === '{"plataforma":"zoom"}');
+  check("Jitsi en el navegador se detecta por «| Jitsi Meet»",
+    titulo(["Daily | Jitsi Meet - Opera"]) === '{"plataforma":"jitsi"}');
+  check("YouTube, TeamSpeak y compañía NO son reuniones",
+    reunionEnTitulos(["YouTube - Google Chrome", "TeamSpeak 3", "Meeting notes.docx - Word", "Microsoft Teams"]) === null);
+  // Cambiar de pestaña esconde el título: la reunión se sostiene un rato.
+  const memoria = crearMemoriaDeNavegador(1000);
+  check("al cambiar de pestaña la reunión del navegador se sostiene (gracia)",
+    memoria.recordar({ plataforma: "meet" }, 0)?.plataforma === "meet" && memoria.recordar(null, 900)?.plataforma === "meet");
+  check("y pasada la gracia sin volver a verla, termina",
+    memoria.recordar(null, 2000) === null);
+  check("la gracia real es de un minuto y medio", GRACIA_NAVEGADOR_MS === 90_000);
+  // El ayudante de ventanas: fuera de Windows no hay nada que mirar; en
+  // Windows es un PowerShell con EnumWindows que escribe JSON cada 3 s.
+  const ventanas = crearSondaVentanas({ plataforma: "linux" });
+  check("fuera de Windows el ayudante de ventanas devuelve una lista vacía y no levanta nada",
+    Array.isArray(ventanas.titulos()) && ventanas.titulos().length === 0 && ventanas.viva === false);
+  ventanas.detener();
+  const lanzados = [];
+  const falso = crearSondaVentanas({ plataforma: "win32", spawn: (cmd, args) => { lanzados.push({ cmd, args }); return { stdout: { setEncoding() {}, on() {} }, on() {}, kill() {} }; } });
+  const arg = lanzados[0]?.args || [];
+  const guion = Buffer.from(arg[arg.indexOf("-EncodedCommand") + 1] || "", "base64").toString("utf16le");
+  check("en Windows levanta powershell.exe con el guion codificado (EnumWindows + JSON cada 3 s)",
+    lanzados[0]?.cmd === "powershell.exe" && /EnumWindows/.test(guion) && /ConvertTo-Json/.test(guion) && /Start-Sleep -Seconds 3/.test(guion) && guion === SCRIPT_VENTANAS);
+  falso.detener();
+  // La sonda simulada sabe fingir un Meet con código.
+  const rutaMeet = path.join(os.tmpdir(), `unify-sonda-meet-${Date.now()}`);
+  fs.writeFileSync(rutaMeet, "meet:abc-defg-hij");
+  const lecturaMeet = await sondaArchivo(rutaMeet)();
+  fs.rmSync(rutaMeet, { force: true });
+  check("la sonda simulada finge un Meet con código («meet:abc-defg-hij»)",
+    lecturaMeet?.plataforma === "meet" && lecturaMeet?.codigo === "abc-defg-hij", JSON.stringify(lecturaMeet));
 
   // EL PUENTE LOCAL (127.0.0.1:47125) ya no le contesta a cualquier página:
   // sólo la web de Unify y las direcciones locales (CORS acotado). Un puerto
@@ -257,6 +308,30 @@ async function probarTienda(check) {
     enlaceTienda(pkg.tienda?.productId) === "ms-windows-store://pdp/?productid=9P6WLSGRZB1Q", String(pkg.tienda?.productId));
 }
 
+// La barra que abre la app para un Meet del navegador: entra a la sala de
+// la extensión (google-meet:<código>), se presenta como Google Meet y ofrece
+// abrir ESA reunión.
+async function probarBarraMeet(check) {
+  const { chromium } = require("/opt/node22/lib/node_modules/playwright/node_modules/playwright-core");
+  const codigo = "qwe-rtyu-iop";
+  const b = await chromium.launch({ args: ["--no-sandbox", "--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"] });
+  const ctx = await b.newContext({ permissions: ["microphone"] });
+  const p = await ctx.newPage();
+  await p.addInitScript(() => { window.open = () => null; localStorage.setItem("unify_external_name", "Escritorio"); });
+  await p.goto(`http://localhost:4174/externa?origen=escritorio&sala=meet-${codigo}&url=${encodeURIComponent(`https://meet.google.com/${codigo}`)}`, { waitUntil: "domcontentloaded" });
+  await p.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
+  await p.waitForTimeout(3000);
+  const cuerpo = (await p.locator("body").textContent()) || "";
+  check("la barra abierta por la app para un Meet entra a la reunión", /\/externa\/reunion/.test(p.url()), p.url());
+  check("y se presenta como Google Meet con el código", /Google Meet/.test(cuerpo) && cuerpo.includes(codigo), cuerpo.slice(0, 120).replace(/\s+/g, " "));
+  const abrir = p.locator(`a[href="https://meet.google.com/${codigo}"]`);
+  check("con el botón para abrir ESA reunión de Meet", (await abrir.count()) > 0);
+  const ses = await fetch(`http://localhost:4001/api/meet-bridge/${encodeURIComponent(`google-meet:${codigo}`)}/session`).then((r) => r.json()).catch(() => null);
+  check("y está en la MISMA sala que usaría la extensión (google-meet:<código>)",
+    Array.isArray(ses?.participants) && ses.participants.some((x) => x.name === "Escritorio"), JSON.stringify(ses?.participants || null).slice(0, 120));
+  await b.close();
+}
+
 async function probarCartel(check) {
   const { chromium } = require("/opt/node22/lib/node_modules/playwright/node_modules/playwright-core");
   const b = await chromium.launch({ args: ["--no-sandbox"] });
@@ -298,7 +373,7 @@ async function probarCartel(check) {
 // Teams) y la sala subida tiene que llevar ese prefijo -- así el título del
 // historial dice la app correcta.
 async function probarGrabadorSilencioso(check, opciones = {}) {
-  const { contenido = "1", clavePrefijo = /^escritorio:zoom-/, etiqueta = "Zoom" } = opciones;
+  const { contenido = "1", clavePrefijo = /^escritorio:zoom-/, etiqueta = "Zoom", barraEsperada = null } = opciones;
   const os = require("os");
   const http = require("http");
   const SIMULACION = path.join(os.tmpdir(), "unify-reunion-simulada");
@@ -342,6 +417,8 @@ async function probarGrabadorSilencioso(check, opciones = {}) {
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  let salidaApp = "";
+  hijo.stdout.on("data", (d) => { salidaApp += d; });
   const espera = (ms) => new Promise((r) => setTimeout(r, ms));
 
   try {
@@ -360,6 +437,10 @@ async function probarGrabadorSilencioso(check, opciones = {}) {
     if (capturado.upload) {
       check(`a la MISMA sala que la barra companion, con la app en la clave (${etiqueta})`,
         clavePrefijo.test(capturado.sesionKey ?? ""), String(capturado.sesionKey));
+      if (barraEsperada) {
+        const barra = (salidaApp.match(/UNIFY_BARRA (\S+)/) || [])[1] || "";
+        check(`y la barra se abrió con la reunión real (${etiqueta})`, barraEsperada.test(barra), barra.slice(0, 160));
+      }
       if (!opciones.soloClave) {
         check("y es un webm de verdad (magia EBML)",
           capturado.upload.subarray(0, 4).toString("hex") === "1a45dfa3");
@@ -447,6 +528,17 @@ hijo.on("exit", async (c) => {
     etiqueta: "Jitsi",
     soloClave: true,
   }).catch((e) => check("grabador silencioso (Jitsi)", false, String(e.message)));
+  // Y un MEET EN EL NAVEGADOR (detectado por el título, con su código): la
+  // barra abre con el enlace real de Meet y el video cae en la MISMA sala que
+  // usaría la extensión (google-meet:<código>), no en una sala inventada.
+  await probarGrabadorSilencioso(check, {
+    contenido: "meet:abc-defg-hij",
+    clavePrefijo: /^google-meet:abc-defg-hij$/,
+    etiqueta: "Google Meet",
+    soloClave: true,
+    barraEsperada: /\/externa\?origen=escritorio&sala=meet-abc-defg-hij&url=https%3A%2F%2Fmeet\.google\.com%2Fabc-defg-hij$/,
+  }).catch((e) => check("grabador silencioso (Meet en el navegador)", false, String(e.message)));
+  await probarBarraMeet(check).catch((e) => check("barra de Meet desde el escritorio", false, String(e.message)));
   check("la app de escritorio abre UNA ventana propia (antes no abría ninguna)", r.ventanas === 1, `ventanas=${r.ventanas}`);
   check("y se ve (no queda escondida en la bandeja)", r.visible === true);
   check("con el título de la app", r.titulo === "Unify", String(r.titulo));

@@ -20,7 +20,7 @@ const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { crearDetector, sondaWindows, sondaArchivo } = require("./detector");
+const { crearDetector, sondaWindows, detenerSondaWindows, sondaArchivo } = require("./detector");
 const { crearPuente } = require("./puente");
 const { refrescarExtension } = require("./extensionLocal");
 // electron-updater es quien mira GitHub Releases (latest.yml), baja el
@@ -53,12 +53,18 @@ let puente = null;
 let detector = null;
 let salaActual = "";
 let plataformaActual = "zoom"; // qué app disparó la reunión en curso
+// El código de la reunión cuando el detector lo conoce (Meet en el navegador:
+// "abc-defg-hij"). Con código, la barra y la grabación van a la MISMA sala
+// que usaría la extensión de Chrome (google-meet:<código>), no a una sala
+// inventada por la app.
+let codigoActual = "";
 let navegadorHijo = null;
 
 // Cómo se le dice a cada app en los carteles y avisos. Las claves son las
 // plataformas que el detector sabe reconocer (ver detector.js).
 const NOMBRES_APP = {
   zoom: "Zoom",
+  meet: "Google Meet",
   teams: "Microsoft Teams",
   webex: "Webex",
   jitsi: "Jitsi",
@@ -217,11 +223,16 @@ function esRutaDeReunion(url) {
   }
 }
 
-function reunionEmpezo(plataforma) {
-  // El detector dice QUÉ app entró ("zoom"/"teams"); la sala lo lleva en el
-  // prefijo, y de ahí salen el título del historial y el texto del cartel.
+function reunionEmpezo(lectura) {
+  // El detector dice QUÉ app entró ("zoom"/"teams", o { plataforma, codigo }
+  // para las del navegador); la sala lo lleva en el prefijo, y de ahí salen
+  // el título del historial y el texto del cartel.
+  const plataforma = typeof lectura === "string" ? lectura : lectura?.plataforma;
   plataformaActual = NOMBRES_APP[plataforma] ? plataforma : "zoom";
-  salaActual = `${plataformaActual}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  codigoActual = String((lectura && lectura.codigo) || "").replace(/[^a-z0-9-]/gi, "").slice(0, 40);
+  salaActual = codigoActual
+    ? `${plataformaActual}-${codigoActual}`
+    : `${plataformaActual}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   puente.fijarEstado(true);
   mostrarCartel();
 }
@@ -230,6 +241,7 @@ function reunionTermino() {
   // La barra (si está abierta) ve el cambio por el puente y corta lo suyo.
   puente.fijarEstado(false);
   salaActual = "";
+  codigoActual = "";
   if (cartel && !cartel.isDestroyed()) cartel.close();
   // Y el grabador silencioso cierra y sube: la reunión terminó.
   void detenerGrabacionEscritorio();
@@ -245,7 +257,24 @@ function reunionTermino() {
 // nada. Se captura LA PANTALLA (no la ventana de Zoom: minimizada se graba
 // negra; la pantalla es lo que la persona está mirando, siempre existe).
 // ============================================================================
-let grabador = null; // { win, archivo, stream, empezoEn, sala }
+let grabador = null; // { win, archivo, stream, empezoEn, sala, clave }
+
+// La clave del bridge de la reunión en curso: la de la extensión cuando hay
+// código (google-meet:abc-defg-hij), la propia de la app si no.
+function claveDeLaReunion(sala) {
+  if (plataformaActual === "meet" && codigoActual) return `google-meet:${codigoActual}`;
+  return `escritorio:${sala}`;
+}
+
+// La dirección de la barra companion para esta reunión: con el enlace real
+// de Meet cuando se conoce (la barra entra a ESA sala y ofrece abrir Meet).
+function direccionDeLaBarra(sala) {
+  const base = `${WEB}/externa?origen=escritorio&sala=${encodeURIComponent(sala)}`;
+  if (plataformaActual === "meet" && codigoActual) {
+    return `${base}&url=${encodeURIComponent(`https://meet.google.com/${codigoActual}`)}`;
+  }
+  return base;
+}
 
 async function iniciarGrabacionEscritorio() {
   if (grabador) return; // ya hay una andando
@@ -291,7 +320,7 @@ async function iniciarGrabacionEscritorio() {
       callback(permiso === "media");
     });
 
-    grabador = { win, archivo, stream: salida, empezoEn: Date.now(), sala };
+    grabador = { win, archivo, stream: salida, empezoEn: Date.now(), sala, clave: claveDeLaReunion(sala) };
     win.on("closed", () => {
       if (grabador && grabador.win === win) grabador = null;
     });
@@ -349,7 +378,7 @@ async function cerrarYSubirGrabacion(resultado) {
     // La MISMA sala que la barra companion: el video cae en esa reunión, con
     // su transcripción. El GET crea la reunión si la barra nunca llegó a
     // abrirse (mejor un video huérfano de barra que un video perdido).
-    const clave = encodeURIComponent(`escritorio:${g.sala}`);
+    const clave = encodeURIComponent(g.clave || `escritorio:${g.sala}`);
     const ses = await fetch(`${SERVER}/api/meet-bridge/${clave}/session`).then((r) => r.json());
     if (!ses?.dbId) throw new Error("el bridge no dio la reunión");
     const subida = await fetch(
@@ -426,7 +455,7 @@ function abrirBarra() {
   const area = screen.getPrimaryDisplay().workArea;
   const ancho = Math.min(760, area.width - 80);
   const alto = Math.min(780, area.height - 80);
-  abrirEnChrome(`${WEB}/externa?origen=escritorio&sala=${sala}`, {
+  abrirEnChrome(direccionDeLaBarra(sala), {
     ancho,
     alto,
     x: Math.round(area.x + (area.width - ancho) / 2),
@@ -439,6 +468,8 @@ function abrirBarra() {
 // de Google que sólo trae Chrome. Sin Chrome instalado, el navegador que haya
 // -- la reunión anda igual, y la propia web avisa si no puede transcribir.
 function abrirEnChrome(url, medidas) {
+  // El arnés (sin Chrome) lee por acá a dónde se mandó la barra.
+  if (process.env.UNIFY_TEST === "1") console.log(`UNIFY_BARRA ${url}`);
   const chrome = rutaDeChrome();
   if (!chrome) {
     shell.openExternal(url);
@@ -665,5 +696,6 @@ app.on("before-quit", () => {
   app.cerrandoDeVerdad = true;
   void detenerGrabacionEscritorio();
   detector?.detener();
+  detenerSondaWindows();
   void puente?.cerrar();
 });
