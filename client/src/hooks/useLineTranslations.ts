@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { shortLang } from "../lib/languages";
+import { idiomaEfectivo } from "../lib/idioma";
 import { translate } from "../lib/translate";
 
 export const ORIGINAL_LANG = "original";
@@ -70,7 +71,11 @@ export function useLineTranslations(lines: TranslatableLine[], targetLang: strin
       // `in` y no truthiness: una traducción vacía legítima no debe
       // re-pedirse en loop para siempre.
       if (key in translations || inFlightRef.current.has(key)) return;
-      if (shortLang(line.sourceLang) === shortLang(targetLang)) return;
+      // La etiqueta es el idioma CONFIGURADO, no el de la frase: si te
+      // hablan en inglés con el oído en español, la línea llega "es-AR" y
+      // se quedaba en inglés. Se decide por lo que dice el texto.
+      const fuente = idiomaEfectivo(line.text, line.sourceLang);
+      if (fuente === shortLang(targetLang)) return;
 
       const len = line.text.length;
       const anotarUltima = (value: string) => {
@@ -93,7 +98,7 @@ export function useLineTranslations(lines: TranslatableLine[], targetLang: strin
         .slice(0, Math.max(0, lines.indexOf(line)))
         .slice(-3)
         .map((l) => `${l.speakerName ?? ""}: ${l.text}`.slice(0, 240));
-      translate(line.text, line.sourceLang, targetLang, contexto)
+      translate(line.text, fuente, targetLang, contexto)
         .then((translated) => {
           anotarUltima(translated);
           if (!cancelled) setTranslations((prev) => ({ ...prev, [key]: translated }));

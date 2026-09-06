@@ -83,6 +83,14 @@ input, select, textarea { font-family: inherit; }
   font-size: 12px;
   pointer-events: auto;
 }
+/* Con el panel abierto, el badge se corre a la IZQUIERDA del cajón: antes
+   quedaba encima del título y de la ✕ y no se podía cerrar el panel. */
+.badge { transition: right 0.24s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease; }
+.badge.is-shifted { right: calc(min(384px, 94vw) + 16px); }
+/* En pantallas angostas el cajón ocupa casi todo: el badge se retira. */
+@media (max-width: 720px) {
+  .badge.is-shifted { opacity: 0; pointer-events: none; }
+}
 .badge .live {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--ok); flex: none;

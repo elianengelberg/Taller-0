@@ -110,6 +110,36 @@ async function joinExternal(page, link, name = "Tester") {
     await page.close();
   }
 
+  // ================= 1b. Entrada de un clic (nombre recordado) =================
+  // Con el nombre ya guardado (después del bloque 1), /externa?link=… entra
+  // sola a la reunión. La pantalla se monta MILISEGUNDOS después del
+  // proveedor, con el handshake del socket todavía en el aire, y un segundo
+  // `socket.connect()` mandaba OTRO paquete CONNECT: el servidor cortaba y la
+  // capa quedaba en «Reconectando…» para siempre (3 de 4 veces acá; en
+  // producción, con más latencia, casi siempre). Se repite varias veces
+  // porque es una carrera.
+  {
+    let conectadas = 0, connectsEnLaPrimera = [];
+    for (let i = 0; i < 3; i++) {
+      const page = await ctx.newPage();
+      let primera = null;
+      page.on("websocket", (ws) => {
+        if (primera) return;
+        primera = { connects: 0 };
+        ws.on("framesent", (f) => { if (String(f.payload) === "40") primera.connects++; });
+      });
+      await page.route("**fonts.g**", (r) => r.abort());
+      await page.goto(`${B}/externa?link=${encodeURIComponent(`https://meet.google.com/${meetCode()}`)}`, { waitUntil: "domcontentloaded" });
+      await page.waitForTimeout(4000);
+      if (/Companion activo/.test((await page.locator("body").textContent()) || "")) conectadas++;
+      connectsEnLaPrimera.push(primera ? primera.connects : -1);
+      await page.close();
+    }
+    check("la entrada de un clic (nombre recordado) conecta la capa de Unify SIEMPRE", conectadas === 3, `conectó ${conectadas}/3`);
+    check("y manda UN solo CONNECT por conexión (dos hacían que el servidor cortara)",
+      connectsEnLaPrimera.every((n) => n === 1), `CONNECT por intento: ${connectsEnLaPrimera.join(",")}`);
+  }
+
   // ================= 2. Conversación real + traducción =================
   {
     const code = meetCode();

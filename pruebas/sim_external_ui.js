@@ -339,6 +339,74 @@ async function detectAndJoin(page, link, { passcode } = {}) {
     await p.close();
   }
 
+  // ---- El idioma de LOS DEMÁS: selector con nombres enteros y cambio solo ----
+  // El oído de "la reunión" escuchaba en TU idioma; te hablaban en inglés y
+  // salían palabras inventadas, etiquetadas "es-AR" y sin traducir. Ahora
+  // tiene su selector («Se habla»), en Automático cambia solo cuando dos
+  // frases seguidas de los demás llegan en otro idioma, y la línea en inglés
+  // se pide traducir DESDE inglés.
+  {
+    const letras = (n) => Array.from({ length: n }, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join("");
+    const codigo = `${letras(3)}-${letras(4)}-${letras(3)}`;
+    const p = await ctx.newPage();
+    const pedidos = [];
+    p.on("request", (r) => { if (r.url().includes("/api/translate")) { try { pedidos.push(JSON.parse(r.postData() || "{}")); } catch {} } });
+    // El Chromium del arnés está en inglés: la persona de esta prueba habla
+    // español (es lo que recuerda la app como "tu idioma").
+    await p.addInitScript(() => { window.open = () => null; localStorage.setItem("unify_lang", "es-AR"); });
+    await detectAndJoin(p, `https://meet.google.com/${codigo}`);
+    await p.getByRole("button", { name: /Unirme acá dentro/i }).click();
+    await p.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
+    await p.waitForTimeout(2500);
+    const seHabla = p.getByLabel("Idioma en el que hablan los demás");
+    check("el dock tiene el selector «Se habla» (el idioma de los demás)", (await seHabla.count()) === 1);
+    const opciones = await seHabla.locator("option").allTextContents().catch(() => []);
+    check("con los idiomas con nombre entero, sin siglas",
+      opciones.includes("Español (Argentina)") && opciones.includes("Inglés (EE. UU.)") && !opciones.some((o) => /^[A-Z]{2}(-[A-Z]{2})?$/.test(o.trim())),
+      opciones.slice(0, 4).join(" | "));
+    check("y arranca en Automático con tu idioma", /^Automático \(Español/.test(opciones[0] || ""), opciones[0]);
+    const traducirA = await p.getByLabel("Traducir los subtítulos a").locator("option").allTextContents().catch(() => []);
+    check("«Traducir a» también muestra los nombres enteros", traducirA.includes("Inglés (EE. UU.)") && traducirA.includes("Portugués (Brasil)"));
+    // Dos frases de otra persona en inglés, etiquetadas en español (así las
+    // manda un reconocedor configurado en español).
+    for (const text of ["we need to close the budget before friday and I think the numbers are fine", "okay so let's move to the next item on the agenda and talk about the timeline"]) {
+      await fetch(`http://localhost:4001/api/meet-bridge/${encodeURIComponent(`google-meet:${codigo}`)}/transcript`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ speaker: "Ellen", text, lang: "es-AR" }),
+      });
+      await p.waitForTimeout(700);
+    }
+    await p.waitForTimeout(2500);
+    const opcionesDespues = await seHabla.locator("option").allTextContents().catch(() => []);
+    check("al llegar dos frases en inglés, «Se habla» pasa solo a inglés",
+      /^Automático \(Inglés/.test(opcionesDespues[0] || ""), opcionesDespues[0]);
+    const cuerpo = (await p.locator("body").textContent()) || "";
+    check("y avisa por qué cambió", /Los demás hablan en Inglés/.test(cuerpo), cuerpo.slice(0, 100).replace(/\s+/g, " "));
+    // EL ESCENARIO NO SE TAPA: en Meet/externa la frase vive UNA vez (en el
+    // escenario grande). Antes las burbujas flotantes la repetían encima y
+    // cubrían las últimas líneas del escenario.
+    const vecesEnPantalla = await p.evaluate(() => {
+      // Se cuentan NODOS DE TEXTO (la burbuja mete la frase como texto suelto
+      // al lado del avatar y del nombre; mirar sólo elementos sin hijos la
+      // dejaba pasar).
+      const objetivo = "close the budget before friday";
+      const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let n = 0;
+      while (w.nextNode()) if ((w.currentNode.nodeValue || "").includes(objetivo)) n++;
+      return n;
+    });
+    check("la frase se muestra UNA sola vez (el escenario, sin burbujas encima)", vecesEnPantalla === 1, `veces=${vecesEnPantalla}`);
+    check("la frase en inglés etiquetada como español se pide traducir DESDE inglés",
+      pedidos.some((q) => /close the budget/.test(q.text || "") && String(q.source || "").startsWith("en") && String(q.target || "").startsWith("es")),
+      JSON.stringify(pedidos.map((q) => [q.source, q.target]).slice(0, 4)));
+    // Elegir a mano manda: queda guardado y ya no cambia solo.
+    await seHabla.selectOption("pt-BR");
+    await p.waitForTimeout(400);
+    check("elegir un idioma a mano se recuerda",
+      (await p.evaluate(() => localStorage.getItem("unify_lang_reunion"))) === "pt-BR");
+    await p.close();
+  }
+
   await browser.close();
   const failed = results.filter((r) => !r).length;
   console.log(`\n${results.length - failed}/${results.length} OK`);

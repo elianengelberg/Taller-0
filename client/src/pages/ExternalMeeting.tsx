@@ -254,6 +254,49 @@ export default function ExternalMeeting() {
   const spokenLang = self?.language ?? (draft?.mode === "companion" ? draft.language : "es-AR");
   const targetLang = targetLangChoice === AUTO_LANG ? spokenLang : targetLangChoice;
 
+  // EL IDIOMA EN QUE HABLAN LOS DEMÁS. El oído de "la reunión" (el audio de
+  // la captura) escuchaba en TU idioma: si te hablaban en inglés con el oído
+  // en español salían palabras inventadas -- y encima, etiquetadas como
+  // español, no se traducían. Ahora tiene su propio idioma: el que la
+  // persona elige en el dock («Se habla en la reunión»), y en «Automático»
+  // el tuyo, pero cambia solo cuando dos frases seguidas de los demás llegan
+  // en otro idioma (el servidor detecta el idioma real de cada frase).
+  const [idiomaReunionElegido, setIdiomaReunionElegido] = useState<string>(() => {
+    try {
+      return localStorage.getItem("unify_lang_reunion") ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const [idiomaReunionAuto, setIdiomaReunionAuto] = useState<string>("");
+  const [avisoIdiomaAjeno, setAvisoIdiomaAjeno] = useState<string | null>(null);
+  const langReunion = idiomaReunionElegido || idiomaReunionAuto || spokenLang;
+  const elegirIdiomaReunion = (valor: string) => {
+    setIdiomaReunionElegido(valor);
+    setAvisoIdiomaAjeno(null);
+    try {
+      if (valor) localStorage.setItem("unify_lang_reunion", valor);
+      else localStorage.removeItem("unify_lang_reunion");
+    } catch {
+      /* modo privado: vale para esta reunión */
+    }
+  };
+  useEffect(() => {
+    if (idiomaReunionElegido || !self) return; // lo eligió a mano: se respeta
+    const ajenas = (meeting?.transcript ?? []).filter((l) => l.speakerId !== self.id).slice(-3);
+    const distintas = ajenas.filter((l) => l.sourceLang && shortLang(l.sourceLang) !== shortLang(langReunion));
+    if (distintas.length < 2) return;
+    const corto = shortLang(distintas[distintas.length - 1].sourceLang);
+    if (!distintas.every((l) => shortLang(l.sourceLang) === corto)) return;
+    setIdiomaReunionAuto(codigoCompletoDe(corto));
+    setAvisoIdiomaAjeno(`Los demás hablan en ${etiquetaDeIdioma(corto)}: ahora los escucho en ${etiquetaDeIdioma(corto)} (podés cambiarlo en «Se habla»).`);
+  }, [meeting?.transcript, idiomaReunionElegido, langReunion, self]);
+  useEffect(() => {
+    if (!avisoIdiomaAjeno) return;
+    const t = setTimeout(() => setAvisoIdiomaAjeno(null), 10_000);
+    return () => clearTimeout(t);
+  }, [avisoIdiomaAjeno]);
+
   // SALIR A PROPÓSITO. leaveMeeting() vacía el draft y react-router 7 pinta
   // la pantalla nueva en una transición: esta pantalla llega a re-renderizarse
   // SIN draft antes de irse, y la guardia de abajo ("no hay draft: afuera")
@@ -513,9 +556,9 @@ export default function ExternalMeeting() {
   // correctora y traducida al idioma de cada uno, igual que el resto.
   const { soportado: reunionSoportada } = useReconocimientoDePista({
     track: recorder.remoteAudioTrack,
-    lang: spokenLang,
+    lang: langReunion,
     onFinal: (alternativas) =>
-      sendTranscriptLine(alternativas, spokenLang, { screen: true, origen: "reunion" }),
+      sendTranscriptLine(alternativas, langReunion, { screen: true, origen: "reunion" }),
   });
   // Los dos huecos que dejarían a "los demás" sin subtítulos, avisados en el
   // mismo cartel donde se explican los problemas de subtítulos: la captura
@@ -989,6 +1032,10 @@ export default function ExternalMeeting() {
     ? recentCaptionEntries(meeting?.transcript ?? [], getTranslation)
     : [];
   const participantCount = meeting?.participants.length ?? 0;
+  // Con Meet o una reunión externa la llamada vive en otra ventana y el
+  // escenario grande ocupa el panel: las burbujas flotantes sobran.
+  const embedKind = (degraded ?? draft.embed).kind;
+  const escenarioALaVista = embedKind === "meet" || embedKind === "external";
   // Últimas frases con su traducción, para la pantalla grande de subtítulos.
   const stageLines = (meeting?.transcript ?? []).slice(-8).map((l) => ({
     id: l.id,
@@ -1159,27 +1206,44 @@ export default function ExternalMeeting() {
             onFlotantes={pipSoportado ? () => void toggleFlotantes() : null}
             flotantesActivo={pipAbierto}
             autoLabel={etiquetaDeIdioma(spokenLang)}
+            idiomaReunion={idiomaReunionElegido}
+            idiomaReunionEfectivo={etiquetaDeIdioma(langReunion)}
+            onIdiomaReunionChange={elegirIdiomaReunion}
           />
           {flotantesAviso && (
             <div className="fixed right-4 top-28 z-40 max-w-[260px] rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-snug text-amber-200 shadow-lg backdrop-blur">
               {flotantesAviso}
             </div>
           )}
+          {avisoIdiomaAjeno && (
+            <div
+              role="status"
+              className="fixed left-1/2 top-24 z-40 max-w-[420px] -translate-x-1/2 rounded-xl border border-brand-400/50 bg-ink-900/95 px-4 py-2.5 text-sm font-medium text-strong shadow-lg backdrop-blur"
+            >
+              {avisoIdiomaAjeno}
+            </div>
+          )}
 
-          <LiveCaption
-            lines={captionLines}
-            roleFor={roleFor}
-            avatarFor={avatarFor}
-            localInterim={
-              captionsOn && interimCaption
-                ? {
-                    speakerName: draft.name || "Vos",
-                    text: interimCaption,
-                    avatarUrl: user?.avatarUrl ?? null,
-                  }
-                : null
-            }
-          />
+          {/* Las burbujas sobre el video sólo cuando HAY video acá adentro
+              (Jitsi, Zoom, Teams, iframe). Con Meet o una reunión externa el
+              escenario grande ya muestra las mismas frases con su traducción,
+              y las burbujas le tapaban las últimas líneas. */}
+          {!escenarioALaVista && (
+            <LiveCaption
+              lines={captionLines}
+              roleFor={roleFor}
+              avatarFor={avatarFor}
+              localInterim={
+                captionsOn && interimCaption
+                  ? {
+                      speakerName: draft.name || "Vos",
+                      text: interimCaption,
+                      avatarUrl: user?.avatarUrl ?? null,
+                    }
+                  : null
+              }
+            />
+          )}
 
           <RecordingBanner
             status={recorder.status}

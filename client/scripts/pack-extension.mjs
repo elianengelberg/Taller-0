@@ -10,6 +10,10 @@
 import fs from "node:fs";
 import crypto from "node:crypto";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
+
+// Las copias del código compartido (idioma, repetidos) salen del cliente.
+execFileSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "sync-compartido.mjs")], { stdio: "inherit" });
 import { fileURLToPath } from "node:url";
 
 const aca = path.dirname(fileURLToPath(import.meta.url));

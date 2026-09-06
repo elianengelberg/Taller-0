@@ -234,6 +234,11 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
       /Traducir/i.test(await page.locator(".badge").textContent() || ""));
     check("su lista de idiomas ya NO sale blanca sobre blanco",
       Boolean(traducir) && /dark/.test(traducir.esquema || ""), traducir?.esquema);
+    // Idiomas con nombre entero (el usuario no quería siglas: «ES», «EN»).
+    const nombres = await page.locator(".badge .langsel option").allTextContents();
+    check("y los idiomas salen con nombre entero, no siglas",
+      nombres.includes("Español") && nombres.includes("Inglés") && !nombres.some((n) => /^[A-Z]{2}$/.test(n.trim())),
+      nombres.slice(0, 4).join(" | "));
 
     const grabar = await medir(".recbtn");
     check("el botón de grabar se ve (tiene superficie, borde y nombre)",
@@ -321,6 +326,21 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
       return Boolean(shadow.querySelector(".drawer.is-open"));
     });
     check("el flotante «U» abre el panel", abierto === true);
+    // EL BADGE NO TAPA EL PANEL (foto del usuario): con el cajón abierto, la
+    // píldora "Unify: Companion activo · Traducir" quedaba ENCIMA del título
+    // y de la ✕, y no se podía cerrar. Ahora se corre a la izquierda.
+    await page.waitForTimeout(400);
+    const solape = await page.evaluate(() => {
+      const shadow = document.getElementById("unify-root").shadowRoot;
+      const b = shadow.querySelector(".badge").getBoundingClientRect();
+      const x = shadow.querySelector('[data-el="close"]').getBoundingClientRect();
+      const t = shadow.querySelector(".dhead .t").getBoundingClientRect();
+      const cruza = (r) => b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top;
+      const arriba = shadow.elementFromPoint(x.left + x.width / 2, x.top + x.height / 2);
+      return { tapaX: cruza(x), tapaTitulo: cruza(t), clicLlega: arriba?.dataset?.el === "close", badgeRight: Math.round(b.right), drawerLeft: Math.round(shadow.querySelector(".drawer").getBoundingClientRect().left) };
+    });
+    check("con el panel abierto, el badge NO tapa la ✕ de cerrar", solape.tapaX === false && solape.clicLlega === true, JSON.stringify(solape));
+    check("ni el título del panel", solape.tapaTitulo === false && solape.badgeRight <= solape.drawerLeft, JSON.stringify(solape));
     const cerrado = await page.evaluate(() => {
       const shadow = document.getElementById("unify-root").shadowRoot;
       shadow.querySelector('[data-el="close"]').click();
@@ -340,6 +360,28 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
 
   const stream = await page.locator(".stream").textContent();
   check("la transcripción del panel muestra a los tres", ["Ana", "Bruno", "Carolina"].every((n) => (stream || "").includes(n)));
+
+  // LO YA DICHO NO SE REPITE (la foto del usuario). Meet, con habla larga,
+  // rescribe la fila con TODO lo anterior más lo nuevo, y el panel repetía
+  // el párrafo entero y seguía. Sólo lo nuevo tiene que publicarse.
+  {
+    const A = "dejaron de funcionar el mismo día a la misma hora y nadie sabe si fue una coincidencia";
+    const B = "y es que el jueves tres de septiembre hubo un apagón en los tres grandes";
+    const antes = posted.length;
+    await page.evaluate((a) => window.__say("Elian Engelberg", a), A);
+    await page.waitForTimeout(2200);
+    await page.evaluate((ab) => window.__say("Elian Engelberg", ab), `${A} ${B}`); // la fila acumulada
+    await page.waitForTimeout(2200);
+    await page.evaluate((a) => window.__say("Elian Engelberg", a), "Dejaron de funcionar el mismo día a la misma hora y nadie sabe si fue una coincidencia"); // otra vez
+    await page.waitForTimeout(2200);
+    const deElian = posted.slice(antes).filter((p) => /funcionar|apagón/i.test(p.text)).map((p) => p.text);
+    const todo = deElian.join(" || ");
+    const veces = (t) => (todo.match(new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi")) || []).length;
+    check("una fila acumulada de Meet (lo ya dicho + lo nuevo) publica sólo lo nuevo",
+      veces(A) === 1 && veces(B) === 1, JSON.stringify(deElian).slice(0, 160));
+    check("y el mismo párrafo repetido por Meet no se publica de nuevo", deElian.length === 2, `publicadas=${deElian.length}`);
+  }
+
 
   // EL CARTEL SOBRE EL VIDEO NO PUEDE TAPAR LA PANTALLA. Sin techo de alto,
   // un texto largo lo estiraba hasta cubrir media reunión por encima del

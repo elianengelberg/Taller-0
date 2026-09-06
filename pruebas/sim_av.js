@@ -444,6 +444,14 @@ async function indicadoresMute(page) {
     const okRealCorte = await pn.evaluate((pasos) => window.__hablar(pasos), guion(CORPUS[4], { cortar: true }));
     await pn.waitForTimeout(1200);
     const okRealRuido = await pn.evaluate((pasos) => window.__hablar(pasos), guion(CORPUS[6], { retractar: true }));
+    await pn.waitForTimeout(1200);
+    // El interino ACUMULADO (Chrome, con habla larga, repite en el interino
+    // todo lo anterior + lo nuevo) que muere sin final y se rescata: sólo lo
+    // nuevo tiene que entrar, sin repetir la primera frase.
+    const okAcumulado = await pn.evaluate((pasos) => window.__hablar(pasos), [
+      { tipo: "interino", texto: `${CORPUS[0].crudo} ${CORPUS[4].crudo} ${CORPUS[2].crudo}`, pausaMs: 60 },
+      { tipo: "fin", pausaMs: 60 },
+    ]);
     await pn.waitForTimeout(2500);
     check("el oído de la reunión normal aceptó los cuatro patrones",
       okNormal && okCorte && okRuido && okSuelta);
@@ -461,7 +469,9 @@ async function indicadoresMute(page) {
       !/zumbido/.test(todo), todo.slice(0, 150));
     check("la palabra suelta de fondo tampoco",
       !/\beh\b/.test(todo), todo.slice(0, 150));
-    check("voz realista: los tres guiones corrieron sobre el oído", okReal && okRealCorte && okRealRuido);
+    check("voz realista: los tres guiones corrieron sobre el oído", okReal && okRealCorte && okRealRuido && okAcumulado);
+    check("voz realista: un interino acumulado rescatado sólo agrega lo nuevo (la primera frase no se repite)",
+      (todo.match(/la lamina asul muestra la curba de bentas/g) || []).length === 1, todo.slice(-200));
     check("voz realista: la frase con interinos, corrección y alternativas sale UNA vez",
       (todo.match(/tenemos que cerrar el prosupuesto antes del viernes/g) || []).length === 1, todo.slice(-160));
     check("voz realista: lo interino de una sesión cortada se rescata",

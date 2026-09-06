@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Unify — asistente de reuniones",
-  "version": "4.10.4",
+  "version": "4.10.5",
   "description": "Subtítulos en vivo con traducción, transcripción y grabación de tus videollamadas, con un asistente de IA.",
   "permissions": [
     "activeTab",
@@ -24,6 +24,8 @@
         "https://meet.google.com/*"
       ],
       "js": [
+        "idioma.js",
+        "repetidos.js",
         "content.js"
       ],
       "run_at": "document_idle"
@@ -59,6 +61,8 @@
         "https://*.gather.town/*"
       ],
       "js": [
+        "idioma.js",
+        "repetidos.js",
         "prompt-injector.js"
       ],
       "run_at": "document_idle"

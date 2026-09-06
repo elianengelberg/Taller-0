@@ -1,4 +1,6 @@
 import { Server, Socket } from "socket.io";
+import { recortarRepetido } from "./repetidos";
+import { detectarIdioma } from "./idioma";
 import { verifyToken } from "./auth";
 import * as db from "./db";
 import {
@@ -532,7 +534,7 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       // older client still sending the single-string shape. Capped in count
       // and length: real recognizer output is short, and these strings feed
       // straight into Claude calls billed to us.
-      const alternatives = (Array.isArray(payload?.alternatives)
+      let alternatives = (Array.isArray(payload?.alternatives)
         ? payload.alternatives.map(String)
         : [String(payload?.text ?? "")]
       )
@@ -560,8 +562,9 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
         );
         const still = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
         if (!still || still !== meeting || !meeting.participants.has(socket.id)) return;
-        const mismatch = cleanup.detectedLang !== null && cleanup.detectedLang !== shortLang(assumedLang);
-        const sourceLang = mismatch ? cleanup.detectedLang! : assumedLang;
+        const idiomaDicho = cleanup.detectedLang ?? detectarIdioma(cleanup.text);
+        const mismatch = idiomaDicho !== null && idiomaDicho !== shortLang(assumedLang);
+        const sourceLang = mismatch ? idiomaDicho! : assumedLang;
         // `origen: "reunion"`: el audio capturado ES la reunión externa (las
         // voces de quienes entran por Zoom/Meet/la app que sea, sin Unify) --
         // companion transcribiendo la pestaña/pantalla compartida. La etiqueta
@@ -600,6 +603,17 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
         isStillLatest && mergeCandidate && mergeCandidate.text.length < MAX_MERGED_LINE_CHARS
           ? mergeCandidate
           : undefined;
+
+      // LO YA DICHO NO SE REPITE (repetidos.ts). El reconocedor del
+      // navegador, con habla larga, manda el mismo tramo más de una vez (un
+      // final por segmento y un interino acumulado rescatado al morir la
+      // sesión): la transcripción repetía un párrafo entero. Contra lo
+      // último de ESTE hablante se recorta lo repetido; si no queda nada,
+      // no hay línea. Los clientes ya lo hacen; acá es la red de seguridad.
+      const previoDelHablante =
+        mergeTarget?.text ?? [...meeting.transcript].reverse().find((l) => l.speakerId === speaker.id)?.text ?? "";
+      alternatives = alternatives.map((a) => recortarRepetido(previoDelHablante, a)).filter((a) => a.trim());
+      if (alternatives.length === 0) return;
 
       // Recent lines give the model context to disambiguate a mis-heard word
       // (e.g. picking the right homophone) -- a lone fragment often can't be
@@ -715,8 +729,9 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       // Trust what was actually detected over what we assumed, but only
       // override when detection confidently disagrees -- otherwise keep the
       // richer configured code (e.g. "es-AR" instead of collapsing to "es").
-      const mismatch = cleanup.detectedLang !== null && cleanup.detectedLang !== shortLang(assumedSourceLang);
-      const sourceLang = mismatch ? cleanup.detectedLang! : assumedSourceLang;
+      const idiomaDicho = cleanup.detectedLang ?? detectarIdioma(cleanup.text);
+      const mismatch = idiomaDicho !== null && idiomaDicho !== shortLang(assumedSourceLang);
+      const sourceLang = mismatch ? idiomaDicho! : assumedSourceLang;
 
       if (!line) {
         if (!cleanup.text) return;

@@ -202,9 +202,20 @@
     return nuevas.join(" ").trim();
   }
 
+  // Lo ya dicho por cada quien, para recortar lo repetido (repetidos.js,
+  // cargado antes que este script): el reconocedor entrega el mismo tramo
+  // más de una vez y el panel repetía un párrafo entero y seguía.
+  const memoriaRepetidos = window.__unifyRepetidos ? window.__unifyRepetidos.crearMemoriaDeRepetidos() : null;
   async function emit(speaker, text, alts = []) {
     const code = meetCode();
     if (!code || !text) return;
+    if (memoriaRepetidos) {
+      const previo = memoriaRepetidos.previo(speaker);
+      text = window.__unifyRepetidos.recortarRepetido(previo, text);
+      alts = (alts || []).map((a) => window.__unifyRepetidos.recortarRepetido(previo, a)).filter(Boolean);
+      if (!text) return; // ya se había dicho: no se repite
+      memoriaRepetidos.anotar(speaker, text);
+    }
     text = sacarLoYaDicho(text);
     if (!text) return; // era todo repetido: no ensucia la transcripción
     const line = pushLocal(speaker, text);
@@ -644,15 +655,15 @@
           <span class="txt"><b>Unify</b>: <span data-el="statusTxt">Companion activo</span></span>
           <span class="tradlbl" aria-hidden="true">Traducir</span>
           <select class="langsel" data-el="lang" title="Traducir los subtítulos a este idioma" aria-label="Traducir los subtítulos a este idioma">
-            <option value="">—</option>
-            <option value="es">ES</option>
-            <option value="en">EN</option>
-            <option value="pt">PT</option>
-            <option value="fr">FR</option>
-            <option value="de">DE</option>
-            <option value="it">IT</option>
-            <option value="zh">中文</option>
-            <option value="ja">日本語</option>
+            <option value="">No traducir</option>
+            <option value="es">Español</option>
+            <option value="en">Inglés</option>
+            <option value="pt">Portugués</option>
+            <option value="fr">Francés</option>
+            <option value="de">Alemán</option>
+            <option value="it">Italiano</option>
+            <option value="zh">Chino</option>
+            <option value="ja">Japonés</option>
           </select>
         </div>
 
@@ -743,6 +754,9 @@
     function toggleDrawer(force) {
       drawerOpen = force === undefined ? !drawerOpen : force;
       el.drawer.classList.toggle("is-open", drawerOpen);
+      // El badge de estado se corre a la izquierda del cajón: si no, tapa el
+      // título y la ✕ del panel.
+      shadow.querySelector(".badge")?.classList.toggle("is-shifted", drawerOpen);
       // El panel entra desde la derecha y taparía al botón: se corre solo.
       el.fab?.classList.toggle("is-active", drawerOpen);
     }
@@ -853,7 +867,11 @@
       el.subRole.style.setProperty("--role", r.color);
       el.subRole.hidden = !r.id;
       el.subName.textContent = line.speaker;
-      el.subLang.textContent = (cfg.lang || navigator.language || "es").slice(0, 2).toUpperCase();
+      // El nombre entero ("Español"), no "ES": las siglas no le dicen nada a
+      // quien no las conoce.
+      const NOMBRES = { es: "Español", en: "Inglés", pt: "Portugués", fr: "Francés", de: "Alemán", it: "Italiano", zh: "Chino", ja: "Japonés", ko: "Coreano", ru: "Ruso", ar: "Árabe" };
+      const corto = (cfg.lang || navigator.language || "es").slice(0, 2).toLowerCase();
+      el.subLang.textContent = NOMBRES[corto] || corto.toUpperCase();
       // Sobre el video entra una idea, no un párrafo: se muestra el final,
       // que es lo que se está diciendo ahora.
       const visible = line.text.length > 160 ? "…" + line.text.slice(-160) : line.text;
@@ -941,6 +959,32 @@
       return s;
     }
 
+
+  // La IA contesta en Markdown (negritas con **, listas con -): el panel lo
+  // mostraba con los asteriscos a la vista. Se dibuja lo básico, escapando
+  // primero el HTML (la respuesta es texto ajeno).
+  function pintarMarkdown(el, texto) {
+    const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const lineas = esc(String(texto || "")).split(/\r?\n/);
+    let html = "";
+    let enLista = false;
+    for (const l of lineas) {
+      const item = l.match(/^\s*[-*•]\s+(.*)$/);
+      if (item) {
+        if (!enLista) { html += "<ul>"; enLista = true; }
+        html += `<li>${item[1]}</li>`;
+        continue;
+      }
+      if (enLista) { html += "</ul>"; enLista = false; }
+      if (!l.trim()) { html += "<br>"; continue; }
+      const titulo = l.match(/^\s*#{1,3}\s+(.*)$/);
+      html += titulo ? `<b>${titulo[1]}</b><br>` : `${l}<br>`;
+    }
+    if (enLista) html += "</ul>";
+    html = html.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<i>$2</i>");
+    el.innerHTML = html;
+  }
+
     async function ask() {
       const q = el.aiInput.value.trim();
       if (!q) return;
@@ -953,7 +997,7 @@
           method: "POST",
           body: JSON.stringify({ question: q }),
         });
-        pending.textContent = r.answer || "Sin respuesta.";
+        if (r.answer) pintarMarkdown(pending, r.answer); else pending.textContent = "Sin respuesta.";
       } catch (e) {
         pending.textContent =
           String(e.message) === "401"

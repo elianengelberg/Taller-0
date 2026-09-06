@@ -18,6 +18,10 @@ interface Props {
   flotantesActivo?: boolean;
   /** El idioma al que resuelve "Automático" (el que hablás), para mostrarlo. */
   autoLabel?: string;
+  /** El idioma en que hablan LOS DEMÁS ("" = automático) y a qué resuelve. */
+  idiomaReunion?: string;
+  idiomaReunionEfectivo?: string;
+  onIdiomaReunionChange?: (value: string) => void;
 }
 
 // Dock de estado, arriba a la derecha, sobre la reunión externa.
@@ -37,6 +41,9 @@ export default function CompanionDock({
   onFlotantes,
   flotantesActivo,
   autoLabel,
+  idiomaReunion = "",
+  idiomaReunionEfectivo,
+  onIdiomaReunionChange,
 }: Props) {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -107,7 +114,7 @@ export default function CompanionDock({
             value={targetLangChoice}
             onChange={(e) => onTargetLangChange(e.target.value)}
             aria-label="Traducir los subtítulos a"
-            className="max-w-[9.5rem] truncate rounded-lg border border-ink-500 bg-ink-800 px-2.5 py-1.5 text-sm font-medium text-strong focus:border-brand-400 focus:outline-none"
+            className="max-w-[15rem] rounded-lg border border-ink-500 bg-ink-800 px-2.5 py-1.5 text-sm font-medium text-strong focus:border-brand-400 focus:outline-none"
             title="Idioma en el que ves los subtítulos"
           >
             {/* Con el idioma resuelto a la vista: "Automático" dejaba la duda
@@ -121,6 +128,29 @@ export default function CompanionDock({
             ))}
           </select>
         </label>
+
+        {/* En qué idioma hablan los demás: es lo que escucha el oído de "la
+            reunión". "Automático" = tu idioma, y cambia solo si los demás
+            hablan en otro. Nombres enteros, nunca siglas. */}
+        {onIdiomaReunionChange && (
+          <label className="flex items-center gap-2">
+            <span className="hidden whitespace-nowrap text-sm font-medium text-ink-200 sm:inline">Se habla</span>
+            <select
+              value={idiomaReunion}
+              onChange={(e) => onIdiomaReunionChange(e.target.value)}
+              aria-label="Idioma en el que hablan los demás"
+              className="max-w-[15rem] rounded-lg border border-ink-500 bg-ink-800 px-2.5 py-1.5 text-sm font-medium text-strong focus:border-brand-400 focus:outline-none"
+              title="Idioma en el que hablan las demás personas de la reunión (lo que escucha Unify)"
+            >
+              <option value="">{idiomaReunionEfectivo ? `Automático (${idiomaReunionEfectivo})` : "Automático"}</option>
+              {LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         {onFlotantes && (
           <button

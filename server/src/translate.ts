@@ -4,6 +4,7 @@
 // free, keyless MyMemory API otherwise so the app still works without any
 // extra setup -- just slower and less reliable under load.
 import { anthropicClient, anthropicEnabled } from "./anthropicClient";
+import { detectarIdioma } from "./idioma";
 
 interface CacheEntry {
   value: string;
@@ -303,9 +304,18 @@ export async function translateText(
   const trimmed = text.trim();
   if (!trimmed) return "";
 
-  const from = shortLang(source);
+  let from = shortLang(source);
   const to = shortLang(target);
-  if (from === to) return text;
+  if (from === to) {
+    // La etiqueta dice "ya está en tu idioma", pero la etiqueta es el idioma
+    // CONFIGURADO del reconocedor, no el de la frase: cuando alguien te
+    // habla en inglés la línea llega marcada "es" y se quedaba sin traducir.
+    // Si el texto contradice a la etiqueta, se traduce desde lo detectado.
+    const detectado = detectarIdioma(trimmed);
+    if (!detectado || detectado === to) return text;
+    from = detectado;
+    source = detectado; // es lo que ven Claude y la caché, no sólo `from`
+  }
 
   const key = cacheKey(trimmed, source, target);
   const cached = cache.get(key);

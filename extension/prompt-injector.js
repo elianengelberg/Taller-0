@@ -493,7 +493,45 @@
 
   // La línea final viaja al bridge de ESTA sala: así la ven el overlay (al
   // próximo sondeo), el companion web si está abierto, el historial y la IA.
+  // La IA contesta en Markdown (negritas con **, listas con -): el panel lo
+  // mostraba con los asteriscos a la vista. Se dibuja lo básico, escapando
+  // primero el HTML (la respuesta es texto ajeno).
+  function pintarMarkdown(el, texto) {
+    const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const lineas = esc(String(texto || "")).split(/\r?\n/);
+    let html = "";
+    let enLista = false;
+    for (const l of lineas) {
+      const item = l.match(/^\s*[-*•]\s+(.*)$/);
+      if (item) {
+        if (!enLista) { html += "<ul>"; enLista = true; }
+        html += `<li>${item[1]}</li>`;
+        continue;
+      }
+      if (enLista) { html += "</ul>"; enLista = false; }
+      if (!l.trim()) { html += "<br>"; continue; }
+      const titulo = l.match(/^\s*#{1,3}\s+(.*)$/);
+      html += titulo ? `<b>${titulo[1]}</b><br>` : `${l}<br>`;
+    }
+    if (enLista) html += "</ul>";
+    html = html.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<i>$2</i>");
+    el.innerHTML = html;
+  }
+
+  // Lo ya dicho por cada quien (repetidos.js, cargado antes): el reconocedor
+  // entrega el mismo tramo más de una vez y se repetía un párrafo entero.
+  const memoriaRepetidos = window.__unifyRepetidos ? window.__unifyRepetidos.crearMemoriaDeRepetidos() : null;
   async function publicarVozPropia(det, texto, lang, alts = [], speaker = "Vos") {
+    // (typeof: el arnés evalúa esta función sola, sin la memoria ni window.)
+    const memoria = typeof memoriaRepetidos !== "undefined" ? memoriaRepetidos : null;
+    const rep = typeof window !== "undefined" ? window.__unifyRepetidos : null;
+    if (memoria && rep) {
+      const previo = memoria.previo(speaker);
+      texto = rep.recortarRepetido(previo, texto);
+      alts = (alts || []).map((a) => rep.recortarRepetido(previo, a)).filter(Boolean);
+      if (!texto) return null; // ya se había dicho
+      memoria.anotar(speaker, texto);
+    }
     try {
       const res = await fetch(`${cfg.serverBase}/api/meet-bridge/${encodeURIComponent(det.roomKey)}/transcript`, {
         method: "POST",
@@ -850,8 +888,8 @@
     const idioma = document.createElement("select");
     idioma.className = "sel";
     for (const [valor, etiqueta] of [
-      ["", "Sin traducir"], ["es", "Español"], ["en", "English"], ["pt", "Português"],
-      ["fr", "Français"], ["de", "Deutsch"], ["it", "Italiano"], ["zh", "中文"], ["ja", "日本語"],
+      ["", "Sin traducir"], ["es", "Traducir a Español"], ["en", "Traducir a Inglés"], ["pt", "Traducir a Portugués"],
+      ["fr", "Traducir a Francés"], ["de", "Traducir a Alemán"], ["it", "Traducir a Italiano"], ["zh", "Traducir a Chino"], ["ja", "Traducir a Japonés"],
     ]) {
       const op = document.createElement("option");
       op.value = valor;
@@ -876,10 +914,10 @@
     idiomaVozSel.title = "Idioma en el que se habla en la reunión";
     idiomaVozSel.setAttribute("aria-label", "Idioma que se habla en la reunión");
     for (const [valor, etiqueta] of [
-      ["", "Se habla: el idioma de tu Chrome"], ["es-AR", "Se habla: Español"],
-      ["en-US", "Se habla: English"], ["pt-BR", "Se habla: Português"],
-      ["fr-FR", "Se habla: Français"], ["de-DE", "Se habla: Deutsch"],
-      ["it-IT", "Se habla: Italiano"], ["zh-CN", "Se habla: 中文"], ["ja-JP", "Se habla: 日本語"],
+      ["", "Se habla: el idioma de tu Chrome"], ["es-AR", "Se habla: Español (Argentina)"], ["es-ES", "Se habla: Español (España)"],
+      ["en-US", "Se habla: Inglés (Estados Unidos)"], ["en-GB", "Se habla: Inglés (Reino Unido)"], ["pt-BR", "Se habla: Portugués (Brasil)"],
+      ["fr-FR", "Se habla: Francés"], ["de-DE", "Se habla: Alemán"],
+      ["it-IT", "Se habla: Italiano"], ["zh-CN", "Se habla: Chino (simplificado)"], ["ja-JP", "Se habla: Japonés"],
     ]) {
       const op = document.createElement("option");
       op.value = valor;
@@ -1088,7 +1126,7 @@
         } else if (!res.ok) {
           iaResp.textContent = data?.error || "La IA no pudo responder. Probá de nuevo en un rato.";
         } else {
-          iaResp.textContent = data.answer || "La IA no devolvió respuesta.";
+          if (data.answer) pintarMarkdown(iaResp, data.answer); else iaResp.textContent = "La IA no devolvió respuesta.";
           iaIn.value = "";
         }
       } catch {
@@ -1155,7 +1193,12 @@
       if (previa && previa.pedida === linea.text) return; // en vuelo esta versión
       // El idioma de origen viene en la línea: si ya es el tuyo, ni se pide
       // (ahorra red y rate limit; el render igual oculta las idénticas).
-      const origen = (linea.sourceLang || "").split("-")[0].toLowerCase();
+      // La etiqueta es el idioma configurado, no el de la frase (te hablan
+      // en inglés con el oído en español y llega "es-AR"): se decide por
+      // lo que dice el texto (idioma.js, cargado antes que este script).
+      const origen = window.__unifyIdioma
+        ? window.__unifyIdioma.idiomaEfectivo(linea.text, linea.sourceLang)
+        : (linea.sourceLang || "").split("-")[0].toLowerCase();
       if (origen && origen === cfg.lang) return;
       // Si el servidor ya la calculó (viene pegada a la línea), ni se pide.
       const hecha = linea.translations?.[cfg.lang];

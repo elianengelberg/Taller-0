@@ -539,7 +539,9 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
       authRecibida = route.request().headers()["authorization"] ?? null;
       route.fulfill({
         status: 200, contentType: "application/json",
-        body: JSON.stringify({ answer: "Se habló de la curva de ventas del trimestre." }),
+        // Con Markdown, como contesta la IA de verdad: el overlay lo dibuja
+        // (antes se veían los asteriscos).
+        body: JSON.stringify({ answer: "Se habló de la **curva de ventas** del trimestre.\n- Presupuesto\n- Plazos <de entrega>" }),
       });
     });
     await setStorage({ token: "tok-prueba" });
@@ -550,6 +552,10 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     const conSesion = await page.locator(".iaresp").textContent().catch(() => "");
     check("con sesión, la respuesta de la IA se pinta en el overlay",
       /curva de ventas del trimestre/.test(conSesion), conSesion.slice(0, 70));
+    const htmlIa = await page.locator(".iaresp").evaluate((el) => el.innerHTML).catch(() => "");
+    check("y el Markdown de la IA se dibuja (negrita y lista), sin asteriscos a la vista",
+      /<b>curva de ventas<\/b>/.test(htmlIa) && /<li>Presupuesto<\/li>/.test(htmlIa) && !/\*\*/.test(conSesion) && /&lt;de entrega&gt;/.test(htmlIa),
+      htmlIa.slice(0, 120));
     check("y la pregunta viajó autenticada al endpoint del bridge",
       authRecibida === "Bearer tok-prueba", String(authRecibida));
     await ctx.unroute("**/api/meet-bridge/**/ask");

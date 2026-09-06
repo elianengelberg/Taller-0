@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { crearMemoriaDeRepetidos, recortarRepetido } from "../lib/repetidos";
 import { getAuthToken } from "../lib/authToken";
 import { explainError } from "../lib/explainError";
 import { getSocket, SERVER_URL } from "../lib/socket";
@@ -214,6 +215,17 @@ interface MeetingContextValue {
 }
 
 const MeetingContext = createContext<MeetingContextValue | null>(null);
+
+// Abre el socket UNA sola vez. `socket.connect()` con el manager ya abierto
+// (el handshake terminó pero el CONNECT del namespace todavía no tuvo
+// respuesta) manda OTRO paquete CONNECT: el servidor cierra la conexión y el
+// join que viajaba en el medio se queda sin respuesta -- la pantalla quedaba
+// en «Reconectando…» para siempre. Pasaba en la entrada de un clic (nombre
+// recordado): la reunión se monta milisegundos después del proveedor, con el
+// handshake todavía en el aire. `active` = ya se pidió conectar.
+function abrirSocket(socket: ReturnType<typeof getSocket>) {
+  if (!socket.connected && !socket.active) socket.connect();
+}
 
 export function MeetingProvider({ children }: { children: ReactNode }) {
   const [draft, setDraft] = useState<MeetingDraft | null>(null);
@@ -527,8 +539,7 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     // the socket handshake now, so it's already connected by the time the
     // user submits the form -- no cold-start wait on the "Conectando" screen.
     fetch(`${SERVER_URL}/health`).catch(() => {});
-    const socket = socketRef.current;
-    if (!socket.connected) socket.connect();
+    abrirSocket(socketRef.current);
   }, []);
 
   const connect = useCallback(() => {
@@ -536,7 +547,7 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     const socket = socketRef.current;
     setConnectionStatus("connecting");
     setConnectionError(null);
-    if (!socket.connected) socket.connect();
+    abrirSocket(socket);
 
     const onResult = (fallbackError: string) =>
       (res: { ok: boolean; waiting?: boolean; meeting?: MeetingSnapshot; selfId?: string; error?: string }) => {
@@ -607,10 +618,21 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // LO YA DICHO NO SE REPITE (ver lib/repetidos.ts): el reconocedor de
+  // Chrome, con habla larga, entrega el mismo tramo más de una vez (un final
+  // por segmento y un interino acumulado que se rescata al morir la sesión).
+  // Una memoria por fuente (tu micrófono / la pantalla / la reunión): a cada
+  // frase se le recorta lo que ya se publicó de esa fuente.
+  const repetidosRef = useRef(crearMemoriaDeRepetidos());
   const sendTranscriptLine = useCallback(
     (alternatives: string[], lang: string, opciones?: { screen?: boolean; origen?: "reunion" }) => {
-      const cleaned = alternatives.filter((a) => a.trim());
+      const fuente = opciones?.origen === "reunion" ? "reunion" : opciones?.screen ? "pantalla" : "yo";
+      const previo = repetidosRef.current.previo(fuente);
+      const cleaned = alternatives
+        .map((a) => recortarRepetido(previo, a))
+        .filter((a) => a.trim());
       if (cleaned.length === 0) return;
+      repetidosRef.current.anotar(fuente, cleaned[0]);
       emitOrQueue("transcript-line", {
         alternatives: cleaned,
         lang,

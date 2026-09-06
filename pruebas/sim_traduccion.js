@@ -382,6 +382,32 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
       }),
       JSON.stringify(jTrad).slice(0, 80));
 
+    // ORIGEN Y DESTINO "IGUALES" PERO EL TEXTO EN OTRO IDIOMA: antes el
+    // servidor devolvía el texto tal cual (es → es, nada que hacer). Ahora
+    // mira el texto: si está en inglés, traduce desde inglés.
+    {
+      const antes = vistos.length;
+      const r1 = await fetch("http://localhost:4009/api/translate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "we need to close the budget before friday and I think the numbers are fine", source: "es-AR", target: "es" }),
+      });
+      const j1 = await r1.json().catch(() => ({}));
+      const pedido = vistos.slice(antes).find((v) => {
+        const sys = Array.isArray(v.system) ? v.system.map((b) => (b && b.text) || "").join("\n") : String(v.system ?? "");
+        return /Translate the user's message from English to Spanish/i.test(sys);
+      });
+      check("una frase en inglés marcada es→es se traduce igual (desde inglés)",
+        j1?.translatedText === "texto traducido de prueba" && Boolean(pedido), JSON.stringify(j1).slice(0, 80));
+      const antes2 = vistos.length;
+      const r2 = await fetch("http://localhost:4009/api/translate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "tenemos que cerrar el presupuesto antes del viernes", source: "es-AR", target: "es" }),
+      });
+      const j2 = await r2.json().catch(() => ({}));
+      check("y una que SÍ está en el idioma destino vuelve tal cual, sin llamar a la IA",
+        j2?.translatedText === "tenemos que cerrar el presupuesto antes del viernes" && vistos.length === antes2, JSON.stringify(j2).slice(0, 80));
+    }
+
     // NADIE SIN SU IDIOMA. Si la respuesta multi-idioma viene incompleta
     // (una línea con formato roto, un idioma filtrado), antes esa persona se
     // quedaba SIN traducción para siempre y sin error a la vista. Ahora el

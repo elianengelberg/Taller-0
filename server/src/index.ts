@@ -1,4 +1,6 @@
 import cors from "cors";
+import { recortarRepetido } from "./repetidos";
+import { detectarIdioma } from "./idioma";
 import express, { NextFunction, Request, Response } from "express";
 import { createServer } from "http";
 import { spawn } from "child_process";
@@ -2199,7 +2201,7 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
     return;
   }
   const speaker = String(req.body?.speaker ?? "").slice(0, 60);
-  const text = String(req.body?.text ?? "").trim().slice(0, 2000);
+  let text = String(req.body?.text ?? "").trim().slice(0, 2000);
   const lang = String(req.body?.lang ?? "es-AR").slice(0, 16);
   // Lecturas alternativas del reconocimiento, si el cliente las tiene: más
   // hipótesis para que la IA reconstruya la palabra que de verdad se dijo.
@@ -2228,9 +2230,20 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
   // las lecturas crudas ganaba un segundo y costaba la calidad entera: se
   // traducían los errores del reconocimiento.
   const recentContext = meeting.transcript.slice(-6).map((l) => `${l.speakerName}: ${l.text}`);
-  const candidatas = [text, ...alts.filter((a) => a !== text)];
   const nombre = speaker.trim().slice(0, 60) || "Participante";
   const speakerIdDeNombre = `caption:${nombre.toLowerCase()}`;
+  // LO YA DICHO NO SE REPITE (repetidos.ts): contra la última línea de ESTE
+  // nombre se recorta lo repetido (el reconocedor manda el mismo tramo más
+  // de una vez); si no queda nada, se contesta ok sin línea.
+  const previoDelNombre = [...meeting.transcript].reverse().find((l) => l.speakerId === speakerIdDeNombre)?.text ?? "";
+  const textoRecortado = recortarRepetido(previoDelNombre, text);
+  if (!textoRecortado) {
+    res.json({ ok: true, dbId: meeting.dbId, lineId: null, text: "", sourceLang: lang, idiomaDistinto: null, repetido: true });
+    return;
+  }
+  const altsRecortadas = alts.map((a) => recortarRepetido(previoDelNombre, a)).filter((a) => a.trim());
+  text = textoRecortado;
+  const candidatas = [text, ...altsRecortadas.filter((a) => a !== text)];
 
   // EL ECO (ver eco.ts): si OTRO oído acaba de poner esta misma frase (los
   // subtítulos de Meet y el oído de la pestaña, dos micrófonos en la misma
@@ -2328,8 +2341,12 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
   // que suenan parecido. Y se traduce LO CORREGIDO, nunca lo crudo.
   const cleanup = await cleanTranscriptFragment(candidatas, recentContext, lang);
   const textoFinal = cleanup.text || text;
-  const mismatch = cleanup.detectedLang !== null && cleanup.detectedLang !== shortLang(lang);
-  const sourceLang = mismatch ? cleanup.detectedLang! : lang;
+  // Sin IA (o si no supo decirlo), el idioma se lee del propio texto: una
+  // frase en inglés etiquetada "es-AR" tiene que viajar como "en" para que
+  // cada pantalla la traduzca.
+  const idiomaDicho = cleanup.detectedLang ?? detectarIdioma(textoFinal);
+  const mismatch = idiomaDicho !== null && idiomaDicho !== shortLang(lang);
+  const sourceLang = mismatch ? idiomaDicho! : lang;
   if (!line) {
     line = abrirOFusionar(textoFinal, sourceLang);
   } else {
@@ -2386,7 +2403,7 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
     sourceLang: line.sourceLang,
     // El idioma en el que Meet está escribiendo, cuando NO es el esperado:
     // es la causa número uno de "las palabras salen mal".
-    idiomaDistinto: mismatch ? cleanup.detectedLang : null,
+    idiomaDistinto: mismatch ? idiomaDicho : null,
   });
 });
 

@@ -173,6 +173,45 @@ const post = (p, b, token) => fetch(API + p, { method: "POST",
   const bad = await post(`/api/meet-bridge/no-es-un-codigo/transcript`, { speaker: "x", text: "y" });
   check("un código de Meet inválido se rechaza", bad.status === 400, `status=${bad.status}`);
 
+  // LO YA DICHO NO SE REPITE. La foto del usuario: el reconocedor entregó
+  // el mismo párrafo varias veces (un final por tramo y un acumulado con
+  // todo lo anterior + lo nuevo) y la transcripción lo repetía y seguía.
+  {
+    const A = "dejaron de funcionar el mismo día a la misma hora y nadie sabe si fue una coincidencia";
+    const B = "y es que el jueves tres de septiembre hubo un apagón en los tres grandes";
+    const antesN = live.length;
+    await post(`/api/meet-bridge/${code}/transcript`, { speaker: "Nico", text: A, lang: "es-AR" });
+    await sleep(400);
+    await post(`/api/meet-bridge/${code}/transcript`, { speaker: "Nico", text: `${A} ${B}`, lang: "es-AR" }); // el acumulado
+    await sleep(400);
+    const rep = await post(`/api/meet-bridge/${code}/transcript`, { speaker: "Nico", text: "Dejaron de funcionar el mismo día a la misma hora y nadie sabe si fue una coincidencia", lang: "es-AR" }); // otra vez
+    await sleep(700);
+    const deNico = new Map();
+    for (const l of live.slice(antesN)) if (l.speakerName === "Nico") deNico.set(l.id, l.text);
+    const todoNico = [...deNico.values()].join(" || ");
+    const veces = (t) => (todoNico.match(new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi")) || []).length;
+    check("un acumulado (lo ya dicho + lo nuevo) sólo agrega lo nuevo", veces(A) === 1 && veces(B) === 1, todoNico.slice(0, 160));
+    check("y repetir el mismo párrafo no agrega nada (contesta ok, sin línea)",
+      rep.status === 200 && (rep.body?.repetido === true || rep.body?.text === "") && veces(A) === 1, JSON.stringify(rep.body).slice(0, 100));
+  }
+
+  // LA ETIQUETA MIENTE. Lo que pasó de verdad: te hablan en inglés, el
+  // reconocedor está en español, y la línea llega marcada "es-AR"; toda la
+  // cadena la daba por "ya en tu idioma" y NO la traducía. Sin IA, el
+  // servidor lee el idioma del propio texto y la etiqueta correctamente.
+  const antes = live.length;
+  await post(`/api/meet-bridge/${code}/transcript`, { speaker: "Ellen", text: "we need to close the budget before friday and I think the numbers are fine", lang: "es-AR" });
+  await sleep(400);
+  await post(`/api/meet-bridge/${code}/transcript`, { speaker: "Carla", text: "tenemos que cerrar el presupuesto antes del viernes con todo el equipo", lang: "en-US" });
+  await sleep(700);
+  const nuevas = live.slice(antes);
+  const deEllen = nuevas.find((l) => l.speakerName === "Ellen");
+  const deCarla = nuevas.find((l) => l.speakerName === "Carla");
+  check("una frase en inglés etiquetada «es-AR» viaja como inglés (para que cada pantalla la traduzca)",
+    deEllen?.sourceLang === "en", String(deEllen?.sourceLang));
+  check("y una en español etiquetada «en-US» viaja como español",
+    deCarla?.sourceLang === "es", String(deCarla?.sourceLang));
+
   s.disconnect();
   const failed = results.filter((r) => !r).length;
   console.log(`\n${results.length - failed}/${results.length} OK`);
