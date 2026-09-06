@@ -27,6 +27,7 @@ const { refrescarExtension } = require("./extensionLocal");
 // instalador nuevo y lo deja listo. Acá sólo se decide CUÁNDO mirar y cómo
 // contarlo; el trabajo sucio es de él.
 const { autoUpdater } = require("electron-updater");
+const { crearBitacora } = require("./bitacora");
 const { esDeTienda, arrancaOculto, enlaceTienda } = require("./tienda");
 // ¿Esta copia vino de la MICROSOFT STORE? (ver tienda.js). Ahí las
 // actualizaciones las trae la tienda y el arranque con Windows lo declara el
@@ -565,6 +566,11 @@ function buscarActualizacion() {
 }
 
 function arrancarActualizador() {
+  // Todo lo que hace el actualizador queda escrito (logs/actualizador.log):
+  // sin esto, "no se actualiza" no se podía diagnosticar.
+  const bitacora = crearBitacora(path.join(app.getPath("logs"), "actualizador.log"));
+  autoUpdater.logger = bitacora;
+  bitacora.info(`Unify ${app.getVersion()} arrancó; busca actualizaciones en GitHub Releases (${process.platform}${app.isPackaged ? "" : ", sin empaquetar: no busca"})`);
   // Si el update quedó bajado y nadie reinició, se instala al salir igual.
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.on("update-available", (info) => {
@@ -586,10 +592,16 @@ function arrancarActualizador() {
     );
     busquedaManual = false;
   });
-  autoUpdater.on("error", () => {
+  autoUpdater.on("error", (e) => {
     estadoUpdate = { fase: "error", version: null };
     armarBandeja();
-    if (busquedaManual) globo("Unify", "No pudimos buscar la actualización (¿sin internet?). Probá de nuevo más tarde.");
+    bitacora.error("falló:", e || "(sin detalle)");
+    if (busquedaManual) {
+      // Los globos de Windows cortan a los 256 caracteres: motivo corto y la
+      // ruta entera queda en el README (logs\actualizador.log).
+      const motivo = String(e?.message || "").split("\n")[0].slice(0, 80);
+      globo("Unify", `No pudimos buscar la actualización${motivo ? ` (${motivo})` : " (¿sin internet?)"}. Probá más tarde; el detalle queda en logs\\actualizador.log.`);
+    }
     busquedaManual = false;
   });
 

@@ -266,6 +266,53 @@ async function probarDetector(check) {
 // En la tienda no hay electron-updater ni clave Run: las reglas viven en un
 // módulo puro y se prueban acá sin levantar Electron, y el puente le cuenta a
 // la web de dónde vino la copia.
+// ── El actualizador deja rastro (bitácora) y el release sólo sirve si la
+// versión sube. Lo que se pudo verificar en vivo contra GitHub (latest.yml,
+// hash del exe, app-update.yml adentro del instalador) vive en la memoria del
+// proyecto; acá queda lo que se puede ejercitar sin red.
+async function probarActualizador(check) {
+  const { crearBitacora, TOPE } = require(path.join(DESK, "bitacora.js"));
+  const os = require("os");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "unify-bitacora-"));
+  const archivo = path.join(dir, "logs", "actualizador.log");
+  let t = 0;
+  const reloj = () => new Date(Date.UTC(2026, 8, 6, 12, 0, t++));
+  const b = crearBitacora(archivo, { reloj });
+  for (const m of ["info", "warn", "error", "debug"]) check(`la bitácora tiene ${m}() (lo que electron-updater llama)`, typeof b[m] === "function");
+  b.info("Unify 1.7.2 arrancó");
+  b.error("falló:", Object.assign(new Error("net::ERR_INTERNET_DISCONNECTED"), { code: "ENOTFOUND" }));
+  b.warn("objeto", { version: "1.7.3", size: 3 });
+  const texto = fs.readFileSync(archivo, "utf8");
+  const lineas = texto.trim().split("\n");
+  check("crea la carpeta y escribe una línea por evento, con hora y nivel", lineas.length === 3 && /^2026-09-06T12:00:00\.000Z info  Unify 1\.7\.2 arrancó$/.test(lineas[0]), lineas[0]);
+  check("un Error se escribe con su mensaje y su código (lo que hace falta para diagnosticar)", /error Unify|error falló: net::ERR_INTERNET_DISCONNECTED \(ENOTFOUND\)/.test(lineas[1]), lineas[1]);
+  check("y un objeto se escribe como JSON en una sola línea", /warn  objeto \{"version":"1\.7\.3","size":3\}/.test(lineas[2]), lineas[2]);
+  // Rotación: pasado el tope se queda con la mitad más nueva, sin tumbar la app.
+  const chica = crearBitacora(path.join(dir, "chica.log"), { tope: 2000, reloj });
+  for (let i = 0; i < 60; i++) chica.info(`línea número ${i} ${"x".repeat(40)}`);
+  const restante = fs.readFileSync(path.join(dir, "chica.log"), "utf8");
+  const tam = fs.statSync(path.join(dir, "chica.log")).size;
+  check("cuando pasa el tope se queda con la mitad más nueva (no crece sin fin)", tam <= 2100 && /línea número 59 /.test(restante) && !/línea número 0 /.test(restante), `${tam} bytes`);
+  check("y las líneas que quedan están enteras (el corte cae en un salto de línea)", restante.startsWith("2026-"), restante.slice(0, 30));
+  check("el tope por defecto es razonable (256 KB)", TOPE === 256 * 1024);
+  // Sin poder escribir (la "carpeta" es un archivo) no puede tumbar la app.
+  fs.writeFileSync(path.join(dir, "no-es-carpeta"), "x");
+  const sinPermiso = crearBitacora(path.join(dir, "no-es-carpeta", "escribir.log"), { reloj });
+  let vive = true;
+  try { sinPermiso.error("x"); } catch { vive = false; }
+  check("si no puede escribir, no rompe nada (la app sigue)", vive);
+  // El main real la enchufa al autoUpdater y escribe el error con su motivo.
+  const main = fs.readFileSync(path.join(DESK, "main.js"), "utf8");
+  check("main.js le da la bitácora a electron-updater (autoUpdater.logger)", /autoUpdater\.logger = bitacora/.test(main) && /actualizador\.log/.test(main));
+  check("y el aviso de error manual dice el motivo y dónde está el archivo", /bitacora\.error\("falló:"/.test(main) && /el detalle queda en logs/.test(main));
+  // El workflow frena un release que no sube la versión (nadie lo recibiría).
+  const wf = fs.readFileSync("/home/user/Taller-0/.github/workflows/instalador-windows.yml", "utf8");
+  check("el workflow verifica que la versión subió antes de publicar", /Verificar que la versión subió/.test(wf) && /releases\/latest\/download\/latest\.yml/.test(wf) && /exit 1/.test(wf));
+  const pkg = JSON.parse(fs.readFileSync(path.join(DESK, "package.json"), "utf8"));
+  check("la versión de la app es mayor que la del último release publicado (1.7.1)", /^1\.(7\.[2-9]|[89]\.\d+)|^[2-9]\./.test(pkg.version), pkg.version);
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 async function probarTienda(check) {
   const { esDeTienda, arrancaOculto, enlaceTienda, UMBRAL_ARRANQUE_SEG } = require(path.join(DESK, "tienda.js"));
   check("una copia común no es de la tienda", esDeTienda({ windowsStore: undefined, env: {} }) === false);
@@ -510,6 +557,7 @@ hijo.on("exit", async (c) => {
   await probarDetector(check).catch((e) => check("detector Zoom/Teams", false, String(e.message)));
   await probarExtensionLocal(check).catch((e) => check("módulo de extensión local", false, String(e.message)));
   await probarTienda(check).catch((e) => check("copia de la Microsoft Store", false, String(e.message)));
+  await probarActualizador(check).catch((e) => check("actualizador (bitácora y versión)", false, String(e.message)));
   await probarCartel(check).catch((e) => check("cartel de escritorio", false, String(e.message)));
   await probarGrabadorSilencioso(check).catch((e) => check("grabador silencioso", false, String(e.message)));
   // La MISMA película, pero la reunión simulada es de TEAMS: la sala subida

@@ -58,6 +58,46 @@ jobs:
         working-directory: desktop
         run: npm install
 
+      # LA APP INSTALADA SÓLO SE ACTUALIZA SI LA VERSIÓN SUBE. electron-updater
+      # compara `version` de latest.yml con la instalada: publicar otro
+      # release con el MISMO número deja a todos los usuarios sin la mejora,
+      # en silencio (pasó: b16 a b20 salieron todos como 1.7.0). Un push que
+      # cambia la app sin subir package.json se frena acá con el motivo claro.
+      - name: Verificar que la versión subió (si no, nadie se actualiza)
+        shell: pwsh
+        env:
+          EVENTO: ${{ github.event_name }}
+          ANTES: ${{ github.event.before }}
+          AHORA: ${{ github.sha }}
+        run: |
+          $nueva = (Get-Content desktop\package.json -Raw | ConvertFrom-Json).version
+          $publicada = $null
+          try {
+            $yml = Invoke-RestMethod -Uri "https://github.com/${{ github.repository }}/releases/latest/download/latest.yml" -TimeoutSec 30
+            if ($yml -match "version:\s*([0-9][^\s]*)") { $publicada = $Matches[1] }
+          } catch { Write-Host "Sin release previo (o no se pudo leer latest.yml): $($_.Exception.Message)" }
+          Write-Host "package.json: $nueva | ultimo release: $($publicada ?? 'ninguno')"
+          if (-not $publicada -or $publicada -ne $nueva) { exit 0 }
+          # Misma versión: ¿cambió algo que viaja dentro de la app?
+          if ($env:EVENTO -eq "workflow_dispatch") {
+            Write-Host "::warning::La version $nueva ya esta publicada: este build NO llega a las apps instaladas (electron-updater no ve version nueva). Subi 'version' en desktop/package.json."
+            exit 0
+          }
+          # Misma versión en un push: ¿cambió algo que viaja dentro de la app?
+          # Si no se puede comparar, se asume que sí (mejor frenar que publicar
+          # una "actualización" que nadie recibe).
+          $cambios = @("(no se pudo comparar con el commit anterior)")
+          if ($env:ANTES -and $env:ANTES -ne "0000000000000000000000000000000000000000") {
+            git fetch --depth=2 origin $env:ANTES 2>$null | Out-Null
+            $lista = git diff --name-only $env:ANTES $env:AHORA -- desktop 2>$null
+            if ($LASTEXITCODE -eq 0) { $cambios = @($lista | Where-Object { $_ -and $_ -notmatch "^desktop/README" }) }
+          }
+          if ($cambios.Count -gt 0) {
+            Write-Host "::error::La version $nueva ya esta publicada y este push cambia la app ($($cambios -join ', ')). Subi 'version' en desktop/package.json: si no, ninguna app instalada se actualiza."
+            exit 1
+          }
+          Write-Host "Misma version pero sin cambios en la app (solo README/workflow): se publica igual."
+
       - name: Preparar el certificado de firma
         if: env.HAY_PFX == 'true'
         shell: pwsh

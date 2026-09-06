@@ -114,6 +114,18 @@ Paso a paso, una sola vez:
    workflow, subir el `.appx` nuevo en una submission nueva (la tienda
    exige que la versión sea mayor que la publicada). El instalador `.exe`
    sigue existiendo para quien tenga la tienda bloqueada.
+   El workflow **frena** un push que cambia la app sin subir `version`:
+   electron-updater compara la versión de `latest.yml` con la instalada,
+   así que un release con el mismo número no llega a nadie.
+
+## Si la app instalada no se actualiza
+
+La copia del `.exe` mira GitHub Releases a los 30 s de arrancar y después
+cada 6 horas (`latest.yml` → baja `Unify-Setup.exe` → verifica el sha512 →
+«Reiniciar y actualizar» en el menú de la bandeja, o se instala al cerrar).
+Todo lo que hizo queda en `%APPDATA%\unify-escritorio\logs\actualizador.log`
+(cada búsqueda, la versión encontrada, la descarga y, si falló, por qué).
+La copia de la Microsoft Store no usa esto: la actualiza la tienda.
 
 ## Firma del instalador (que Windows no avise)
 
