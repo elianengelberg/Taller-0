@@ -30,7 +30,7 @@ const TOKEN_WEBHOOK = "token-webhook-de-prueba";
 const S2S = { account: "cuenta-s2s", id: "s2s-id", secret: "s2s-secreto" };
 const HOST_EMAIL = `anfitriona${Date.now()}@test.com`;
 const NUMERO = "89123456789";
-const API3 = "http://localhost:4003";
+const API3 = "http://127.0.0.1:4003"; // 127.0.0.1 a propósito: "localhost" a veces resuelve a ::1 y el socket no entra
 const PUERTO_ZOOM_API = 4197; // 4190 está en la lista de "bad ports" de fetch: undici lo rechaza
 const PUERTO_RTMS = 4191;
 
@@ -152,6 +152,12 @@ async function webhook(evento, payload, opciones = {}) {
   try {
     const plat = await fetch(`${API3}/api/platforms`).then((r) => r.json());
     check("/api/platforms dice que Zoom sin bot está disponible (zoomRtms)", plat.zoomRtms === true, JSON.stringify(plat));
+    // La vuelta de la autorización (OAuth Redirect URL del Marketplace) no es un 404.
+    const vuelta = await fetch(`${API3}/api/zoom/oauth/callback?code=abc123`);
+    const vueltaHtml = await vuelta.text();
+    check("la vuelta de la autorización en Zoom es una página clara (no un 404)", vuelta.status === 200 && /quedó autorizado/.test(vueltaHtml) && /Podés cerrar/.test(vueltaHtml), `HTTP ${vuelta.status}`);
+    const sinCodigo = await fetch(`${API3}/api/zoom/oauth/callback`).then((r) => r.text());
+    check("y sin código explica que se reintente desde el Marketplace", /Volvé a intentarlo/.test(sinCodigo));
 
     // La anfitriona tiene cuenta en Unify (con el MISMO mail que en Zoom).
     const reg = await fetch(`${API3}/api/auth/register`, {
@@ -183,7 +189,11 @@ async function webhook(evento, payload, opciones = {}) {
     const estados = [];
     socket.on("transcript-line", (p) => lineasVivo.push(p.line));
     socket.on("meet-state", (s) => estados.push(s));
-    await new Promise((resolve) => { socket.emit("join-companion", { externalKey: `zoom:${NUMERO}`, name: "Testigo Web", language: "es-AR" }, resolve); setTimeout(resolve, 4000); });
+    const unido = await new Promise((resolve) => {
+      socket.emit("join-companion", { externalKey: `zoom:${NUMERO}`, name: "Testigo Web", language: "es-AR" }, () => resolve(true));
+      setTimeout(() => resolve(false), 8000);
+    });
+    check("un testigo con Unify al lado se une a la sala «zoom:<número>» antes de que Zoom transmita", unido === true, `conectado=${socket.connected}`);
 
     const UUID = "AbC12/xyz==";
     const STREAM = "stream-uno";

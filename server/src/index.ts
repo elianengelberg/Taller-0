@@ -1054,6 +1054,27 @@ app.get("/api/zoom/rtms/estado", requireAuth, (_req, res) => {
   res.json(estadoRtms());
 });
 
+// A dónde vuelve la persona después de autorizar la app de Unify en su Zoom
+// (el «OAuth Redirect URL» del Marketplace). RTMS no necesita canjear el
+// código: con la autorización alcanza, así que acá sólo se confirma en
+// castellano en vez de dejar un 404 que parece un error.
+app.get("/api/zoom/oauth/callback", (req, res) => {
+  const ok = typeof req.query.code === "string" && req.query.code.length > 0;
+  res
+    .status(200)
+    .type("html")
+    .send(
+      `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unify · Zoom</title>
+<style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:24px}main{max-width:460px;text-align:center}h1{font-size:22px}p{line-height:1.5;color:#cbd5e1}</style></head>
+<body><main><h1>${ok ? "Unify quedó autorizado en tu Zoom" : "Autorización de Zoom"}</h1>
+<p>${
+        ok
+          ? "Listo: cuando organices una reunión, Zoom la transcribe sola en Unify, sin bot. Podés cerrar esta pestaña."
+          : "Zoom no mandó el código de autorización. Volvé a intentarlo desde la página de la app en el Marketplace de Zoom (Local Test → Add)."
+      }</p></main></body></html>`
+    );
+});
+
 // Google Sign-In (plain OAuth2, see googleAuth.ts). Step 1: send the browser
 // to Google's consent screen. A full page redirect, not a fetch -- the
 // frontend button just navigates here directly.
