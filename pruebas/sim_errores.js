@@ -293,7 +293,7 @@ async function joinExternal(page, link, name = "Tester") {
     await page.route("**/api/platforms", async (r) => {
       const res = await r.fetch();
       const j = await res.json().catch(() => ({}));
-      await r.fulfill({ response: res, body: JSON.stringify({ ...j, zoom: true }) });
+      await r.fulfill({ response: res, body: JSON.stringify({ ...j, zoom: true, zoomRtms: true }) });
     });
     await page.route("**/api/translate", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ translatedText: "texto traducido de prueba" }) }));
   }
@@ -397,6 +397,8 @@ async function joinExternal(page, link, name = "Tester") {
     await page.getByLabel("Tu nombre").fill("Invitado Zoom");
     const directo = page.getByRole("button", { name: /Unirme en Zoom/i });
     check("con un enlace de Zoom, el botón principal es unirse EN Zoom (Unify al lado)", (await directo.count()) === 1);
+    check("y, con Zoom sin bot configurado, avisa que la reunión propia se transcribe sola",
+      (await page.getByText(/se transcribe sola, sin bot/i).count()) === 1);
     check("y no pide contraseña a la vista (queda para «intentar adentro», plegado)", !(await page.getByLabel(/Contraseña de la reunión/i).first().isVisible().catch(() => false)));
     // zoom.us no se alcanza desde acá (la ventana termina en una página de
     // error de Chrome): lo que importa es QUÉ pidió la ventana nueva.

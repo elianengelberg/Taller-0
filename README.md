@@ -142,6 +142,52 @@ mensajes) sin activar R2 (grabaciones), la IA, ni el correo, por ejemplo.
   correo explica que el acceso es por el botón de Google (y que la contraseña de Google se
   recupera en Google).
 
+## Zoom sin bot (Realtime Media Streams)
+
+Zoom puede transmitir una reunión **directo al servidor de Unify**, sin que entre ningún
+participante extra: transcripción en vivo con el nombre de quien habla, historial, resumen
+y traducción, todo por el mismo puente que usan la extensión y el bot. Zoom muestra a
+todos el aviso «El contenido de esta reunión se está compartiendo con una o más apps».
+Funciona para las reuniones **organizadas por quien tiene la app de Unify autorizada en su
+Zoom** (para reuniones de otras cuentas, la app tiene que pasar la revisión del
+Marketplace de Zoom).
+
+El servidor lo implementa en `server/src/rtms.ts` (protocolo WebSocket directo, sin
+dependencias nativas) y lo prueba de punta a punta `pruebas/sim_rtms.js` contra un Zoom
+simulado. Para encenderlo, en orden:
+
+1. **La app en el Zoom App Marketplace** ([marketplace.zoom.us](https://marketplace.zoom.us)
+   → Develop → Build App → **General App**). Si ya existe la app del Meeting SDK, es la
+   misma: se le agrega RTMS. Anotá el **Client ID** y el **Client Secret**.
+2. **Scopes** (pestaña Scopes → Add Scopes): `meeting:read:meeting_transcript` (la
+   transcripción) y `meeting:read:meeting_audio` (por si después se graba el audio). Si no
+   aparecen, la cuenta todavía no tiene RTMS habilitado (paso 4).
+3. **Webhook** (pestaña Features → Access → Event Subscription): URL
+   `https://<tu-servidor>/api/zoom/webhook`, eventos **`meeting.rtms_started`** y
+   **`meeting.rtms_stopped`**. Copiá el **Secret Token** de esa pantalla. Zoom valida la URL
+   al guardar: el servidor tiene que estar ya desplegado con las variables del paso 5.
+4. **Habilitar RTMS en la cuenta** (Zoom web portal → Admin → Configuración de la cuenta →
+   Zoom Apps → *Realtime Media Streams* / «Permitir que las apps accedan al contenido de
+   la reunión en tiempo real»). Lo hace un administrador de la cuenta; sin esto la app no
+   recibe nada aunque esté bien configurada. En la app, activá el **auto-start** de RTMS
+   (Features → Realtime Media Streams) para que arranque solo en cada reunión.
+5. **Variables en el servidor** (Render → Environment):
+   - `ZOOM_RTMS_CLIENT_ID` y `ZOOM_RTMS_CLIENT_SECRET` (si es la misma app del Meeting
+     SDK alcanza con `ZOOM_SDK_KEY` / `ZOOM_SDK_SECRET`, que se reusan),
+   - `ZOOM_WEBHOOK_SECRET_TOKEN` (el Secret Token del paso 3),
+   - opcional `ZOOM_RTMS_LANG` (default `es-AR`; el idioma real de cada frase se detecta igual).
+6. **Que quede a tu nombre** (recomendado): una app **Server-to-Server OAuth** en el mismo
+   Marketplace (Build App → Server-to-Server OAuth, scope `meeting:read:meeting:admin`),
+   y en el servidor `ZOOM_S2S_ACCOUNT_ID`, `ZOOM_S2S_CLIENT_ID`, `ZOOM_S2S_CLIENT_SECRET`.
+   Con eso el servidor traduce el UUID de la reunión al número (la sala `zoom:<número>`, la
+   misma que abre la web con el enlace, así quien tenga Unify al lado la ve en vivo) y al
+   mail del anfitrión: la reunión aparece en el historial de la cuenta de Unify con ese
+   mismo mail. Sin S2S, `ZOOM_RTMS_OWNER_EMAIL=<tu mail de Unify>` deja todas las
+   reuniones que lleguen a nombre de esa cuenta.
+7. **Autorizar la app** con tu usuario de Zoom (en la app: Local Test → Add, o el enlace de
+   instalación) y hacer una reunión de prueba. `GET /api/zoom/rtms/estado` (con sesión)
+   muestra las transmisiones en curso; los logs del servidor las anotan como `[rtms]`.
+
 ## Instalar como app (PWA)
 
 Unify es una **PWA instalable**, y todo se instala desde la propia web:

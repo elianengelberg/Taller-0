@@ -354,6 +354,8 @@ export interface PlatformConfig {
   recording: boolean;
   /** El servidor puede guardar fotos de perfil subidas por el usuario. */
   avatars: boolean;
+  /** Zoom sin bot (Realtime Media Streams) configurado en el servidor. */
+  zoomRtms?: boolean;
 }
 
 // Which external-meeting integrations the server actually has configured, so
@@ -369,6 +371,7 @@ export async function fetchPlatformConfig(): Promise<PlatformConfig> {
     "google-meet": true,
     recording: true,
     avatars: true,
+    zoomRtms: false,
   };
   try {
     const res = await fetchWithTimeout(`${SERVER_URL}/api/platforms`);

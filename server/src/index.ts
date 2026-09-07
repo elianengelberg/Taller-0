@@ -1,6 +1,7 @@
 import cors from "cors";
 import { recortarRepetido } from "./repetidos";
 import { detectarIdioma } from "./idioma";
+import { configurarRtms, estadoRtms, manejarWebhookZoom, rtmsEnabled } from "./rtms";
 import express, { NextFunction, Request, Response } from "express";
 import { createServer } from "http";
 import { spawn } from "child_process";
@@ -1026,7 +1027,31 @@ app.get("/api/platforms", (_req, res) => {
     // Subir una foto propia necesita el mismo almacenamiento que las
     // grabaciones; sin él la UI oculta el botón en vez de fallar al tocarlo.
     avatars: storageEnabled,
+    // Zoom sin bot (Realtime Media Streams): Zoom transmite la reunión a este
+    // servidor cuando el anfitrión tiene la app autorizada. Ver rtms.ts.
+    zoomRtms: rtmsEnabled,
   });
+});
+
+// ── Zoom sin bot: el webhook de Realtime Media Streams ─────────────────────
+// Zoom avisa acá cuando una reunión empieza a transmitirse (rtms_started) y
+// cuando termina (rtms_stopped); rtms.ts hace el resto. El cuerpo CRUDO se
+// guarda porque la firma de Zoom se calcula sobre los bytes tal cual llegan.
+app.post(
+  "/api/zoom/webhook",
+  express.json({
+    limit: "256kb",
+    verify: (req, _res, buf) => {
+      (req as Request & { rawBody?: string }).rawBody = buf.toString("utf8");
+    },
+  }),
+  (req, res) => manejarWebhookZoom(req as Request & { rawBody?: string }, res)
+);
+
+// Qué reuniones está transmitiendo Zoom ahora mismo (para verificar que la
+// app quedó bien configurada sin mirar los logs de Render).
+app.get("/api/zoom/rtms/estado", requireAuth, (_req, res) => {
+  res.json(estadoRtms());
 });
 
 // Google Sign-In (plain OAuth2, see googleAuth.ts). Step 1: send the browser
@@ -2176,6 +2201,21 @@ const roomFor = (meetingId: string) => `meeting:${meetingId}`;
 // Resuelve (creando si hace falta) la reunión companion que respalda una
 // clave de sala. El título del historial sale de la plataforma: "Reunión de
 // Zoom", "Reunión de Microsoft Teams", igual que las creadas desde la web.
+// Lo que rtms.ts necesita del servidor: el puerto (las frases entran por el
+// puente HTTP local, como las del bot), la cuenta por mail y el reclamo de la
+// sala a nombre de esa cuenta (con reintentos: la sala se crea en paralelo).
+configurarRtms({
+  puerto: () => Number(process.env.PORT || 4001),
+  duenoPorEmail: async (email) => (await getUserByEmail(email))?.id ?? null,
+  reclamarSala: async (roomKey, userId) => {
+    const companion = companionForRoomKey(roomKey);
+    for (let intento = 0; intento < 5; intento++) {
+      if (await claimMeeting(companion.dbId, userId)) return;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  },
+});
+
 function companionForRoomKey(roomKey: string) {
   const { meeting, created } = getOrCreateCompanionMeeting(roomKey);
   if (created) {
@@ -2479,5 +2519,8 @@ httpServer.listen(PORT, () => {
   if (BOT_ENABLED) {
     arrancarAgenda((a) => despacharBot({ ...a }).then(() => {}));
     console.log("Piloto automático del bot: encendido (revisa el calendario cada 60 s)");
+  }
+  if (rtmsEnabled) {
+    console.log("Zoom sin bot (Realtime Media Streams): encendido; webhook en POST /api/zoom/webhook");
   }
 });

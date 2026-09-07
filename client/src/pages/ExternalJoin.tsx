@@ -601,6 +601,14 @@ function DetectionResult({
             <span className="text-ink-200">subtítulos, la traducción, la IA y la grabación</span> de Unify
             quedan acá, al lado.
           </p>
+          {platforms?.zoomRtms && (
+            // Zoom sin bot: si la reunión es de quien tiene la app de Unify
+            // autorizada en su Zoom, Zoom la transmite sola al servidor.
+            <p className="mt-1.5 text-xs leading-relaxed text-brand-300">
+              Si sos el anfitrión y tenés la app de Unify en tu Zoom, la reunión se transcribe sola,
+              sin bot y sin tener esta pantalla abierta: queda en tu historial igual.
+            </p>
+          )}
           <RecordingNotice />
           <details className="mt-3 rounded-lg border border-ink-700/70 px-3 py-2">
             <summary className="cursor-pointer text-xs font-medium text-ink-300">
