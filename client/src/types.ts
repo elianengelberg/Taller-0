@@ -102,7 +102,9 @@ export type CompanionEmbed =
   | { kind: "jitsi"; roomName: string; domain?: string }
   // Plataformas que sí se dejan embeber por iframe (Whereby, Element Call).
   | { kind: "iframe"; label: string; embedUrl: string; joinLink: string }
-  | { kind: "zoom"; meetingNumber: string; passcode?: string }
+  // `joinLink` es el enlace real (con su `pwd`), para abrir la reunión en
+  // Zoom cuando el SDK no puede embeberla (reunión de otra cuenta, contraseña).
+  | { kind: "zoom"; meetingNumber: string; passcode?: string; joinLink?: string }
   | { kind: "teams"; meetingLink: string }
   // Google Meet can't be embedded (no SDK, frame-blocked): the real call
   // opens in its own tab and the Unify extension feeds live state back
@@ -112,7 +114,9 @@ export type CompanionEmbed =
   // personal, Webex, Skype, Discord, o un enlace suelto): la llamada vive en
   // su propia pestaña y Unify corre al lado con subtítulos, traducción, IA y
   // grabación. No necesita credenciales de nadie.
-  | { kind: "external"; label: string; joinLink: string };
+  // `nota`: por qué se está al lado y no adentro (p. ej. Zoom no deja embeber
+  // reuniones de otra cuenta), para que la persona entienda y no reintente.
+  | { kind: "external"; label: string; joinLink: string; nota?: string };
 
 export type MeetingDraft =
   | { mode: "host"; name: string; language: string; roleNames: string[] }

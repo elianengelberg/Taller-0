@@ -12,9 +12,18 @@ interface Props {
 // attach it to an account before it's effectively gone.
 export default function SaveMeetingPrompt({ onSave, onSkip }: Props) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+    // Por encima de TODO, incluida la tarjeta de error del SDK de Zoom (que se
+    // pone al tope del z-index para tapar los diálogos del propio Zoom): con
+    // z-50 este aviso quedaba escondido detrás y «Salir» parecía no hacer nada.
+    <div
+      className="fixed inset-0 flex items-center justify-center bg-black/70 px-4"
+      style={{ zIndex: 2147483647 }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="guardar-reunion-titulo"
+    >
       <div className={`${cardClass} max-w-sm text-center`}>
-        <h2 className="text-lg font-bold text-strong">¿Guardar esta reunión?</h2>
+        <h2 id="guardar-reunion-titulo" className="text-lg font-bold text-strong">¿Guardar esta reunión?</h2>
         <p className="mt-2 text-sm text-ink-300">
           Iniciá sesión o creá una cuenta para guardar la transcripción y el chat en tu
           historial. Si no, se pierde en cuanto cierres esta pestaña.

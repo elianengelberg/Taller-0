@@ -28,10 +28,29 @@ interface Props {
   // JitsiEmbed's onLeave.
   onLeave?: () => void;
   // El SDK de Zoom no pudo abrir la llamada acá dentro (sin credenciales,
-  // firma rechazada, CORS, SDK bloqueado). El contenedor degrada a companion:
-  // subtítulos, traducción, IA y grabación no dependen del SDK de Zoom.
-  onFailure?: () => void;
+  // firma rechazada, CORS, SDK bloqueado, reunión de otra cuenta). El
+  // contenedor degrada a companion: subtítulos, traducción, IA y grabación no
+  // dependen del SDK de Zoom. `motivo` es el texto para la persona; `gesto`
+  // avisa que viene de un clic (se puede abrir Zoom en el acto).
+  onFailure?: (motivo?: string, gesto?: boolean) => void;
 }
+
+// QUÉ falló al unirse. Antes cualquier error terminaba en "escribí la
+// contraseña", incluso cuando la reunión no tenía ninguna: Zoom no deja que
+// una app del Meeting SDK sin revisión de Zoom entre a reuniones organizadas
+// por OTRA cuenta ("cross account join error"), y eso no lo arregla ninguna
+// contraseña ni ningún reintento.
+export type MotivoDeZoom = "contrasena" | "otra-cuenta" | "otro";
+export function clasificarErrorDeZoom(mensaje: string): MotivoDeZoom {
+  const m = mensaje.toLowerCase();
+  if (/cross[\s-]?account|13296|another account|other account|otra cuenta/.test(m)) return "otra-cuenta";
+  if (/pass(word|code)|contraseña|\b3004\b/.test(m)) return "contrasena";
+  return "otro";
+}
+export const AVISO_OTRA_CUENTA =
+  "Zoom no deja abrir esta reunión adentro de Unify porque la organiza otra cuenta de Zoom (es una regla de Zoom para las apps sin su revisión). Abrila en Zoom: Unify sigue acá al lado con subtítulos, traducción, IA y grabación.";
+export const AVISO_CONTRASENA =
+  "La reunión pide una contraseña que Unify no tenía. En Zoom entrás con el enlace (la contraseña viaja adentro) y Unify sigue acá al lado.";
 
 const WATCHDOG_MS = 70_000;
 
@@ -60,7 +79,8 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState("Autorizando el ingreso a Zoom…");
-  const [status, setStatus] = useState<"preparing" | "in-zoom" | "error">("preparing");
+  const [status, setStatus] = useState<"preparing" | "in-zoom" | "error" | "saliendo">("preparing");
+  const [motivo, setMotivo] = useState<MotivoDeZoom>("otro");
   const [retry, setRetry] = useState(0);
   // Plain passcode (Zoom's Web SDK never accepts the encrypted link `pwd`). The
   // user can fix it inline on failure; read via a ref so a retry uses the
@@ -110,6 +130,14 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
       if (disposed || errored) return;
       errored = true;
       log(`ERROR: ${msg}`);
+      const porQue = clasificarErrorDeZoom(msg);
+      // Reunión de otra cuenta: reintentar no sirve y no hay contraseña que
+      // pedir. Se sigue con Unify al lado en el acto, con la explicación.
+      if (porQue === "otra-cuenta" && onFailureRef.current) {
+        onFailureRef.current(AVISO_OTRA_CUENTA, false);
+        return;
+      }
+      setMotivo(porQue);
       setError(msg);
       setStatus("error");
     };
@@ -258,41 +286,63 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
         <div
           className="fixed inset-0 flex flex-col items-center justify-center gap-4 bg-ink-950/95 p-6 text-center"
           // Max 32-bit z-index: guaranteed above Zoom's own error dialog, so the
-          // user only ever sees our "Reintentar" (not Zoom's "Aceptar").
+          // user only ever sees our panel (not Zoom's "Aceptar").
           style={{ zIndex: 2147483647 }}
+          role="alertdialog"
+          aria-labelledby="zoom-error-titulo"
         >
+          <p id="zoom-error-titulo" className="max-w-md text-base font-semibold text-strong">
+            {motivo === "contrasena"
+              ? "Zoom pide la contraseña de la reunión"
+              : "Zoom no pudo abrir la reunión acá dentro"}
+          </p>
           <p className="max-w-md text-sm text-brand-300">{error}</p>
-          <div className="w-full max-w-xs text-left">
-            <label className="mb-1 block text-xs text-ink-300" htmlFor="zoom-inline-passcode">
-              Contraseña de la reunión (texto, la que muestra Zoom — no el código del enlace)
-            </label>
-            <input
-              id="zoom-inline-passcode"
-              className="w-full rounded-lg border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-strong outline-none focus:border-brand-500"
-              placeholder="Ej: 123456"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              value={localPasscode}
-              onChange={(e) => setLocalPasscode(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && retryNow()}
-              autoFocus
-            />
-          </div>
+          {/* La salida que siempre funciona va PRIMERO: la reunión se abre en
+              Zoom (la app o zoom.us, que sí entiende el enlace con su
+              contraseña) y Unify sigue al lado. */}
+          {onFailure && (
+            <Button
+              onClick={() =>
+                onFailureRef.current?.(motivo === "contrasena" ? AVISO_CONTRASENA : undefined, true)
+              }
+            >
+              Abrir en Zoom y seguir con Unify al lado
+            </Button>
+          )}
+          {motivo === "contrasena" && (
+            <div className="w-full max-w-xs text-left">
+              <label className="mb-1 block text-xs text-ink-300" htmlFor="zoom-inline-passcode">
+                O escribí la contraseña (la que muestra Zoom junto al ID, no el código del enlace)
+              </label>
+              <input
+                id="zoom-inline-passcode"
+                className="w-full rounded-lg border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-strong outline-none focus:border-brand-500"
+                placeholder="Ej: 123456"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                value={localPasscode}
+                onChange={(e) => setLocalPasscode(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && retryNow()}
+              />
+            </div>
+          )}
           <div className="flex flex-wrap items-center justify-center gap-3">
-            <Button onClick={retryNow}>Reintentar</Button>
-            {onFailure && (
-              <button
-                type="button"
-                onClick={() => onFailureRef.current?.()}
-                className="text-sm font-medium text-brand-300 hover:text-brand-200"
-              >
-                Seguir con Unify al lado
-              </button>
-            )}
             <button
               type="button"
-              onClick={() => onLeaveRef.current?.()}
+              onClick={retryNow}
+              className="text-sm font-medium text-brand-300 hover:text-brand-200"
+            >
+              Reintentar acá dentro
+            </button>
+            <button
+              type="button"
+              // La tarjeta se retira ANTES de salir: si no, tapaba el aviso de
+              // «¿Guardar esta reunión?» y «Salir» parecía no hacer nada.
+              onClick={() => {
+                setStatus("saliendo");
+                onLeaveRef.current?.();
+              }}
               className="text-sm text-ink-400 hover:text-ink-200"
             >
               Salir

@@ -227,9 +227,20 @@ async function joinExternal(page, link, name = "Tester") {
     const bag = [];
     watch(page, bag);
     const letras = (n) => Array.from({ length: n }, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join("");
-    const entro = await joinExternal(page, `https://meet.google.com/${letras(3)}-${letras(4)}-${letras(3)}`, "Invitada");
+    const codigoMeet = `${letras(3)}-${letras(4)}-${letras(3)}`;
+    // La frase que se mete abajo se traduce al idioma del navegador: se
+    // contesta acá, sin salir a internet (que en este entorno no hay).
+    await page.route("**/api/translate", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ translatedText: "texto traducido de prueba" }) }));
+    const entro = await joinExternal(page, `https://meet.google.com/${codigoMeet}`, "Invitada");
     await page.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
     check("la invitada entra a la reunión externa", entro && page.url().includes("/externa/reunion"), page.url());
+    // Algo que guardar: una frase por el puente. Sin nada dicho ni grabado,
+    // salir es salir y NO se pregunta (ver 2f).
+    await fetch(`${API}/api/meet-bridge/${encodeURIComponent(`google-meet:${codigoMeet}`)}/transcript`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ speaker: "Ana", text: "arrancamos con el presupuesto del trimestre", lang: "es-AR" }),
+    }).catch(() => {});
+    await sleep(1500);
     const salir = page.getByRole("button", { name: /Salir de la reunión/i });
     if (await exigir(salir, "la invitada tiene el botón para salir")) await salir.click();
     const guardar = page.getByRole("button", { name: /Guardar \(iniciar sesión\)/i }).first();
@@ -243,6 +254,187 @@ async function joinExternal(page, link, name = "Tester") {
       new URL(page.url()).pathname === "/ingresar", page.url());
     check("sin errores de JS al guardar y salir", bag.length === 0, bag.slice(0, 2).join(" | "));
     await page.close();
+  }
+
+  // ================= 2c. Zoom de OTRA cuenta (la foto real del iPad) =================
+  // «cross account join error»: Zoom no deja que una app del Meeting SDK sin
+  // su revisión entre a reuniones organizadas por OTRA cuenta. Unify lo trataba
+  // como "falta la contraseña" (la reunión no tenía ninguna) y dejaba a la
+  // persona en un callejón. Ahora sigue sola con Unify al lado, explica por
+  // qué, y deja el botón para abrir la reunión en Zoom (con su enlace real).
+  const ZOOM_LINK = "https://us05web.zoom.us/j/89123456789?pwd=Q2xhdWRlUGFzcw";
+  const ZOOM_KEY = "zoom:89123456789";
+  // El chunk real del SDK sale de Vite como módulo CommonJS envuelto y el
+  // código que lo importa lee `import(...).then(M => M.<nombre>).default`,
+  // con un nombre distinto en cada build: el falso se exporta con los MISMOS
+  // nombres que el chunk de verdad (se leen del archivo servido).
+  const SDK_FALSO = (motivo, nombres) => {
+    const modulo = `{ default: { createClient() { return {
+      async init() {}, on() {}, leaveMeeting() {},
+      async join() { return { type: "JOIN_MEETING_FAILED", reason: ${JSON.stringify(motivo)}, errorCode: 3000 }; }
+    }; } } }`;
+    const alias = nombres.filter((n) => n !== "default").map((n) => `export { m as ${n} };`).join("\n");
+    return `const m = ${modulo};\nexport default m.default;\n${alias}`;
+  };
+  async function servirSdkFalso(page, motivo) {
+    await page.route("**/assets/embedded-*.js", async (r) => {
+      const real = await (await r.fetch()).text().catch(() => "");
+      const ultimo = [...real.matchAll(/export\{([^}]*)\}/g)].pop()?.[1] || "";
+      const nombres = ultimo.split(",").map((par) => par.trim().split(/\s+as\s+/).pop()).filter(Boolean);
+      await r.fulfill({ status: 200, contentType: "application/javascript", body: SDK_FALSO(motivo, nombres) });
+    });
+  }
+  // Contexto NUEVO (sin nombre recordado): el formulario tiene que aparecer.
+  const mkZoom = () => browser.newContext({ viewport: { width: 1280, height: 900 }, permissions: ["microphone"] });
+  // El servidor local no tiene credenciales de Zoom (/api/platforms dice
+  // zoom:false y la pantalla ni ofrece el SDK). Acá se finge que sí, como en
+  // producción, y la traducción se contesta sin salir a internet.
+  async function comoEnProduccion(page) {
+    await page.route("**/api/platforms", async (r) => {
+      const res = await r.fetch();
+      const j = await res.json().catch(() => ({}));
+      await r.fulfill({ response: res, body: JSON.stringify({ ...j, zoom: true }) });
+    });
+    await page.route("**/api/translate", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ translatedText: "texto traducido de prueba" }) }));
+  }
+  async function entrarAdentroConSdkFalso(ctxZ, motivo) {
+    const page = await ctxZ.newPage();
+    const bag = [];
+    watch(page, bag);
+    let firmas = 0;
+    await comoEnProduccion(page);
+    await page.route("**/api/zoom/signature", (r) => { firmas++; r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ signature: "firma-de-prueba" }) }); });
+    // El SDK de Zoom de verdad, reemplazado por uno que falla como Zoom falla.
+    await servirSdkFalso(page, motivo);
+    await page.goto(`${B}/externa?link=${encodeURIComponent(ZOOM_LINK)}`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(1500);
+    await page.getByLabel("Tu nombre").fill("Invitado Zoom");
+    await page.locator("details > summary").first().click();
+    const adentro = page.getByRole("button", { name: /^Unirme acá dentro$/i });
+    await adentro.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+    await adentro.click();
+    await page.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(3500);
+    return { page, bag, firmas: () => firmas };
+  }
+  async function unaFraseEnZoom() {
+    await fetch(`${API}/api/meet-bridge/${encodeURIComponent(ZOOM_KEY)}/transcript`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ speaker: "Bruno", text: "tengo los números del trimestre listos para revisar", lang: "es-AR" }),
+    }).catch(() => {});
+    await sleep(1500);
+  }
+  {
+    const ctxZ = await mkZoom();
+    const { page, bag, firmas } = await entrarAdentroConSdkFalso(ctxZ, "cross account join error");
+    check("Zoom de otra cuenta: entra a la reunión externa igual", page.url().includes("/externa/reunion"), page.url());
+    check("y pidió la firma (intentó de verdad el SDK)", firmas() >= 1, `firmas=${firmas()}`);
+    check("NO pide una contraseña que la reunión no tiene", (await page.locator("#zoom-inline-passcode").count()) === 0 && (await page.getByRole("alertdialog").count()) === 0);
+    const abrir = page.getByRole("link", { name: /Abrir en Zoom/i });
+    check("sigue sola con Unify al lado, con el botón para abrir la reunión en Zoom", (await abrir.count()) === 1);
+    const href = (await abrir.first().getAttribute("href").catch(() => "")) || "";
+    check("y el botón lleva al enlace REAL (con el número y su pwd, que Zoom sí entiende)", href.includes("89123456789") && href.includes("pwd=Q2xhdWRlUGFzcw"), href);
+    const nota = (await page.getByRole("note").first().textContent().catch(() => "")) || "";
+    check("explica por qué (otra cuenta de Zoom) en vez de dejar un error críptico", /otra cuenta/i.test(nota) && /Zoom/.test(nota), nota.slice(0, 90));
+    // Salir tiene que SALIR (con algo que guardar, pregunta; y la pregunta se ve).
+    await unaFraseEnZoom();
+    await page.getByRole("button", { name: /Salir de la reunión/i }).click();
+    const dialogo = page.getByRole("dialog", { name: /Guardar esta reunión/i });
+    await dialogo.waitFor({ state: "visible", timeout: 6000 }).catch(() => {});
+    check("al salir, el aviso de guardar aparece A LA VISTA", (await dialogo.count()) === 1 && (await dialogo.isVisible().catch(() => false)));
+    await page.getByRole("button", { name: /No, gracias/i }).click().catch(() => {});
+    await page.waitForURL((u) => new URL(u).pathname === "/", { timeout: 35000 }).catch(() => {});
+    check("y «No, gracias» la lleva al inicio", new URL(page.url()).pathname === "/", page.url());
+    check("sin errores de JS en el camino de otra cuenta", bag.length === 0, bag.slice(0, 2).join(" | "));
+    await ctxZ.close();
+  }
+
+  // ================= 2d. Contraseña incorrecta: la tarjeta NO tapa «¿Guardar?» =================
+  // Con la contraseña mal, la tarjeta de error del SDK (z-index al tope para
+  // tapar los diálogos de Zoom) escondía el aviso de «¿Guardar esta reunión?»
+  // y «Salir» parecía no hacer nada (la foto). Ahora la tarjeta se retira al
+  // salir y el aviso vive por encima de todo.
+  {
+    const ctxZ = await mkZoom();
+    const { page, bag } = await entrarAdentroConSdkFalso(ctxZ, "Meeting passcode wrong");
+    const tarjeta = page.getByRole("alertdialog", { name: /Zoom pide la contraseña/i });
+    check("con la contraseña mal, la tarjeta dice que Zoom pide la contraseña", (await tarjeta.count()) === 1);
+    check("y ofrece escribirla", (await page.locator("#zoom-inline-passcode").count()) === 1);
+    check("y PRIMERO la salida que siempre anda: abrir en Zoom con Unify al lado", (await tarjeta.getByRole("button", { name: /Abrir en Zoom y seguir con Unify al lado/i }).count()) === 1);
+    await unaFraseEnZoom();
+    await tarjeta.getByRole("button", { name: /^Salir$/i }).click();
+    const dialogo = page.getByRole("dialog", { name: /Guardar esta reunión/i });
+    await dialogo.waitFor({ state: "visible", timeout: 6000 }).catch(() => {});
+    const noGracias = page.getByRole("button", { name: /No, gracias/i });
+    const llega = await noGracias.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return Boolean(top && (top === el || el.contains(top)));
+    }).catch(() => false);
+    check("«Salir» muestra el aviso de guardar POR ENCIMA de la tarjeta (el clic llega)", (await dialogo.isVisible().catch(() => false)) && llega, `clic llega=${llega}`);
+    check("y la tarjeta de error ya no está tapando", (await page.getByRole("alertdialog").count()) === 0);
+    await noGracias.click().catch(() => {});
+    await page.waitForURL((u) => new URL(u).pathname === "/", { timeout: 35000 }).catch(() => {});
+    check("y sale de verdad", new URL(page.url()).pathname === "/", page.url());
+    check("sin errores de JS con la contraseña mal", bag.length === 0, bag.slice(0, 2).join(" | "));
+    await ctxZ.close();
+  }
+
+  // ================= 2e. Pegar el enlace y unirse DIRECTO, como en Zoom =================
+  // Lo que la persona pidió: pegar el enlace y entrar. Para Zoom el camino
+  // que anda siempre es abrir la reunión en Zoom (que entiende el enlace con
+  // su contraseña) con el mismo clic, y quedarse con Unify al lado.
+  {
+    const ctxZ = await mkZoom();
+    const page = await ctxZ.newPage();
+    const bag = [];
+    watch(page, bag);
+    let firmas = 0;
+    await comoEnProduccion(page);
+    page.on("request", (r) => { if (r.url().includes("/api/zoom/signature")) firmas++; });
+    await page.goto(`${B}/externa?link=${encodeURIComponent(ZOOM_LINK)}`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(1500);
+    await page.getByLabel("Tu nombre").fill("Invitado Zoom");
+    const directo = page.getByRole("button", { name: /Unirme en Zoom/i });
+    check("con un enlace de Zoom, el botón principal es unirse EN Zoom (Unify al lado)", (await directo.count()) === 1);
+    check("y no pide contraseña a la vista (queda para «intentar adentro», plegado)", !(await page.getByLabel(/Contraseña de la reunión/i).first().isVisible().catch(() => false)));
+    // zoom.us no se alcanza desde acá (la ventana termina en una página de
+    // error de Chrome): lo que importa es QUÉ pidió la ventana nueva.
+    let urlZoom = "";
+    ctxZ.on("request", (r) => { if (!urlZoom && /zoom\.us\/j\//.test(r.url())) urlZoom = r.url(); });
+    const popup = ctxZ.waitForEvent("page", { timeout: 6000 }).catch(() => null);
+    await directo.click();
+    const nueva = await popup;
+    await page.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(1500);
+    check("con ese MISMO clic se abre la reunión en Zoom (enlace real, con pwd)", Boolean(nueva) && urlZoom.includes("zoom.us/j/89123456789") && urlZoom.includes("pwd=Q2xhdWRlUGFzcw"), urlZoom || nueva?.url() || "sin ventana");
+    check("y Unify queda al lado, en la reunión", page.url().includes("/externa/reunion") && (await page.getByRole("link", { name: /Abrir en Zoom/i }).count()) === 1, page.url());
+    check("sin pasar por el SDK (ni una firma pedida)", firmas === 0, `firmas=${firmas}`);
+    check("sin errores de JS en el camino directo", bag.length === 0, bag.slice(0, 2).join(" | "));
+    await ctxZ.close();
+  }
+
+  // ================= 2f. Reunión vacía: salir es salir =================
+  // Sin una frase ni grabación no hay nada que guardar: preguntar «¿Guardar
+  // esta reunión?» era ruido. Con la grabación automática apagada y nadie
+  // hablando, «Salir» va al inicio derecho.
+  {
+    const ctxZ = await mkZoom();
+    await ctxZ.addInitScript(() => { try { localStorage.setItem("unify_autorecord_externa", "0"); } catch {} });
+    const page = await ctxZ.newPage();
+    const bag = [];
+    watch(page, bag);
+    await page.goto(`${B}/externa?link=${encodeURIComponent(`https://meet.google.com/${meetCode()}`)}`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(1200);
+    await page.getByLabel("Tu nombre").fill("Invitada Breve");
+    await page.getByRole("button", { name: /Unirme acá dentro/i }).click();
+    await page.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(2500);
+    await page.getByRole("button", { name: /Salir de la reunión/i }).click();
+    await page.waitForURL((u) => new URL(u).pathname === "/", { timeout: 8000 }).catch(() => {});
+    check("sin nada dicho ni grabado, «Salir» no pregunta: va al inicio", new URL(page.url()).pathname === "/" && (await page.getByRole("dialog", { name: /Guardar esta reunión/i }).count()) === 0, page.url());
+    check("sin errores de JS al salir de una reunión vacía", bag.length === 0, bag.slice(0, 2).join(" | "));
+    await ctxZ.close();
   }
 
   // ================= 3. Refrescar la URL de la reunión =================

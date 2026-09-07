@@ -51,7 +51,7 @@ import {
 import { comoVerLosDosALaVez, detectarDispositivo } from "../lib/dispositivo";
 import { esIOS, screenCaptureSupported } from "../lib/screenCapture";
 import { autoRecordEnabled, discardStashedDisplayStream, takeDisplayStream } from "../lib/autoRecord";
-import { cerrarVentanaSiQuedoEnBlanco } from "../lib/ventanaReunion";
+import { abrirVentanaReunion, cerrarVentanaSiQuedoEnBlanco } from "../lib/ventanaReunion";
 import { loadRoles, roleById, RoleMap, saveRoles } from "../lib/companionRoles";
 import { setUnsavedMeeting } from "../lib/unsavedMeeting";
 import { CompanionEmbed } from "../types";
@@ -102,7 +102,7 @@ function CompanionEmbedPane({
    * grabación) no depende de ese SDK, así que se sigue en modo companion con
    * la llamada abierta en su propia pestaña.
    */
-  onDegrade: (label: string, joinLink: string) => void;
+  onDegrade: (label: string, joinLink: string, nota?: string, abrirYa?: boolean) => void;
   subtitleStage?: ReactNode;
 }) {
   switch (embed.kind) {
@@ -134,7 +134,9 @@ function CompanionEmbedPane({
           passcode={embed.passcode}
           displayName={displayName}
           onLeave={onLeave}
-          onFailure={() => onDegrade("Zoom", `https://zoom.us/j/${embed.meetingNumber}`)}
+          onFailure={(motivo, gesto) =>
+            onDegrade("Zoom", embed.joinLink ?? `https://zoom.us/j/${embed.meetingNumber}`, motivo, gesto)
+          }
         />
       );
     case "teams":
@@ -159,6 +161,7 @@ function CompanionEmbedPane({
         <ExternalCompanionPane
           label={embed.label}
           joinLink={embed.joinLink}
+          nota={embed.nota}
           subtitleStage={subtitleStage}
         />
       );
@@ -722,8 +725,19 @@ export default function ExternalMeeting() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savingRecording, recorder.status, recorder.uploadStatus]);
 
+  // Sin nada que guardar (ni una frase, ni grabación) no se pregunta si se
+  // guarda: salir es salir. Pasaba al fallar la entrada a Zoom: la persona
+  // tocaba «Salir» y le aparecía «¿Guardar esta reunión?» de una reunión vacía.
+  const hayAlgoQueGuardar = () =>
+    (meeting?.transcript.length ?? 0) > 0 ||
+    recorder.status === "recording" ||
+    recorder.status === "processing" ||
+    recorder.status === "done" ||
+    recorder.uploadStatus === "uploading" ||
+    recorder.uploadStatus === "uploaded";
+
   function handleLeave() {
-    if (!user && meeting?.dbId) {
+    if (!user && meeting?.dbId && hayAlgoQueGuardar()) {
       setPendingLeave(meeting.dbId);
       return;
     }
@@ -749,7 +763,7 @@ export default function ExternalMeeting() {
   finishFromDesktopRef.current = () => {
     if (recorder.status === "recording") recorder.stop();
     const dbId = meeting?.dbId ?? null;
-    if (!user && dbId) {
+    if (!user && dbId && hayAlgoQueGuardar()) {
       setPendingLeave(dbId);
       return;
     }
@@ -1134,7 +1148,13 @@ export default function ExternalMeeting() {
               embed={degraded ?? draft.embed}
               displayName={draft.name}
               onLeave={handleLeave}
-              onDegrade={(label, joinLink) => setDegraded({ kind: "external", label, joinLink })}
+              onDegrade={(label, joinLink, nota, abrirYa) => {
+                // Si viene de un clic, la reunión se abre en su app YA (fuera
+                // de un gesto el navegador lo bloquea); si no, el panel deja
+                // el botón «Abrir en Zoom» a la vista.
+                if (abrirYa) abrirVentanaReunion(joinLink);
+                setDegraded({ kind: "external", label, joinLink, nota });
+              }}
               subtitleStage={
                 <CompanionSubtitleStage
                   lines={stageLines}

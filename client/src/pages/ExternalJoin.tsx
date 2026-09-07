@@ -44,7 +44,9 @@ import { useDocumentTitle } from "../hooks/useDocumentTitle";
 // misma reunión.
 function companionEmbedFor(
   target: DetectedMeeting,
-  passcode: string
+  passcode: string,
+  // «Unirme en Zoom»: la llamada va a la app de Zoom y Unify queda al lado.
+  alLado = false
 ): { key: string; label: string; embed: CompanionEmbed } | null {
   const { platform, meetingId, url, roomKey } = target;
 
@@ -68,12 +70,20 @@ function companionEmbedFor(
     };
   }
   if (platform === "zoom" && meetingId && roomKey) {
+    // El enlace real, con su `pwd`: la app de Zoom y zoom.us lo entienden y
+    // entran solos. Es lo que anda SIEMPRE, porque el Meeting SDK sólo puede
+    // embeber reuniones organizadas por la propia cuenta (regla de Zoom para
+    // apps sin su revisión: "cross account join error").
+    const joinLink = url ?? `https://zoom.us/j/${meetingId}`;
+    if (alLado) {
+      return { key: roomKey, label: `Zoom · ${meetingId}`, embed: { kind: "external", label: "Zoom", joinLink } };
+    }
     return {
       key: roomKey,
       label: `Zoom · ${meetingId}`,
       // The plain passcode the user typed (if any). We deliberately ignore
       // the link's `pwd`: it's an encrypted token the Meeting SDK rejects.
-      embed: { kind: "zoom", meetingNumber: meetingId, passcode: passcode.trim() || undefined },
+      embed: { kind: "zoom", meetingNumber: meetingId, passcode: passcode.trim() || undefined, joinLink },
     };
   }
   if (platform === "google-meet" && meetingId && url && roomKey) {
@@ -177,11 +187,11 @@ export default function ExternalJoin() {
   // `displayStream` es la captura de pantalla que pudimos pedir DURANTE el clic
   // (ver joinWithAutoRecord): se la pasamos a la pantalla de reunión para que
   // la grabación arranque sola. El navegador no deja pedirla más tarde.
-  function joinDetected(target: DetectedMeeting, nombreForzado?: string) {
+  function joinDetected(target: DetectedMeeting, nombreForzado?: string, alLado = false) {
     const quien = (nombreForzado ?? name).trim();
     if (quien) localStorage.setItem("unify_external_name", quien);
     const base = { name: quien || "Invitado", language };
-    const embed = companionEmbedFor(target, passcode);
+    const embed = companionEmbedFor(target, passcode, alLado);
     if (!embed) return;
     startCompanionDraft({
       ...base,
@@ -204,17 +214,17 @@ export default function ExternalJoin() {
   // ESTA pestaña como capa de subtítulos. Sólo para las plataformas que no
   // pueden vivir embebidas acá (Meet y las "external"): abrir otra copia de
   // una embebible sería duplicar la reunión.
-  function abrirReunionRealSiHaceFalta(target: DetectedMeeting) {
-    const info = companionEmbedFor(target, passcode);
+  function abrirReunionRealSiHaceFalta(target: DetectedMeeting, alLado = false) {
+    const info = companionEmbedFor(target, passcode, alLado);
     if (!info) return;
     const e = info.embed;
     const link = e.kind === "meet" ? e.meetLink : e.kind === "external" ? e.joinLink : null;
     if (link) abrirVentanaReunion(link);
   }
-  async function joinWithAutoRecord(target: DetectedMeeting) {
-    abrirReunionRealSiHaceFalta(target);
+  async function joinWithAutoRecord(target: DetectedMeeting, alLado = false) {
+    abrirReunionRealSiHaceFalta(target, alLado);
     if (!autoRecordEnabled()) {
-      joinDetected(target);
+      joinDetected(target, undefined, alLado);
       return;
     }
     setPreparingRecording(true);
@@ -224,7 +234,7 @@ export default function ExternalJoin() {
     } finally {
       setPreparingRecording(false);
     }
-    joinDetected(target);
+    joinDetected(target, undefined, alLado);
   }
 
   // Deep link from the browser extension's "Grabar con Unify" button inside
@@ -425,6 +435,7 @@ export default function ExternalJoin() {
               preparing={preparingRecording}
               onPasscodeChange={setPasscode}
               onJoinEmbed={() => void joinWithAutoRecord(detected)}
+              onJoinAlLado={() => void joinWithAutoRecord(detected, true)}
               lang={language}
             />
           )}
@@ -441,6 +452,7 @@ function DetectionResult({
   preparing,
   onPasscodeChange,
   onJoinEmbed,
+  onJoinAlLado,
   lang,
 }: {
   detected: DetectedMeeting;
@@ -449,6 +461,8 @@ function DetectionResult({
   preparing: boolean;
   onPasscodeChange: (value: string) => void;
   onJoinEmbed: () => void;
+  /** Zoom: la llamada se abre en la app de Zoom y Unify queda al lado. */
+  onJoinAlLado: () => void;
   /** El idioma que la persona dijo que se habla: el OÍDO del bot. */
   lang: string;
 }) {
@@ -571,30 +585,52 @@ function DetectionResult({
         {meetingId ? <span className="text-ink-400"> · {meetingId}</span> : null}.
       </p>
 
-      {canEmbed ? (
+      {canEmbed && platform === "zoom" ? (
+        // ZOOM: con el enlace alcanza. La reunión se abre en la app de Zoom
+        // (o en zoom.us), que entiende el enlace con su contraseña, y Unify
+        // queda al lado. Es la vía que anda SIEMPRE: el Meeting SDK sólo puede
+        // embeber reuniones de la propia cuenta (regla de Zoom para apps sin
+        // su revisión), y antes eso terminaba en "escribí una contraseña" que
+        // la reunión ni siquiera tenía.
         <>
-          {platform === "zoom" && (
-            <div className="mt-4">
-              <label className={labelClass} htmlFor="zoom-passcode">
-                Contraseña de la reunión (si tiene)
-              </label>
-              <input
-                id="zoom-passcode"
-                className={inputClass}
-                placeholder="Ej: 123456"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                value={passcode}
-                onChange={(e) => onPasscodeChange(e.target.value)}
-                maxLength={20}
-              />
-              <p className="mt-1.5 text-xs text-ink-400">
-                Es la contraseña que Zoom muestra junto al ID (no el código del enlace). Dejala vacía
-                si la reunión no pide contraseña.
-              </p>
-            </div>
-          )}
+          <Button className="mt-4 w-full" onClick={onJoinAlLado} disabled={preparing}>
+            {preparing ? "Preparando la grabación…" : "Unirme en Zoom (Unify queda al lado)"}
+          </Button>
+          <p className="mt-1.5 text-xs leading-relaxed text-ink-400">
+            Se abre en Zoom con el mismo enlace, sin pedir nada más. Los{" "}
+            <span className="text-ink-200">subtítulos, la traducción, la IA y la grabación</span> de Unify
+            quedan acá, al lado.
+          </p>
+          <RecordingNotice />
+          <details className="mt-3 rounded-lg border border-ink-700/70 px-3 py-2">
+            <summary className="cursor-pointer text-xs font-medium text-ink-300">
+              Intentar adentro de Unify (sólo reuniones de tu propia cuenta de Zoom)
+            </summary>
+            <p className="mt-2 text-xs leading-relaxed text-ink-400">
+              Zoom sólo deja embeber reuniones organizadas por la cuenta dueña de la app. Si la reunión
+              pide contraseña, escribí la que Zoom muestra junto al ID (no el código del enlace).
+            </p>
+            <label className={`${labelClass} mt-2`} htmlFor="zoom-passcode">
+              Contraseña de la reunión (si tiene)
+            </label>
+            <input
+              id="zoom-passcode"
+              className={inputClass}
+              placeholder="Ej: 123456"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              value={passcode}
+              onChange={(e) => onPasscodeChange(e.target.value)}
+              maxLength={20}
+            />
+            <Button variant="secondary" className="mt-3 w-full" onClick={onJoinEmbed} disabled={preparing}>
+              {preparing ? "Preparando la grabación…" : "Unirme acá dentro"}
+            </Button>
+          </details>
+        </>
+      ) : canEmbed ? (
+        <>
           <Button className="mt-4 w-full" onClick={onJoinEmbed} disabled={preparing}>
             {preparing ? "Preparando la grabación…" : "Unirme acá dentro"}
           </Button>

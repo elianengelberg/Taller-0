@@ -12,10 +12,13 @@ import { ReactNode } from "react";
 export default function ExternalCompanionPane({
   label,
   joinLink,
+  nota,
   subtitleStage,
 }: {
   label: string;
   joinLink: string;
+  /** Por qué la llamada va afuera y no adentro (si hubo un intento fallido). */
+  nota?: string;
   subtitleStage?: ReactNode;
 }) {
   return (
@@ -33,6 +36,11 @@ export default function ExternalCompanionPane({
         >
           Abrir en {label}
         </a>
+        {nota && (
+          <p role="note" className="w-full text-xs leading-relaxed text-amber-200/90">
+            {nota}
+          </p>
+        )}
         <span className="w-full text-[11px] text-ink-500">
           Dejá esta pantalla al lado de {label} para leer los subtítulos mientras hablan.
         </span>
