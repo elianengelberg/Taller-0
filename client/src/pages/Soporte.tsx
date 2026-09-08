@@ -1,4 +1,7 @@
 import { Link } from "react-router-dom";
+import type { ReactNode } from "react";
+import ReportarIA from "../components/ReportarIA";
+import { enAppDeEscritorio } from "../lib/dispositivo";
 import GradientBackdrop from "../components/GradientBackdrop";
 import Logo from "../components/Logo";
 import { cardClass } from "../lib/ui";
@@ -8,6 +11,17 @@ import { useDocumentTitle } from "../hooks/useDocumentTitle";
 // Chrome Web Store: las respuestas a lo que la gente pregunta de verdad,
 // escritas con las mismas reglas del producto (decir la verdad, incluso
 // cuando la respuesta es "eso Chrome no lo deja hacer").
+// Adentro de la app de escritorio no se enlaza a «instalar» (ya está
+// instalada, y la Microsoft Store no permite promocionar software de afuera).
+function EnlaceInstalar({ children }: { children: ReactNode }) {
+  if (enAppDeEscritorio()) return <span className="text-strong">{children}</span>;
+  return (
+    <Link to="/instalar" className="text-brand-300 underline">
+      {children}
+    </Link>
+  );
+}
+
 export default function Soporte() {
   useDocumentTitle("Ayuda");
   return (
@@ -33,9 +47,9 @@ export default function Soporte() {
             <h2 className="text-base font-semibold text-strong">¿Cómo instalo Unify?</h2>
             <p className="mt-1.5">
               Todo se instala desde{" "}
-              <Link to="/instalar" className="text-brand-300 underline">
+              <EnlaceInstalar>
                 unify-meet.com/instalar
-              </Link>
+              </EnlaceInstalar>
               : la página detecta tu equipo (Windows, Mac, iPhone/iPad o Android; Chrome o Edge) y te muestra
               sólo los pasos que te tocan — la app con un clic y la extensión con su ZIP.
             </p>
@@ -103,11 +117,20 @@ export default function Soporte() {
               La app avisa sola cuando hay versión nueva (y nunca en medio de una reunión). La extensión
               instalada desde la tienda se actualiza sola; si la cargaste por ZIP, el ícono muestra una
               flechita ↑ y el popup te lleva a bajar la nueva desde{" "}
-              <Link to="/instalar" className="text-brand-300 underline">
+              <EnlaceInstalar>
                 /instalar
-              </Link>
+              </EnlaceInstalar>
               .
             </p>
+          </section>
+
+          <section>
+            <h2 className="text-base font-semibold text-strong">Reportar contenido generado por IA</h2>
+            <p className="mt-1.5">
+              Las respuestas del asistente y los informes los escribe una IA y pueden equivocarse. Debajo de
+              cada respuesta y de cada informe hay un botón «Reportar»; también podés reportar desde acá.
+            </p>
+            <ReportarIA tipo="otro" libre className="mt-3" />
           </section>
 
           <section>

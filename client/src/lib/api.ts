@@ -1038,3 +1038,26 @@ export async function dispatchBot(params: {
     return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };
   }
 }
+
+// Reportar contenido generado por IA (respuestas del asistente, informes).
+// Abierto a cualquiera que lo vea; con sesión, el reporte queda ligado a la
+// cuenta. Devuelve `error` en vez de tirar, para mostrarlo al lado del botón.
+export async function reportarContenidoIA(params: {
+  tipo: "respuesta" | "informe" | "otro";
+  contenido: string;
+  motivo: string;
+  meetingId?: string;
+}): Promise<{ ok?: boolean; error?: string }> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/reportes-ia`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(params),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: data.error ?? "No se pudo enviar el reporte." };
+    return { ok: true };
+  } catch {
+    return { error: "No pudimos conectar con el servidor para enviar el reporte." };
+  }
+}

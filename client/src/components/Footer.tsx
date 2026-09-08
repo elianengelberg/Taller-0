@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { enAppDeEscritorio } from "../lib/dispositivo";
 import { LogoMark } from "./Logo";
 import { MailIcon, WhatsAppIcon } from "./icons";
 
@@ -51,7 +52,7 @@ export default function Footer() {
             <h3 className={titulo}>Producto</h3>
             <ul className="mt-4 space-y-3">
               <li><Link to="/" className={col}>Inicio</Link></li>
-              <li><Link to="/instalar" className={col}>Instalar</Link></li>
+              {!enAppDeEscritorio() && <li><Link to="/instalar" className={col}>Instalar</Link></li>}
               <li><Link to="/crear" className={col}>Crear una reunión</Link></li>
               <li><Link to="/externa" className={col}>Unirme con un enlace</Link></li>
             </ul>
@@ -81,9 +82,13 @@ export default function Footer() {
           {/* El sello del build, en toda la app: la respuesta de un vistazo
               a "¿estoy en la versión nueva?" (el detalle y el botón de
               buscar actualización viven en /instalar). */}
-          <Link to="/instalar" className="font-mono text-white/50 transition-colors hover:text-white">
-            Versión {__UNIFY_BUILD__}
-          </Link>
+          {enAppDeEscritorio() ? (
+            <span className="font-mono text-white/50">Versión {__UNIFY_BUILD__}</span>
+          ) : (
+            <Link to="/instalar" className="font-mono text-white/50 transition-colors hover:text-white">
+              Versión {__UNIFY_BUILD__}
+            </Link>
+          )}
           <p>Hecho para que las reuniones se entiendan.</p>
         </div>
       </div>

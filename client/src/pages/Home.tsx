@@ -1,4 +1,5 @@
 import { ReactNode, useEffect } from "react";
+import { enAppDeEscritorio } from "../lib/dispositivo";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import AccountMenu from "../components/AccountMenu";
 import TextoGrandeToggle from "../components/TextoGrandeToggle";
@@ -94,7 +95,7 @@ export default function Home() {
               en /instalar, enlazada desde el pie, porque la EXTENSIÓN se
               instala aparte y desde ahí se ve si está.) */}
           <TextoGrandeToggle variante="enlace" />
-          {!isStandalone() && (
+          {!isStandalone() && !enAppDeEscritorio() && (
             <Link
               to="/instalar"
               className="whitespace-nowrap text-[15px] font-semibold text-ink-100 underline-offset-4 transition-colors hover:text-brand-300 hover:underline"
@@ -263,7 +264,10 @@ export default function Home() {
                 y una IA que responde sobre cualquier reunión. Sin tomar una sola nota.
               </p>
               <div className="mt-7 flex flex-wrap items-center gap-3">
-                <Button onClick={() => navigate("/instalar")}>Instalar Unify</Button>
+                {/* Adentro de la app de escritorio no se ofrece instalar nada
+                    (la Microsoft Store no permite promocionar software de
+                    afuera, y ya estás usando la app). */}
+                {!enAppDeEscritorio() && <Button onClick={() => navigate("/instalar")}>Instalar Unify</Button>}
                 {enLaApp && estadoApp === "ultima" && (
                   <span className="text-xs font-semibold text-red-400">
                     Ya lo instalaste — estás en la última versión.

@@ -657,7 +657,11 @@ function armarBandeja() {
       { type: "separator" },
       // Un solo botón para todo: el programa Y la extensión por zip.
       { label: etiquetaDeUpdate(), click: clicEnUpdate },
-      { label: "Actualizar la extensión de Chrome (zip)", click: () => void refrescarExtensionLocal(true) },
+      // La copia de la Microsoft Store no ofrece bajar software de afuera
+      // (política 10.1.5 de la tienda): el zip de la extensión queda para la
+      // copia directa. En la tienda la extensión se instala desde su propia
+      // tienda de Chrome, sin pasar por acá.
+      ...(EN_TIENDA ? [] : [{ label: "Actualizar la extensión de Chrome (zip)", click: () => void refrescarExtensionLocal(true) }]),
       { type: "separator" },
       // Para probar el circuito sin esperar una reunión real. OJO: tiene que
       // pasar por reunionEmpezo() como una reunión de verdad -- si sólo

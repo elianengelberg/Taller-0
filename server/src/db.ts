@@ -269,6 +269,22 @@ function migrate(): Promise<void> {
           `CREATE INDEX IF NOT EXISTS folder_shares_user_idx ON folder_shares(shared_with_user_id);`
         )
       )
+      // Reportes de contenido generado por IA (respuestas del asistente,
+      // informes): la Microsoft Store exige un «Reportar» para todo lo que
+      // produce un modelo. Quedan acá para revisarlos, además del correo.
+      .then(() =>
+        pool.query(
+          `CREATE TABLE IF NOT EXISTS ai_reports (
+            id UUID PRIMARY KEY,
+            user_id UUID,
+            meeting_id TEXT,
+            kind TEXT NOT NULL,
+            content TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+          );`
+        )
+      )
       // Saved AI report per meeting (generated once, then persisted so it
       // doesn't cost a model call every time the meeting is opened).
       .then(() => pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS report TEXT;`))
@@ -1666,4 +1682,23 @@ export function getMeetingReport(
       reportGeneratedAt: rows[0]?.report_generated_at ?? null,
     };
   }, { report: null, reportGeneratedAt: null });
+}
+
+// ── Reportes de contenido generado por IA ──────────────────────────────────
+export interface ReporteIA {
+  userId: string | null;
+  meetingId: string | null;
+  kind: string;
+  content: string;
+  reason: string;
+}
+export function registrarReporteIA(r: ReporteIA): Promise<string | null> {
+  return safe(async () => {
+    const id = crypto.randomUUID();
+    await pool!.query(
+      `INSERT INTO ai_reports (id, user_id, meeting_id, kind, content, reason) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [id, r.userId, r.meetingId, r.kind, r.content, r.reason]
+    );
+    return id;
+  }, null);
 }

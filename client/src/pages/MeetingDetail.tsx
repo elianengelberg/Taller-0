@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import AiChatBox from "../components/AiChatBox";
 import Button from "../components/Button";
 import MarkdownText from "../components/MarkdownText";
+import ReportarIA from "../components/ReportarIA";
 import { DownloadIcon, SparklesIcon } from "../components/icons";
 import Logo from "../components/Logo";
 import RoleBadge from "../components/RoleBadge";
@@ -352,6 +353,7 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
         <ResumenTiles messages={meeting.messages} />
 
         <AiChatBox
+          meetingId={meeting.id}
           className="mt-6"
           title="Preguntale a la IA"
           description={
@@ -739,6 +741,8 @@ function MeetingReportCard({ meeting }: { meeting: MeetingHistoryDetail }) {
       {report ? (
         <div className="mt-3">
           <MarkdownText text={report} />
+          {/* El informe lo escribió la IA: se puede reportar (Store 11.16). */}
+          <ReportarIA tipo="informe" contenido={report} meetingId={meeting.id} className="mt-3" />
         </div>
       ) : (
         <div className="mt-2">

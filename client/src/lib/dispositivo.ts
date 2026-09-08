@@ -143,3 +143,11 @@ export function comoVerLosDosALaVez(d = detectarDispositivo()): string {
   }
   return "Poné la reunión y Unify lado a lado, o usá los subtítulos flotantes, que quedan encima de cualquier ventana.";
 }
+
+// ¿Esta pantalla corre ADENTRO de la app de escritorio de Unify (Electron)?
+// Electron se delata en el user agent. Ahí no se ofrece instalar nada: la
+// Microsoft Store no permite que una app de la tienda promocione software
+// de afuera, y además ya estás usando la app.
+export function enAppDeEscritorio(): boolean {
+  return /Electron\//i.test(navigator.userAgent);
+}

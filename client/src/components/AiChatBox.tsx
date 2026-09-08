@@ -3,6 +3,7 @@ import { cardClass, inputClass, sentenceInputProps } from "../lib/ui";
 import Button from "./Button";
 import { SparklesIcon } from "./icons";
 import MarkdownText from "./MarkdownText";
+import ReportarIA from "./ReportarIA";
 
 interface QA {
   question: string;
@@ -17,10 +18,12 @@ interface Props {
   placeholder: string;
   emptyHint?: string;
   onAsk: (question: string) => Promise<{ answer?: string; error?: string }>;
+  /** La reunión a la que pertenece (para el «Reportar» de cada respuesta). */
+  meetingId?: string;
   className?: string;
 }
 
-export default function AiChatBox({ title, description, placeholder, emptyHint, onAsk, className }: Props) {
+export default function AiChatBox({ title, description, placeholder, emptyHint, onAsk, meetingId, className }: Props) {
   const [question, setQuestion] = useState("");
   const [items, setItems] = useState<QA[]>([]);
 
@@ -62,6 +65,8 @@ export default function AiChatBox({ title, description, placeholder, emptyHint, 
               ) : (
                 <div className="mt-2">
                   <MarkdownText text={item.answer ?? ""} />
+                  {/* Toda respuesta de la IA se puede reportar (Store 11.16). */}
+                  <ReportarIA tipo="respuesta" contenido={item.answer ?? ""} meetingId={meetingId} className="mt-2" />
                 </div>
               )}
             </li>

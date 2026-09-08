@@ -1,6 +1,6 @@
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useEffect, useRef, useState } from "react";
-import { detectarDispositivo } from "../lib/dispositivo";
+import { detectarDispositivo, enAppDeEscritorio } from "../lib/dispositivo";
 import { Link, useSearchParams } from "react-router-dom";
 import Button from "../components/Button";
 import GradientBackdrop from "../components/GradientBackdrop";
@@ -98,6 +98,10 @@ function versionMasVieja(instalada: string, publicada: string): boolean {
 
 export default function Instalar() {
   useDocumentTitle("Instalar");
+  // Adentro de la app de escritorio (Electron) esta página no ofrece
+  // descargas ni otras plataformas: la Microsoft Store no permite que una app
+  // de la tienda promocione software de afuera, y ya estás usando la app.
+  if (enAppDeEscritorio()) return <YaInstalada />;
   const [instalable, setInstalable] = useState(canPromptInstall());
   const [instalada, setInstalada] = useState(isStandalone());
   const [estado, setEstado] = useState<string | null>(null);
@@ -933,6 +937,36 @@ export default function Instalar() {
             .
           </p>
         </section>
+      </div>
+    </div>
+  );
+}
+
+// La versión de esta página para quien ya está ADENTRO de la app instalada.
+function YaInstalada() {
+  return (
+    <div className="relative min-h-screen bg-ink-950 px-4 py-10 sm:px-6">
+      <GradientBackdrop />
+      <div className="relative mx-auto max-w-2xl">
+        <div className="mb-8 flex items-center justify-between gap-3">
+          <Logo />
+          <Link to="/" className="whitespace-nowrap text-sm font-medium text-ink-300 hover:text-strong">
+            Volver al inicio
+          </Link>
+        </div>
+        <h1 className="text-3xl font-bold text-strong">Unify ya está instalado en esta computadora</h1>
+        <p className="mt-3 text-sm leading-relaxed text-ink-300">
+          Estás usando la app. Las actualizaciones llegan solas. Para usar Unify desde otro dispositivo, entrá a{" "}
+          <span className="font-medium text-strong">unify-meet.com</span> desde ese dispositivo.
+        </p>
+        <div className="mt-6 flex flex-wrap gap-3">
+          <Link to="/externa">
+            <Button>Unirme a una reunión con un enlace</Button>
+          </Link>
+          <Link to="/historial" className="inline-flex items-center rounded-full border border-ink-600 px-5 py-3 text-sm font-semibold text-ink-200 hover:bg-ink-800">
+            Ver mi historial
+          </Link>
+        </div>
       </div>
     </div>
   );

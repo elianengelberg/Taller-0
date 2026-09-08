@@ -49,6 +49,7 @@ import {
   getUserByGoogleId,
   getTokenVersion,
   getUserById,
+  registrarReporteIA,
   linkGoogleId,
   listFolders,
   listFolderShares,
@@ -99,7 +100,7 @@ import { addNamedTranscriptLine, getOrCreateCompanionMeeting, isLiveParticipant,
 import { anthropicEnabled } from "./anthropicClient";
 import { buscarEco, esHablanteGenerico, filaDeLinea, recordarFilaDeLinea } from "./eco";
 import { cleanTranscriptFragment, translateFragmentToAll } from "./transcriptCleanup";
-import { mailerEnabled } from "./mailer";
+import { mailerEnabled, sendMail } from "./mailer";
 import { rateLimit, userOrIp } from "./rateLimit";
 import { registerSocketHandlers } from "./socketHandlers";
 import {
@@ -322,6 +323,13 @@ const mailLimit = rateLimit({
   max: tope("LIMITE_CORREOS", 60),
   windowMs: 15 * 60_000,
   message: "Pediste demasiados correos seguidos. Esperá unos minutos.",
+});
+// Reportar contenido generado por IA: abierto (quien ve una respuesta tiene
+// que poder reportarla aunque no tenga sesión), con tope por IP.
+const reporteLimit = rateLimit({
+  max: tope("LIMITE_REPORTES", 30),
+  windowMs: 15 * 60_000,
+  message: "Demasiados reportes seguidos. Esperá unos minutos.",
 });
 // El bridge lo escribe la extensión desde meet.google.com, así que acepta
 // cualquier origen: el límite es lo que evita que se convierta en un canal
@@ -1582,6 +1590,40 @@ function sanitizeFrames(raw: unknown): { atSec: number; data: string }[] {
   }
   return out;
 }
+
+// REPORTAR CONTENIDO GENERADO POR IA. Toda respuesta del asistente y todo
+// informe tienen un «Reportar»: lo exige la Microsoft Store (política 11.16)
+// y es lo correcto. El reporte queda en la base y llega por correo a soporte.
+const CORREO_SOPORTE = process.env.MAIL_SOPORTE?.trim() || "hola@unify-meet.com";
+const TIPOS_REPORTE_IA = new Set(["respuesta", "informe", "otro"]);
+app.post("/api/reportes-ia", reporteLimit, async (req, res) => {
+  const tipo = String(req.body?.tipo ?? "otro");
+  const contenido = String(req.body?.contenido ?? "").trim().slice(0, 4000);
+  const motivo = String(req.body?.motivo ?? "").trim().slice(0, 1000);
+  const meetingId = typeof req.body?.meetingId === "string" ? req.body.meetingId.slice(0, 80) : null;
+  if (!TIPOS_REPORTE_IA.has(tipo) || !contenido) {
+    res.status(400).json({ error: "Falta el contenido que querés reportar." });
+    return;
+  }
+  const header = req.headers.authorization;
+  const claims = verifyTokenClaims(header?.startsWith("Bearer ") ? header.slice(7) : null);
+  const userId = claims?.userId ?? null;
+  const id = (await registrarReporteIA({ userId, meetingId, kind: tipo, content: contenido, reason: motivo || "(sin motivo)" })) ?? null;
+  console.log(`[reporte-ia] ${tipo} ${id ?? "(sin base)"} usuario=${userId ?? "anónimo"} reunión=${meetingId ?? "-"}`);
+  const texto =
+    `Reporte de contenido generado por IA\n\n` +
+    `Tipo: ${tipo}\nReunión: ${meetingId ?? "-"}\nUsuario: ${userId ?? "anónimo"}\nId: ${id ?? "-"}\n\n` +
+    `Motivo:\n${motivo || "(sin motivo)"}\n\nContenido reportado:\n${contenido}\n`;
+  void sendMail({
+    to: CORREO_SOPORTE,
+    subject: `[Unify] Reporte de contenido de IA (${tipo})`,
+    text: texto,
+    html: `<pre style="font-family:system-ui,sans-serif;white-space:pre-wrap">${texto
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")}</pre>`,
+  });
+  res.json({ ok: true, id });
+});
 
 app.post("/api/meetings/:id/ask", requireAuth, aiLimit, async (req, res) => {
   const question = typeof req.body?.question === "string" ? req.body.question : "";
