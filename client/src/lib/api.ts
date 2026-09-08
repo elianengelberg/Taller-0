@@ -533,16 +533,18 @@ export async function askAllMeetingsAI(question: string): Promise<{ answer?: str
 export async function fetchZoomSignature(
   meetingNumber: string,
   role: 0 | 1 = 0
-): Promise<{ signature?: string; error?: string }> {
+): Promise<{ signature?: string; passcode?: string; error?: string }> {
   try {
+    // Con sesión: si la reunión es TUYA, el servidor devuelve además la
+    // contraseña real (la del enlace, que el SDK no acepta cifrada).
     const res = await fetchWithTimeout(`${SERVER_URL}/api/zoom/signature`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ meetingNumber, role }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { error: data.error ?? "No se pudo autorizar el ingreso a Zoom." };
-    return { signature: data.signature };
+    return { signature: data.signature, passcode: typeof data.passcode === "string" ? data.passcode : undefined };
   } catch {
     return { error: "No pudimos conectar con el servidor para autorizar Zoom." };
   }

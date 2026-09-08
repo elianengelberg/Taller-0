@@ -191,27 +191,42 @@ export interface ReunionZoom {
   id: string;
   topic: string;
   hostEmail: string;
+  /** La contraseña en texto (la que el SDK web sí acepta), si la reunión tiene. */
+  password: string;
 }
-async function reunionPorUuid(meetingUuid: string): Promise<ReunionZoom | null> {
+// Lee una reunión de la cuenta por su UUID (lo que trae el webhook) o por su
+// número (lo que trae un enlace). Sólo con la app Server-to-Server.
+async function leerReunion(idOUuid: string): Promise<ReunionZoom | null> {
   const token = await tokenServerToServer();
   if (!token) return null;
   try {
     // Zoom pide el UUID codificado DOS veces cuando trae "/" o "//".
-    const id = encodeURIComponent(encodeURIComponent(meetingUuid));
+    const id = encodeURIComponent(encodeURIComponent(idOUuid));
     const r = await fetch(`${cfg.apiBase}/v2/meetings/${id}`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(10_000),
     });
     if (!r.ok) {
-      log(`la reunión ${meetingUuid} no se pudo leer por la API: HTTP ${r.status}`);
+      log(`la reunión ${idOUuid} no se pudo leer por la API: HTTP ${r.status}`);
       return null;
     }
-    const j = (await r.json()) as { id?: number | string; topic?: string; host_email?: string };
-    return { id: String(j.id ?? ""), topic: String(j.topic ?? ""), hostEmail: String(j.host_email ?? "").toLowerCase() };
+    const j = (await r.json()) as { id?: number | string; topic?: string; host_email?: string; password?: string };
+    return {
+      id: String(j.id ?? ""),
+      topic: String(j.topic ?? ""),
+      hostEmail: String(j.host_email ?? "").toLowerCase(),
+      password: String(j.password ?? "").trim(),
+    };
   } catch (e) {
     log("API de Zoom:", porQue(e));
     return null;
   }
+}
+const reunionPorUuid = leerReunion;
+/** La reunión por su número (para la contraseña real al unirse desde la web). */
+export function reunionPorNumero(numero: string): Promise<ReunionZoom | null> {
+  const n = String(numero ?? "").replace(/\D/g, "");
+  return n.length >= 9 ? leerReunion(n) : Promise.resolve(null);
 }
 
 // ── La sesión: una reunión transmitida ────────────────────────────────────

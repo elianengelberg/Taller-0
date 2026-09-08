@@ -66,7 +66,7 @@ async function webhook(evento, payload, opciones = {}) {
     if (req.method === "GET" && req.url.startsWith("/v2/meetings/")) {
       const ok = req.headers.authorization === "Bearer tok-s2s";
       res.writeHead(ok ? 200 : 401, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(ok ? { id: Number(NUMERO), topic: "Reunión de prueba RTMS", host_email: HOST_EMAIL } : {}));
+      res.end(JSON.stringify(ok ? { id: Number(NUMERO), topic: "Reunión de prueba RTMS", host_email: HOST_EMAIL, password: "482113" } : {}));
       return;
     }
     res.writeHead(404); res.end();
@@ -139,6 +139,7 @@ async function webhook(evento, payload, opciones = {}) {
       AUTH_SECRET: "clave-de-pruebas-local-larga-1234567890",
       PORT: "4003", CLIENT_ORIGIN: "http://localhost:4174", MAIL_LOG: "1", LIMITE_BRIDGE: "240",
       ZOOM_RTMS_CLIENT_ID: CLIENT_ID, ZOOM_RTMS_CLIENT_SECRET: CLIENT_SECRET, ZOOM_WEBHOOK_SECRET_TOKEN: TOKEN_WEBHOOK,
+      ZOOM_SDK_KEY: "sdk-key-de-prueba", ZOOM_SDK_SECRET: "sdk-secreto-de-prueba",
       ZOOM_S2S_ACCOUNT_ID: S2S.account, ZOOM_S2S_CLIENT_ID: S2S.id, ZOOM_S2S_CLIENT_SECRET: S2S.secret,
       ZOOM_OAUTH_BASE: `http://127.0.0.1:${PUERTO_ZOOM_API}`, ZOOM_API_BASE: `http://127.0.0.1:${PUERTO_ZOOM_API}`,
     },
@@ -169,6 +170,25 @@ async function webhook(evento, payload, opciones = {}) {
     }).then((r) => r.json());
     const { rows: [usuaria] } = await pg.query(`SELECT id FROM users WHERE email = $1`, [HOST_EMAIL]);
     check("la anfitriona tiene cuenta en Unify", Boolean(reg.token && usuaria?.id));
+
+    console.log("── 0. La contraseña real de una reunión propia, sin escribirla ──");
+    {
+      const firmar = (headers = {}) => fetch(`${API3}/api/zoom/signature`, {
+        method: "POST", headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify({ meetingNumber: NUMERO }),
+      }).then((r) => r.json());
+      const comoAnfitriona = await firmar({ Authorization: `Bearer ${reg.token}` });
+      check("la anfitriona (sesión + mismo mail que en Zoom) recibe la contraseña real junto con la firma",
+        Boolean(comoAnfitriona.signature) && comoAnfitriona.passcode === "482113", JSON.stringify(comoAnfitriona).slice(0, 120));
+      const anonimo = await firmar();
+      check("sin sesión, sólo la firma (la contraseña no se regala)", Boolean(anonimo.signature) && anonimo.passcode === undefined, JSON.stringify(anonimo).slice(0, 100));
+      const otra = await fetch(`${API3}/api/auth/register`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: `otra${Date.now()}@test.com`, password: "melon42Trueno", name: "Otra" }),
+      }).then((r) => r.json());
+      const comoOtra = await firmar({ Authorization: `Bearer ${otra.token}` });
+      check("otra persona con sesión tampoco la recibe", Boolean(comoOtra.signature) && comoOtra.passcode === undefined, JSON.stringify(comoOtra).slice(0, 100));
+    }
 
     console.log("── 1. El webhook: validación de URL y firma ──");
     {

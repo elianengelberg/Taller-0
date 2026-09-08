@@ -163,8 +163,14 @@ export default function ZoomEmbed({ meetingNumber, passcode, displayName, onLeav
     async function start() {
       // 1. Signed join token from our server (503 if Zoom isn't configured).
       step("Autorizando el ingreso a Zoom…");
-      const { signature, error: sigError } = await fetchZoomSignature(meetingNumber, 0);
+      const { signature, passcode: passcodeDelServidor, error: sigError } = await fetchZoomSignature(meetingNumber, 0);
       if (disposed) return;
+      // La contraseña real de una reunión propia viene del servidor: no hay
+      // que escribir nada. Lo que la persona haya tecleado manda igual.
+      if (passcodeDelServidor && !passcodeRef.current.trim()) {
+        passcodeRef.current = passcodeDelServidor;
+        setLocalPasscode(passcodeDelServidor);
+      }
       if (!signature) {
         // Esto es "Zoom no está configurado en el servidor" o "la firma fue
         // rechazada": ninguna cantidad de reintentos lo arregla desde acá, así

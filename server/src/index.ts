@@ -1,7 +1,7 @@
 import cors from "cors";
 import { recortarRepetido } from "./repetidos";
 import { detectarIdioma } from "./idioma";
-import { configurarRtms, estadoRtms, manejarWebhookZoom, rtmsEnabled } from "./rtms";
+import { configurarRtms, estadoRtms, manejarWebhookZoom, reunionPorNumero, rtmsEnabled } from "./rtms";
 import express, { NextFunction, Request, Response } from "express";
 import { createServer } from "http";
 import { spawn } from "child_process";
@@ -1184,7 +1184,7 @@ app.post("/api/translate", translateLimit, async (req, res) => {
 // posts the meeting number and gets back an opaque, short-lived token. Returns
 // 503 (not 500) when Zoom credentials aren't configured, so the client can
 // show an honest "Zoom no está configurado" message instead of a generic error.
-app.post("/api/zoom/signature", credentialLimit, (req, res) => {
+app.post("/api/zoom/signature", credentialLimit, async (req, res) => {
   if (!zoomEnabled) {
     res.status(503).json({ error: "La integración con Zoom no está configurada en el servidor." });
     return;
@@ -1198,12 +1198,28 @@ app.post("/api/zoom/signature", credentialLimit, (req, res) => {
   // We only ever join as an attendee (role 0). Starting/hosting a meeting
   // (role 1) needs a ZAK and only works for the app account's own meetings.
   const role = req.body?.role === 1 ? 1 : 0;
+  let signature: string;
   try {
-    const signature = generateMeetingSdkSignature({ meetingNumber, role });
-    res.json({ signature });
+    signature = generateMeetingSdkSignature({ meetingNumber, role });
   } catch {
     res.status(502).json({ error: "No se pudo generar la autorización de Zoom." });
+    return;
   }
+  // LA CONTRASEÑA REAL, SIN ESCRIBIRLA. El SDK web de Zoom no acepta el `pwd`
+  // cifrado del enlace, y la persona veía "escribí la contraseña" en una
+  // reunión SUYA que "no tiene contraseña" (la tiene, viaja en el enlace).
+  // Con la app Server-to-Server, la contraseña en texto se lee de la API y
+  // se entrega SÓLO al anfitrión: sesión de Unify iniciada y el mismo mail
+  // que en Zoom. A nadie más: sería regalar la llave de la reunión.
+  let passcode: string | undefined;
+  const header = req.headers.authorization;
+  const claims = verifyTokenClaims(header?.startsWith("Bearer ") ? header.slice(7) : null);
+  if (claims) {
+    const [usuario, reunion] = await Promise.all([getUserById(claims.userId), reunionPorNumero(meetingNumber)]);
+    const mail = String(usuario?.email ?? "").toLowerCase();
+    if (mail && reunion?.hostEmail === mail && reunion.password) passcode = reunion.password;
+  }
+  res.json(passcode ? { signature, passcode } : { signature });
 });
 
 // Issues an ACS access token so the browser can join a Teams meeting via
