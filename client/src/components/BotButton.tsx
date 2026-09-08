@@ -17,7 +17,19 @@ interface Props {
   titulo?: string;
   /** La bajada que explica para qué sirve, en ese contexto. */
   descripcion?: string;
+  /**
+   * ZOOM SIN BOT. El servidor tiene Realtime Media Streams y la sala es
+   * «zoom:<número>»: «mandar el bot» es pedirle a Zoom que transmita la
+   * reunión a Unify. Nadie ve un participante extra. El bot visible queda
+   * sólo para quien lo pide a propósito (una reunión de otra cuenta).
+   */
+  sinParticipante?: boolean;
 }
+
+// Cuánto se espera a Zoom antes de sugerir qué revisar (la reunión puede no
+// haber empezado todavía: no es un error) y cuándo dejar de sondear.
+const SUGERIR_A_LOS_MS = 90_000;
+const DEJAR_DE_SONDEAR_MS = 15 * 60_000;
 
 // El botón que manda al bot. La plataforma se traduce a las que el bot
 // entiende (jitsi / google-meet / zoom-web); el resto cae a jitsi, que el
@@ -32,17 +44,33 @@ export default function BotButton({
   roomKey,
   platform,
   lang,
-  titulo = "¿No podés estar?",
-  descripcion = "El bot entra por vos, graba, y te deja todo en el historial.",
+  titulo,
+  descripcion,
+  sinParticipante = false,
 }: Props) {
   const { user } = useAuth();
   const navigate = useNavigate();
   // "ok" deja el botón en "mandado" (repetir el toque mandaba OTRO bot y,
-  // peor, parecía que el primero nunca había salido); "error" grita en rojo.
-  const [estado, setEstado] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
+  // peor, parecía que el primero nunca había salido); "error" grita en rojo;
+  // "aviso" (ámbar) es "todavía nada, esto podés revisar" y deja reintentar.
+  const [estado, setEstado] = useState<{ tipo: "ok" | "error" | "aviso"; texto: string } | null>(null);
+  // Lo que contestó Zoom cuando se le pidió arrancar (p. ej. el código 2310).
+  const [aviso, setAviso] = useState<string | null>(null);
   const [mandando, setMandando] = useState(false);
+  // La persona pidió el bot VISIBLE a propósito (reunión de otra cuenta).
+  const [modoVisible, setModoVisible] = useState(false);
+  // Lo que el servidor dijo que hizo: manda sobre lo que la web suponía.
+  const [modoRespuesta, setModoRespuesta] = useState<"bot" | "rtms" | null>(null);
+  const escuchaSinBot = modoRespuesta ? modoRespuesta === "rtms" : sinParticipante && !modoVisible;
   const plataformaBot =
     platform === "google-meet" ? "google-meet" : platform === "zoom" ? "zoom-web" : platform === "jitsi" ? "jitsi" : "jitsi";
+
+  const tituloFinal = titulo ?? (escuchaSinBot ? "¿No podés estar? Unify escucha sin aparecer" : "¿No podés estar?");
+  const descripcionFinal =
+    descripcion ??
+    (escuchaSinBot
+      ? "Zoom le transmite la reunión a Unify sin ningún participante extra: la transcripción y el resumen quedan en tu historial, estés o no."
+      : "El bot entra por vos, graba, y te deja todo en el historial.");
 
   // La fase REAL del bot, sondeada del bridge. "Mandado ✓" solo decía que el
   // host aceptó el trabajo: si el bot moría contra la pantalla de Meet, la
@@ -52,6 +80,7 @@ export default function BotButton({
   // timestamp del servidor contra timestamp del servidor (sin líos de reloj).
   const [sondeoDesde, setSondeoDesde] = useState<number | null>(null);
   const atPrevioRef = useRef(0);
+  const sugeridoRef = useRef(false);
   useEffect(() => {
     if (!sondeoDesde) return;
     let vivo = true;
@@ -63,25 +92,56 @@ export default function BotButton({
           const d = (await r.json()) as { bot?: { fase: string; detalle: string | null; at: number } | null };
           const bot = d.bot;
           if (!vivo) return;
-          if (bot && bot.at > atPrevioRef.current) {
-            if (bot.fase === "fallo") {
-              setEstado({ tipo: "error", texto: `El bot no pudo entrar. ${bot.detalle ?? ""}`.trim() });
-              setSondeoDesde(null);
-            } else if (bot.fase === "adentro") {
+          const transcurrido = Date.now() - sondeoDesde;
+          const fase = bot && bot.at > atPrevioRef.current ? bot.fase : null;
+          if (fase === "fallo") {
+            setEstado({
+              tipo: "error",
+              texto: `${escuchaSinBot ? "Zoom no pudo transmitir la reunión." : "El bot no pudo entrar."} ${bot?.detalle ?? ""}`.trim(),
+            });
+            setSondeoDesde(null);
+          } else if (fase === "adentro") {
+            setEstado({
+              tipo: "ok",
+              texto: escuchaSinBot
+                ? "Unify está escuchando ✓ Sin participante extra: la transcripción queda en tu historial."
+                : "El bot está adentro ✓ Grabando y transcribiendo: todo queda en tu historial.",
+            });
+            setSondeoDesde(null);
+          } else if (fase === "esperando-admision") {
+            setEstado({
+              tipo: "ok",
+              texto: "El bot ya pidió entrar: aceptalo desde la reunión (en Meet: Personas → Admitir).",
+            });
+          } else if (fase === "abriendo") {
+            setEstado({
+              tipo: "ok",
+              texto: escuchaSinBot ? "Zoom está por transmitir la reunión a Unify…" : "El bot está abriendo la reunión…",
+            });
+          } else if (fase === "esperando-zoom" || (escuchaSinBot && !fase)) {
+            // Zoom sin bot: la reunión puede no haber empezado. No es un error;
+            // pasado un rato se dice qué revisar, y se sigue escuchando.
+            if (transcurrido > DEJAR_DE_SONDEAR_MS) {
               setEstado({
-                tipo: "ok",
-                texto: "El bot está adentro ✓ Grabando y transcribiendo: todo queda en tu historial.",
+                tipo: "aviso",
+                texto:
+                  "Pasaron 15 minutos sin que Zoom transmitiera la reunión. Cuando empiece, volvé a tocar el botón.",
               });
               setSondeoDesde(null);
-            } else if (bot.fase === "esperando-admision") {
+            } else if (transcurrido > SUGERIR_A_LOS_MS && !sugeridoRef.current) {
+              sugeridoRef.current = true;
+              setEstado({
+                tipo: "aviso",
+                texto:
+                  "Zoom todavía no avisó. Si la reunión ya empezó, revisá: que seas el anfitrión, que la app de Unify esté autorizada en tu Zoom y que el auto-inicio de Realtime Media Streams esté encendido en la configuración de la cuenta (Zoom Apps).",
+              });
+            } else if (!sugeridoRef.current) {
               setEstado({
                 tipo: "ok",
-                texto: "El bot ya pidió entrar: aceptalo desde la reunión (en Meet: Personas → Admitir).",
+                texto: "Esperando que la reunión empiece en Zoom. Cuando arranque, Unify la escucha sin aparecer.",
               });
-            } else if (bot.fase === "abriendo") {
-              setEstado({ tipo: "ok", texto: "El bot está abriendo la reunión…" });
             }
-          } else if (Date.now() - sondeoDesde > 60_000) {
+          } else if (!fase && transcurrido > 60_000) {
             setEstado({
               tipo: "error",
               texto:
@@ -98,11 +158,13 @@ export default function BotButton({
       vivo = false;
       window.clearInterval(timer);
     };
-  }, [sondeoDesde, roomKey]);
+  }, [sondeoDesde, roomKey, escuchaSinBot]);
 
-  async function mandar() {
+  async function mandar(visible = false) {
     setMandando(true);
     setEstado(null);
+    setAviso(null);
+    sugeridoRef.current = false;
     // La marca de "antes de este intento": cualquier fase más nueva es de ESTE bot.
     try {
       const r = await fetch(`${SERVER_URL}/api/meet-bridge/${encodeURIComponent(roomKey)}/session`);
@@ -111,26 +173,48 @@ export default function BotButton({
     } catch {
       atPrevioRef.current = 0;
     }
-    const r = await dispatchBot({ url, roomKey, platform: plataformaBot, lang });
+    const r = await dispatchBot({ url, roomKey, platform: plataformaBot, lang, ...(visible ? { visible: true } : {}) });
     setMandando(false);
-    if (r.error) setEstado({ tipo: "error", texto: r.error });
-    else {
+    if (r.error) {
+      setEstado({ tipo: "error", texto: r.error });
+      return;
+    }
+    const rtms = r.modo === "rtms";
+    setModoRespuesta(rtms ? "rtms" : "bot");
+    setAviso(r.aviso ?? null);
+    setEstado({
+      tipo: "ok",
+      texto:
+        (r.message ?? (rtms ? "Zoom va a transmitir la reunión a Unify." : "El bot va en camino: puede tardar un minuto en aparecer.")) +
+        (!rtms && plataformaBot === "google-meet" ? " Si Meet pide permiso para dejarlo entrar, aceptalo desde la reunión." : ""),
+    });
+    // Ya se está escuchando: no hay nada que sondear.
+    if (rtms && r.estado === "escuchando") {
       setEstado({
         tipo: "ok",
-        texto:
-          (r.message ?? "El bot va en camino: puede tardar un minuto en aparecer.") +
-          (plataformaBot === "google-meet"
-            ? " Si Meet pide permiso para dejarlo entrar, aceptalo desde la reunión."
-            : ""),
+        texto: r.message ?? "Unify está escuchando ✓ Sin participante extra: la transcripción queda en tu historial.",
       });
-      setSondeoDesde(Date.now());
+      return;
     }
+    setSondeoDesde(Date.now());
   }
+
+  const etiqueta = escuchaSinBot
+    ? estado?.tipo === "ok"
+      ? "Unify a la escucha ✓"
+      : mandando
+        ? "Avisando a Zoom…"
+        : "Que Unify escuche por mí (sin aparecer)"
+    : estado?.tipo === "ok"
+      ? "Bot mandado ✓"
+      : mandando
+        ? "Mandando el bot…"
+        : "Que entre el bot por mí";
 
   return (
     <div className="mt-4 rounded-xl border border-ink-700 bg-ink-800/40 p-3">
-      <p className="text-sm font-medium text-strong">{titulo}</p>
-      <p className="mt-1 text-xs leading-relaxed text-ink-400">{descripcion}</p>
+      <p className="text-sm font-medium text-strong">{tituloFinal}</p>
+      <p className="mt-1 text-xs leading-relaxed text-ink-400">{descripcionFinal}</p>
       {/* El bot graba A TU NOMBRE (la reunión queda en tu historial): sin
           sesión, el servidor lo rechaza -- mejor decirlo ANTES del toque que
           fallar en silencio, que es lo que pasaba. */}
@@ -140,28 +224,50 @@ export default function BotButton({
           onClick={() => navigate("/ingresar")}
           className="mt-2.5 w-full rounded-xl border border-brand-500/50 px-4 py-2.5 text-sm font-semibold text-brand-200 hover:bg-brand-500/10"
         >
-          Iniciá sesión para mandar el bot
+          {escuchaSinBot ? "Iniciá sesión para que Unify escuche" : "Iniciá sesión para mandar el bot"}
         </button>
       ) : (
         <button
           type="button"
-          onClick={() => void mandar()}
+          onClick={() => void mandar(modoVisible)}
           disabled={mandando || estado?.tipo === "ok"}
           className="mt-2.5 w-full rounded-xl border border-brand-500/50 px-4 py-2.5 text-sm font-semibold text-brand-200 hover:bg-brand-500/10 disabled:opacity-60"
         >
-          {estado?.tipo === "ok" ? "Bot mandado ✓" : mandando ? "Mandando el bot…" : "Que entre el bot por mí"}
+          {etiqueta}
         </button>
       )}
       {estado && (
         <p
+          role="status"
           className={`mt-2 rounded-lg border px-3 py-2 text-xs leading-relaxed ${
             estado.tipo === "error"
               ? "border-red-500/40 bg-red-500/10 text-red-300"
-              : "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+              : estado.tipo === "aviso"
+                ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                : "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
           }`}
         >
           {estado.texto}
         </p>
+      )}
+      {aviso && <p className="mt-1.5 text-[11px] leading-relaxed text-ink-400">{aviso}</p>}
+      {/* La salida para una reunión que Zoom no va a transmitir (de otra
+          cuenta): el bot de siempre, pedido a propósito. Aparece recién cuando
+          la escucha sin participante no dio señales, no antes. */}
+      {sinParticipante && !modoVisible && user && estado?.tipo === "aviso" && (
+        <button
+          type="button"
+          onClick={() => {
+            setModoVisible(true);
+            setModoRespuesta(null);
+            setEstado(null);
+            setAviso(null);
+            setSondeoDesde(null);
+          }}
+          className="mt-2 text-xs font-medium text-ink-300 underline decoration-ink-600 underline-offset-2 hover:text-strong"
+        >
+          ¿La reunión es de otra cuenta de Zoom? Mandar el bot visible en cambio
+        </button>
       )}
     </div>
   );

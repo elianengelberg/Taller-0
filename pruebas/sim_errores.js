@@ -397,8 +397,9 @@ async function joinExternal(page, link, name = "Tester") {
     await page.getByLabel("Tu nombre").fill("Invitado Zoom");
     const directo = page.getByRole("button", { name: /Unirme en Zoom/i });
     check("con un enlace de Zoom, el botón principal es unirse EN Zoom (Unify al lado)", (await directo.count()) === 1);
-    check("y, con Zoom sin bot configurado, avisa que la reunión propia se transcribe sola",
-      (await page.getByText(/se transcribe sola, sin bot/i).count()) === 1);
+    check("y, con Zoom sin bot configurado, ofrece «Que Unify escuche por mí» (sin bot ni participante extra)",
+      (await page.getByText(/sin bot ni participante extra/i).count()) === 1
+        && (await page.getByRole("button", { name: /Que Unify escuche por mí|Iniciá sesión para que Unify escuche/i }).count()) === 1);
     check("y no pide contraseña a la vista (queda para «intentar adentro», plegado)", !(await page.getByLabel(/Contraseña de la reunión/i).first().isVisible().catch(() => false)));
     // zoom.us no se alcanza desde acá (la ventana termina en una página de
     // error de Chrome): lo que importa es QUÉ pidió la ventana nueva.

@@ -191,6 +191,8 @@ export interface ReunionZoom {
   id: string;
   topic: string;
   hostEmail: string;
+  /** El id de usuario de Zoom del anfitrión (para arrancar RTMS a su nombre). */
+  hostId: string;
   /** La contraseña en texto (la que el SDK web sí acepta), si la reunión tiene. */
   password: string;
 }
@@ -210,11 +212,18 @@ async function leerReunion(idOUuid: string): Promise<ReunionZoom | null> {
       log(`la reunión ${idOUuid} no se pudo leer por la API: HTTP ${r.status}`);
       return null;
     }
-    const j = (await r.json()) as { id?: number | string; topic?: string; host_email?: string; password?: string };
+    const j = (await r.json()) as {
+      id?: number | string;
+      topic?: string;
+      host_email?: string;
+      host_id?: string;
+      password?: string;
+    };
     return {
       id: String(j.id ?? ""),
       topic: String(j.topic ?? ""),
       hostEmail: String(j.host_email ?? "").toLowerCase(),
+      hostId: String(j.host_id ?? "").trim(),
       password: String(j.password ?? "").trim(),
     };
   } catch (e) {
@@ -227,6 +236,55 @@ const reunionPorUuid = leerReunion;
 export function reunionPorNumero(numero: string): Promise<ReunionZoom | null> {
   const n = String(numero ?? "").replace(/\D/g, "");
   return n.length >= 9 ? leerReunion(n) : Promise.resolve(null);
+}
+
+// ── Pedirle a Zoom que arranque la transmisión YA (Server-to-Server) ──────
+// PATCH /v2/live_meetings/{número}/rtms_app/status con action "start" y, en
+// settings, el client_id de la app de RTMS y el user id del anfitrión (a
+// nombre de quien arranca). Scope de la app S2S:
+// meeting:update:participant_rtms_app_status:admin. Si Zoom dice que no, el
+// motivo se devuelve TAL CUAL (el código 2310 «Failed to perform RTMS app
+// operation» es el clásico "Zoom todavía no habilitó RTMS para esta app").
+export type RespuestaArranque = { ok: true } | { ok: false; motivo: string; codigo: number | null };
+async function arrancarPorApi(numero: string, hostId: string): Promise<RespuestaArranque> {
+  const token = await tokenServerToServer();
+  if (!token) return { ok: false, motivo: "no hay app Server-to-Server configurada", codigo: null };
+  try {
+    const r = await fetch(`${cfg.apiBase}/v2/live_meetings/${encodeURIComponent(numero)}/rtms_app/status`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "start", settings: { client_id: cfg.clientId, participant_user_id: hostId } }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (r.ok) {
+      log(`arranque por API de la reunión ${numero}: Zoom aceptó (HTTP ${r.status})`);
+      return { ok: true };
+    }
+    const j = (await r.json().catch(() => ({}))) as { code?: number; message?: string };
+    const codigo = typeof j.code === "number" ? j.code : null;
+    const motivo = `Zoom contestó HTTP ${r.status}${codigo !== null ? ` (código ${codigo})` : ""}${j.message ? `: ${String(j.message).slice(0, 200)}` : ""}`;
+    log(`arranque por API de la reunión ${numero}: ${motivo}`);
+    return { ok: false, motivo, codigo };
+  } catch (e) {
+    const motivo = `no se pudo hablar con la API de Zoom (${porQue(e)})`;
+    log(`arranque por API de la reunión ${numero}: ${motivo}`);
+    return { ok: false, motivo, codigo: null };
+  }
+}
+
+// ── El puente local: por acá entran las frases y el estado a la sala ──────
+async function publicarEnPuente(roomKey: string, camino: "" | "/transcript", cuerpo: Record<string, unknown>): Promise<void> {
+  const puerto = ganchos?.puerto() ?? Number(process.env.PORT || 4001);
+  try {
+    await fetch(`http://127.0.0.1:${puerto}/api/meet-bridge/${encodeURIComponent(roomKey)}${camino}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cuerpo),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (e) {
+    log("puente:", porQue(e));
+  }
 }
 
 // ── La sesión: una reunión transmitida ────────────────────────────────────
@@ -248,9 +306,32 @@ class SesionRtms {
     readonly meetingUuid: string,
     readonly streamId: string,
     readonly serverUrl: string,
-    readonly roomKey: string,
+    public roomKey: string,
     readonly etiqueta: string
   ) {}
+
+  viva(): boolean {
+    return this.fase !== "cerrada" && this.fase !== "fallo";
+  }
+
+  // Cambiar de sala EN VIVO: pasa cuando Zoom transmitió una reunión cuyo
+  // número no se pudo saber (sin app Server-to-Server la sala es un hash) y
+  // recién después alguien tocó «que Unify escuche» desde la sala con número.
+  // La sala vieja se cierra prolija; las frases que vienen van a la nueva.
+  async reasignar(roomKey: string): Promise<void> {
+    const anterior = this.roomKey;
+    if (anterior === roomKey) return;
+    log(`${this.etiqueta}: la sala pasa de ${anterior} a ${roomKey}`);
+    await publicarEnPuente(anterior, "", { inCall: false, participantCount: 0 });
+    this.roomKey = roomKey;
+    await this.alPuente("", {
+      inCall: this.fase === "adentro",
+      participantCount: this.fase === "adentro" ? Math.max(2, this.participantes.size) : 0,
+      participants: [...this.participantes.values()].slice(0, 100),
+      botFase: this.fase === "adentro" ? "adentro" : "abriendo",
+      botDetalle: this.fase === "adentro" ? null : "Zoom está por transmitir la reunión (sin bot).",
+    });
+  }
 
   resumen() {
     return {
@@ -515,18 +596,8 @@ class SesionRtms {
     }
   }
 
-  private async alPuente(camino: "" | "/transcript", cuerpo: Record<string, unknown>): Promise<void> {
-    const puerto = ganchos?.puerto() ?? Number(process.env.PORT || 4001);
-    try {
-      await fetch(`http://127.0.0.1:${puerto}/api/meet-bridge/${encodeURIComponent(this.roomKey)}${camino}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(cuerpo),
-        signal: AbortSignal.timeout(15_000),
-      });
-    } catch (e) {
-      log("puente:", porQue(e));
-    }
+  private alPuente(camino: "" | "/transcript", cuerpo: Record<string, unknown>): Promise<void> {
+    return publicarEnPuente(this.roomKey, camino, cuerpo);
   }
 }
 
@@ -542,6 +613,132 @@ function parsear(raw: WebSocket.RawData): Mensaje | null {
 
 const sesiones = new Map<string, SesionRtms>();
 
+// ── «Que Unify escuche por mí»: la versión sin participante del bot ───────
+// Quien toca el botón desde la sala «zoom:<número>» deja una ESPERA: cuando
+// Zoom avise que esa reunión se transmite, la transmisión cae en ESA sala y
+// la reunión queda a su nombre. Sin app Server-to-Server el webhook no trae
+// el número: si hay UNA sola espera, es esa reunión (una cuenta chica no
+// tiene dos anfitriones esperando a la vez; si los hubiera, se avisa en el
+// log y la transmisión cae en su sala por hash, como siempre).
+interface Espera {
+  roomKey: string;
+  numero: string;
+  userId: string;
+  desde: number;
+}
+const esperas = new Map<string, Espera>();
+const ESPERA_MAX_MS = 6 * 60 * 60 * 1000;
+function limpiarEsperas(): void {
+  for (const [k, e] of esperas) if (Date.now() - e.desde > ESPERA_MAX_MS) esperas.delete(k);
+}
+function tomarEspera(numero: string | null | undefined): Espera | null {
+  limpiarEsperas();
+  const n = String(numero ?? "").replace(/\D/g, "");
+  if (n.length >= 9) {
+    const e = esperas.get(`zoom:${n}`) ?? null;
+    if (e) esperas.delete(e.roomKey);
+    return e;
+  }
+  if (esperas.size === 1) {
+    const e = [...esperas.values()][0];
+    esperas.delete(e.roomKey);
+    return e;
+  }
+  if (esperas.size > 1) log(`hay ${esperas.size} esperas y el webhook no trae número: no se puede saber cuál es (falta la app Server-to-Server)`);
+  return null;
+}
+// La misma reunión (mismo UUID) puede transmitirse de nuevo (Zoom corta y
+// vuelve a avisar): se queda en la sala que ya tenía.
+const salasPorUuid = new Map<string, { roomKey: string; userId: string | null }>();
+
+const MENSAJE_ESPERANDO =
+  "Cuando la reunión empiece, Zoom se la transmite a Unify sin ningún participante extra. Hace falta que seas el anfitrión y que la app de Unify esté autorizada en tu Zoom, con el auto-inicio encendido.";
+
+export type ResultadoEscucha =
+  | { ok: true; estado: "escuchando" | "arrancando" | "esperando"; message: string; aviso: string | null }
+  | { ok: false; status: number; error: string };
+
+export async function escucharSinBot(args: { numero: string; roomKey: string; userId: string }): Promise<ResultadoEscucha> {
+  if (!rtmsEnabled) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Zoom sin bot no está configurado en este servidor (faltan las variables ZOOM_RTMS_*).",
+    };
+  }
+  const { numero, roomKey, userId } = args;
+  // La reunión es de quien pidió escuchar (no pisa a un dueño anterior).
+  if (ganchos) void ganchos.reclamarSala(roomKey, userId).catch(() => undefined);
+
+  // 1. Esa reunión ya se está transmitiendo a esta sala.
+  const viva = [...sesiones.values()].find((s) => s.roomKey === roomKey && s.viva());
+  if (viva) {
+    return {
+      ok: true,
+      estado: "escuchando",
+      message: "Unify ya está escuchando esta reunión, sin aparecer como participante.",
+      aviso: null,
+    };
+  }
+  // 2. Hay una transmisión en curso cuyo número no se supo (sala por hash):
+  //    si es la única, es esta reunión, y pasa a esta sala en vivo.
+  const sinNumero = [...sesiones.values()].filter((s) => s.viva() && s.roomKey.startsWith("zoom:rtms-"));
+  if (sinNumero.length === 1) {
+    await sinNumero[0].reasignar(roomKey);
+    salasPorUuid.set(sinNumero[0].meetingUuid, { roomKey, userId });
+    return {
+      ok: true,
+      estado: "escuchando",
+      message: "Unify ya estaba escuchando una reunión de Zoom en curso: ahora cae en esta sala, sin participante extra.",
+      aviso: null,
+    };
+  }
+  // 3. Queda la espera; y si hay app Server-to-Server, se le pide a Zoom que
+  //    arranque ya (si la reunión ya empezó) en vez de esperar al auto-inicio.
+  limpiarEsperas();
+  if (esperas.size >= 200) {
+    const primera = esperas.keys().next().value;
+    if (primera !== undefined) esperas.delete(primera);
+  }
+  esperas.set(roomKey, { roomKey, numero, userId, desde: Date.now() });
+  await publicarEnPuente(roomKey, "", {
+    inCall: false,
+    participantCount: 0,
+    botFase: "esperando-zoom",
+    botDetalle: "Esperando que Zoom transmita la reunión (sin participante extra).",
+  });
+  if (!cfg.s2s) return { ok: true, estado: "esperando", message: MENSAJE_ESPERANDO, aviso: null };
+  const info = await leerReunion(numero);
+  if (!info) {
+    return {
+      ok: true,
+      estado: "esperando",
+      message: MENSAJE_ESPERANDO,
+      aviso: "Zoom no dejó leer esa reunión con la cuenta de Unify: si es de otra cuenta, Zoom no la va a transmitir.",
+    };
+  }
+  if (!info.hostId) return { ok: true, estado: "esperando", message: MENSAJE_ESPERANDO, aviso: null };
+  const r = await arrancarPorApi(numero, info.hostId);
+  if (r.ok) {
+    return {
+      ok: true,
+      estado: "arrancando",
+      message: "Zoom está arrancando la transmisión a Unify. Nadie ve un participante extra.",
+      aviso: null,
+    };
+  }
+  return {
+    ok: true,
+    estado: "esperando",
+    message: MENSAJE_ESPERANDO,
+    aviso:
+      `No se pudo arrancar desde acá: ${r.motivo}.` +
+      (r.codigo === 2310
+        ? " Ese código es de Zoom cuando todavía no habilitó RTMS para la app: hay que pedirlo en el Marketplace (soporte de desarrolladores) con el Client ID."
+        : " Si la reunión ya empezó y el auto-inicio está encendido, Zoom avisa sola."),
+  };
+}
+
 async function iniciarSesion(payload: Record<string, unknown>): Promise<void> {
   const meetingUuid = String(payload.meeting_uuid ?? "").trim();
   const streamId = String(payload.rtms_stream_id ?? "").trim();
@@ -554,14 +751,27 @@ async function iniciarSesion(payload: Record<string, unknown>): Promise<void> {
   if (sesiones.has(streamId)) return;
 
   const info = await reunionPorUuid(meetingUuid);
-  const roomKey = claveDeSala(meetingUuid, info?.id);
+  // La sala: la que ya tenía esta reunión, la de quien pidió escucharla, o
+  // la de siempre (número si se sabe, hash si no).
+  const previa = salasPorUuid.get(meetingUuid) ?? null;
+  const espera = previa ? null : tomarEspera(info?.id);
+  const roomKey = previa?.roomKey ?? espera?.roomKey ?? claveDeSala(meetingUuid, info?.id);
   const etiqueta = info?.topic ? `Zoom · ${info.topic}` : info?.id ? `Zoom · ${info.id}` : "Zoom";
+  if (espera) log(`la transmisión ${etiqueta} cae en la sala ${roomKey}: la pidió la cuenta ${espera.userId.slice(0, 8)}…`);
+  if (salasPorUuid.size >= 500) {
+    const primera = salasPorUuid.keys().next().value;
+    if (primera !== undefined) salasPorUuid.delete(primera);
+  }
+  salasPorUuid.set(meetingUuid, { roomKey, userId: espera?.userId ?? previa?.userId ?? null });
   const sesion = new SesionRtms(meetingUuid, streamId, serverUrl, roomKey, etiqueta);
   sesiones.set(streamId, sesion);
   await sesion.arrancar();
 
-  // La reunión, a nombre de quien corresponde: el anfitrión (por S2S) o la
-  // cuenta configurada. Sin dueño se ve en vivo pero no en ningún historial.
+  // La reunión, a nombre de quien corresponde: quien pidió escucharla, el
+  // anfitrión (por S2S) o la cuenta configurada. Sin dueño se ve en vivo
+  // pero no en ningún historial.
+  const pedida = espera?.userId ?? previa?.userId ?? null;
+  if (pedida && ganchos) void ganchos.reclamarSala(roomKey, pedida).catch(() => undefined);
   const email = info?.hostEmail || cfg.duenoPorDefecto;
   if (email && ganchos) {
     const userId = await ganchos.duenoPorEmail(email).catch(() => null);
@@ -630,6 +840,8 @@ export function estadoRtms() {
     conNumeroYAnfitrion: Boolean(cfg.s2s),
     duenoPorDefecto: cfg.duenoPorDefecto || null,
     sesiones: [...sesiones.values()].map((s) => s.resumen()),
+    // Quiénes tocaron «que Unify escuche» y todavía esperan que Zoom avise.
+    esperas: [...esperas.values()].map((e) => ({ roomKey: e.roomKey, numero: e.numero, desde: e.desde })),
   };
 }
 

@@ -603,10 +603,12 @@ function DetectionResult({
           </p>
           {platforms?.zoomRtms && (
             // Zoom sin bot: si la reunión es de quien tiene la app de Unify
-            // autorizada en su Zoom, Zoom la transmite sola al servidor.
+            // autorizada en su Zoom, Zoom la transmite al servidor sin ningún
+            // participante extra. El botón de abajo lo pide.
             <p className="mt-1.5 text-xs leading-relaxed text-brand-300">
-              Si sos el anfitrión y tenés la app de Unify en tu Zoom, la reunión se transcribe sola,
-              sin bot y sin tener esta pantalla abierta: queda en tu historial igual.
+              ¿No vas a estar? Si sos el anfitrión y tenés la app de Unify en tu Zoom, tocá{" "}
+              <span className="text-strong">«Que Unify escuche por mí»</span> abajo: Zoom le transmite la
+              reunión a Unify sin bot ni participante extra, y queda en tu historial igual.
             </p>
           )}
           <RecordingNotice />
@@ -696,7 +698,17 @@ function DetectionResult({
       {/* El bot "Notetaker": entra a la reunión POR VOS, aunque no estés.
           Aparece cuando tenemos el enlace y la clave de sala. Si el bot no
           está encendido en el servidor, lo dice con claridad (no rompe). */}
-      {url && roomKey && <BotButton url={url} roomKey={roomKey} platform={platform} lang={lang} />}
+      {url && roomKey && (
+        <BotButton
+          url={url}
+          roomKey={roomKey}
+          platform={platform}
+          lang={lang}
+          // Zoom sin bot: con Realtime Media Streams en el servidor y una sala
+          // con número, «mandar el bot» es la escucha sin participante.
+          sinParticipante={platform === "zoom" && Boolean(platforms?.zoomRtms) && /^zoom:\d{9,12}$/.test(roomKey)}
+        />
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import cors from "cors";
 import { recortarRepetido } from "./repetidos";
 import { detectarIdioma } from "./idioma";
-import { configurarRtms, estadoRtms, manejarWebhookZoom, reunionPorNumero, rtmsEnabled } from "./rtms";
+import { configurarRtms, escucharSinBot, estadoRtms, manejarWebhookZoom, reunionPorNumero, rtmsEnabled } from "./rtms";
 import express, { NextFunction, Request, Response } from "express";
 import { createServer } from "http";
 import { spawn } from "child_process";
@@ -1945,8 +1945,19 @@ const BOT_HOST_SECRET = process.env.BOT_HOST_SECRET ?? "";
 // reenvía al agente del host) el bot. Devuelve un resultado que el endpoint
 // traduce a HTTP.
 type ResultadoDespacho =
-  | { ok: true; yaEstaba?: boolean }
+  | {
+      ok: true;
+      yaEstaba?: boolean;
+      /** "rtms": fue la escucha sin participante (Zoom), no un bot visible. */
+      modo?: "rtms";
+      estado?: "escuchando" | "arrancando" | "esperando";
+      mensaje?: string;
+      aviso?: string | null;
+    }
   | { ok: false; status: number; error: string };
+
+// La sala «zoom:<número>»: la que abre la web para un enlace de Zoom.
+const numeroDeSalaZoom = (roomKey: string): string | null => roomKey.match(/^zoom:(\d{9,12})$/)?.[1] ?? null;
 
 async function despacharBot(args: {
   url: string;
@@ -1957,7 +1968,20 @@ async function despacharBot(args: {
   lang?: string;
   /** Paciencia del bot (sala vacía y admisión), en ms; vacío = defaults. */
   esperaMs?: number;
+  /** Pedir el bot VISIBLE aunque haya Zoom sin bot (reuniones de otra cuenta). */
+  visible?: boolean;
 }): Promise<ResultadoDespacho> {
+  // ZOOM SIN BOT. Con Realtime Media Streams configurado, «mandar el bot» a
+  // una reunión de Zoom es pedirle a Zoom que la transmita: nadie ve un
+  // participante extra. El bot visible queda sólo para quien lo pide a
+  // propósito (una reunión de otra cuenta, que Zoom no va a transmitir).
+  const numeroZoom = numeroDeSalaZoom(args.roomKey);
+  if (rtmsEnabled && numeroZoom && !args.visible) {
+    if (!args.ownerId) return { ok: false, status: 401, error: "Iniciá sesión para que Unify escuche a tu nombre." };
+    const r = await escucharSinBot({ numero: numeroZoom, roomKey: args.roomKey, userId: args.ownerId });
+    if (!r.ok) return { ok: false, status: r.status, error: r.error };
+    return { ok: true, modo: "rtms", estado: r.estado, mensaje: r.message, aviso: r.aviso };
+  }
   const plataformaBot = BOT_PLATFORMS.has(args.platform) ? args.platform : "jitsi";
 
   // La reunión del bot es de QUIEN LO MANDA: sin esto quedaba sin dueño y no
@@ -2016,16 +2040,19 @@ async function despacharBot(args: {
 }
 
 app.post("/api/bot/dispatch", requireAuth, async (req, res) => {
-  if (!BOT_ENABLED) {
+  const url = String(req.body?.url ?? "").trim().slice(0, 2000);
+  const roomKey = bridgeRoomKey(String(req.body?.roomKey ?? ""));
+  const platform = String(req.body?.platform ?? "");
+  const visible = req.body?.visible === true;
+  // Zoom sin bot no necesita host de bots: no se frena por BOT_ENABLED.
+  const sinParticipante = rtmsEnabled && !visible && Boolean(roomKey && numeroDeSalaZoom(roomKey));
+  if (!BOT_ENABLED && !sinParticipante) {
     res.status(503).json({
       error:
         "El bot no está habilitado en este servidor. Se enciende con BOT_ENABLED=1 en un host que permita navegador headless.",
     });
     return;
   }
-  const url = String(req.body?.url ?? "").trim().slice(0, 2000);
-  const roomKey = bridgeRoomKey(String(req.body?.roomKey ?? ""));
-  const platform = String(req.body?.platform ?? "");
   if (!/^https?:\/\//.test(url)) {
     res.status(400).json({ error: "Falta la URL de la reunión." });
     return;
@@ -2039,7 +2066,14 @@ app.post("/api/bot/dispatch", requireAuth, async (req, res) => {
   const langCrudo = String(req.body?.lang ?? "").trim();
   const lang = /^[a-z]{2,3}(-[a-zA-Z]{2,4})?$/.test(langCrudo) ? langCrudo : "";
   try {
-    const r = await despacharBot({ url, roomKey, platform: plataformaBot, ownerId: (req as AuthedRequest).userId!, lang });
+    const r = await despacharBot({
+      url,
+      roomKey,
+      platform: plataformaBot,
+      ownerId: (req as AuthedRequest).userId!,
+      lang,
+      visible,
+    });
     if (!r.ok) {
       res.status(r.status).json({ error: r.error });
       return;
@@ -2048,7 +2082,10 @@ app.post("/api/bot/dispatch", requireAuth, async (req, res) => {
       ok: true,
       roomKey,
       platform: plataformaBot,
-      message: r.yaEstaba ? "El bot ya está en esa reunión." : "El bot está entrando a la reunión.",
+      modo: r.modo ?? "bot",
+      estado: r.estado ?? null,
+      aviso: r.aviso ?? null,
+      message: r.mensaje ?? (r.yaEstaba ? "El bot ya está en esa reunión." : "El bot está entrando a la reunión."),
     });
   } catch {
     res.status(502).json({ error: "No pudimos hablar con el host del bot. ¿El agente está corriendo?" });

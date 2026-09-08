@@ -1018,13 +1018,28 @@ export async function fetchUpcomingMeetings(): Promise<{
 // de sala) se hace ANTES, en el cliente, con detectMeetingPlatform (una sola
 // fuente de verdad), y se pasa acá ya resuelta. El servidor sólo lanza el bot
 // si BOT_ENABLED está encendido; si no, devuelve un mensaje claro.
+//
+// ZOOM SIN BOT: si el servidor tiene Realtime Media Streams y la sala es
+// «zoom:<número>», el servidor no manda un bot: le pide a Zoom que transmita
+// la reunión (nadie ve un participante extra) y contesta modo "rtms" con el
+// estado (escuchando / arrancando / esperando). `visible: true` pide el bot
+// de siempre a propósito (una reunión de otra cuenta).
+export interface RespuestaBot {
+  ok?: boolean;
+  message?: string;
+  error?: string;
+  modo?: "bot" | "rtms";
+  estado?: "escuchando" | "arrancando" | "esperando" | null;
+  aviso?: string | null;
+}
 export async function dispatchBot(params: {
   url: string;
   roomKey: string;
   platform: string;
   /** El idioma que se habla en la reunión: el oído del bot. */
   lang?: string;
-}): Promise<{ ok?: boolean; message?: string; error?: string }> {
+  visible?: boolean;
+}): Promise<RespuestaBot> {
   try {
     const res = await fetchWithTimeout(`${SERVER_URL}/api/bot/dispatch`, {
       method: "POST",
@@ -1033,7 +1048,13 @@ export async function dispatchBot(params: {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { error: data.error ?? "No se pudo mandar el bot." };
-    return { ok: true, message: data.message };
+    return {
+      ok: true,
+      message: data.message,
+      modo: data.modo === "rtms" ? "rtms" : "bot",
+      estado: data.estado ?? null,
+      aviso: typeof data.aviso === "string" && data.aviso ? data.aviso : null,
+    };
   } catch {
     return { error: "No pudimos conectar con el servidor. Probá de nuevo en un momento." };
   }

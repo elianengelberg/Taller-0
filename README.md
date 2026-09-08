@@ -152,6 +152,21 @@ Funciona para las reuniones **organizadas por quien tiene la app de Unify autori
 Zoom** (para reuniones de otras cuentas, la app tiene que pasar la revisión del
 Marketplace de Zoom).
 
+**En la web es el mismo botón del bot.** Con RTMS encendido en el servidor, en una reunión
+de Zoom el botón «¿No podés estar?» pasa a ser **«Que Unify escuche por mí (sin
+aparecer)»**: `POST /api/bot/dispatch` con una sala `zoom:<número>` no manda ningún bot,
+sino que deja la espera de esa sala (cuando Zoom avise que la reunión se transmite, cae
+ahí y queda a nombre de quien tocó), y si hay app Server-to-Server le pide a Zoom que
+arranque ya (`PATCH /v2/live_meetings/<número>/rtms_app/status`, `action: start`, a nombre
+del anfitrión; scope `meeting:update:participant_rtms_app_status:admin`). El botón cuenta
+el viaje (esperando a Zoom → transmitiendo → «Unify está escuchando ✓») y, si Zoom
+contesta el código **2310** («Failed to perform RTMS app operation»), lo dice tal cual: es
+Zoom que todavía no habilitó RTMS para esa app (se pide en el Marketplace / soporte de
+desarrolladores con el Client ID). El bot visible queda para quien lo pide a propósito
+(`visible: true`; la web lo ofrece cuando la escucha no dio señales): reuniones de otra
+cuenta, que Zoom no va a transmitir. Sin S2S, una transmisión que llega sin número va a
+una sala por hash y, si hay una sola espera, se engancha a ella.
+
 El servidor lo implementa en `server/src/rtms.ts` (protocolo WebSocket directo, sin
 dependencias nativas) y lo prueba de punta a punta `pruebas/sim_rtms.js` contra un Zoom
 simulado. Para encenderlo, en orden:
@@ -176,9 +191,11 @@ simulado. Para encenderlo, en orden:
      SDK alcanza con `ZOOM_SDK_KEY` / `ZOOM_SDK_SECRET`, que se reusan),
    - `ZOOM_WEBHOOK_SECRET_TOKEN` (el Secret Token del paso 3),
    - opcional `ZOOM_RTMS_LANG` (default `es-AR`; el idioma real de cada frase se detecta igual).
-6. **Que quede a tu nombre** (recomendado): una app **Server-to-Server OAuth** en el mismo
-   Marketplace (Build App → Server-to-Server OAuth, scope `meeting:read:meeting:admin`),
-   y en el servidor `ZOOM_S2S_ACCOUNT_ID`, `ZOOM_S2S_CLIENT_ID`, `ZOOM_S2S_CLIENT_SECRET`.
+6. **Que quede a tu nombre y arranque a pedido** (recomendado): una app **Server-to-Server
+   OAuth** en el mismo Marketplace (Build App → Server-to-Server OAuth, scopes
+   `meeting:read:meeting:admin` y `meeting:update:participant_rtms_app_status:admin`,
+   y la app **activada**), y en el servidor `ZOOM_S2S_ACCOUNT_ID`, `ZOOM_S2S_CLIENT_ID`,
+   `ZOOM_S2S_CLIENT_SECRET`.
    Con eso el servidor traduce el UUID de la reunión al número (la sala `zoom:<número>`, la
    misma que abre la web con el enlace, así quien tenga Unify al lado la ve en vivo) y al
    mail del anfitrión: la reunión aparece en el historial de la cuenta de Unify con ese

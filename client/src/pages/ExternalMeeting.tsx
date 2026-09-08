@@ -39,7 +39,7 @@ import {
   pedirCartelDeMedios,
   usePermisoDeMicrofono,
 } from "../hooks/usePermisoDeMicrofono";
-import { askMeetingAI } from "../lib/api";
+import { askMeetingAI, fetchPlatformConfig, type PlatformConfig } from "../lib/api";
 import { LANGUAGES, codigoCompletoDe, etiquetaDeIdioma, shortLang } from "../lib/languages";
 import { recentCaptionEntries } from "../lib/captionLines";
 import {
@@ -223,6 +223,12 @@ export default function ExternalMeeting() {
   } = useMeeting();
 
   const [activePanel, setActivePanel] = useState<PanelKey>(null);
+  // Qué tiene configurado el servidor (acá importa Zoom sin bot: cambia qué
+  // hace «mandar el bot» en una reunión de Zoom).
+  const [platforms, setPlatforms] = useState<PlatformConfig | null>(null);
+  useEffect(() => {
+    fetchPlatformConfig().then(setPlatforms);
+  }, []);
   // Cuando el SDK de la plataforma no puede abrir la llamada acá dentro,
   // caemos a companion en vez de dejar la pantalla muerta: los subtítulos, la
   // traducción, la IA y la grabación no dependen de ese SDK.
@@ -526,6 +532,11 @@ export default function ExternalMeeting() {
   // ningún micrófono de nadie -- entra desde el servidor, graba y transcribe.
   const botDeSala =
     draft?.mode === "companion" ? enlaceParaElBot(draft.embed, draft.externalKey) : null;
+  // Zoom sin bot: con Realtime Media Streams en el servidor y una sala con
+  // número, «mandar el bot» es que Zoom transmita la reunión (sin participante).
+  const botSinParticipante =
+    Boolean(botDeSala && botDeSala.platform === "zoom" && platforms?.zoomRtms) &&
+    /^zoom:\d{9,12}$/.test(botDeSala?.roomKey ?? "");
 
   // El botón de grabar. Donde no existe capturar la pantalla (iPhone/iPad)
   // grabar significa el MICRÓFONO: pedir pantalla ahí sólo daba un error. Al
@@ -1198,8 +1209,13 @@ export default function ExternalMeeting() {
                         roomKey={botDeSala.roomKey}
                         platform={botDeSala.platform}
                         lang={spokenLang}
+                        sinParticipante={botSinParticipante}
                         titulo={`¿${aparato.corto} no escucha la reunión?`}
-                        descripcion={`Mandá el bot: entra a la reunión, graba y transcribe todo desde el servidor. No usa el micrófono de ${aparato.nombre}, así que funciona aunque la llamada esté en este mismo aparato.`}
+                        descripcion={
+                          botSinParticipante
+                            ? `Pedile a Zoom que le transmita la reunión a Unify: sin participante extra y sin usar el micrófono de ${aparato.nombre}, así que funciona aunque la llamada esté en este mismo aparato.`
+                            : `Mandá el bot: entra a la reunión, graba y transcribe todo desde el servidor. No usa el micrófono de ${aparato.nombre}, así que funciona aunque la llamada esté en este mismo aparato.`
+                        }
                       />
                     ) : null
                   }
