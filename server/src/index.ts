@@ -225,7 +225,14 @@ app.use((req, res, next) => {
 // SOLO para la pregunta a la IA de una reunión, que puede traer fotogramas del
 // video en base64. Subir el límite global habría agrandado la superficie de
 // todos los endpoints por una necesidad de uno solo.
-const jsonChico = express.json();
+// El webhook de Zoom firma los BYTES tal cual llegan (HMAC sobre el cuerpo
+// crudo): como este parser global corre antes que cualquier ruta, es acá
+// donde se guardan, para que rtms.ts verifique la firma sobre lo original y
+// no sobre un JSON re-serializado (que puede diferir en espacios u orden).
+const guardarCuerpoCrudo = (req: Request, _res: Response, buf: Buffer) => {
+  if (req.path === "/api/zoom/webhook") (req as Request & { rawBody?: string }).rawBody = buf.toString("utf8");
+};
+const jsonChico = express.json({ verify: guardarCuerpoCrudo });
 const jsonGrande = express.json({ limit: "4mb" });
 const RUTA_ASK = /^\/api\/meetings\/[^/]+\/ask$/;
 app.use((req, res, next) => {
@@ -1037,16 +1044,8 @@ app.get("/api/platforms", (_req, res) => {
 // Zoom avisa acá cuando una reunión empieza a transmitirse (rtms_started) y
 // cuando termina (rtms_stopped); rtms.ts hace el resto. El cuerpo CRUDO se
 // guarda porque la firma de Zoom se calcula sobre los bytes tal cual llegan.
-app.post(
-  "/api/zoom/webhook",
-  express.json({
-    limit: "256kb",
-    verify: (req, _res, buf) => {
-      (req as Request & { rawBody?: string }).rawBody = buf.toString("utf8");
-    },
-  }),
-  (req, res) => manejarWebhookZoom(req as Request & { rawBody?: string }, res)
-);
+// (El cuerpo crudo lo guarda el parser JSON global, ver guardarCuerpoCrudo.)
+app.post("/api/zoom/webhook", (req, res) => manejarWebhookZoom(req as Request & { rawBody?: string }, res));
 
 // Qué reuniones está transmitiendo Zoom ahora mismo (para verificar que la
 // app quedó bien configurada sin mirar los logs de Render).

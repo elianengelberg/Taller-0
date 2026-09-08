@@ -37,7 +37,10 @@ const PUERTO_RTMS = 4191;
 const firmaRtms = (uuid, stream) => crypto.createHmac("sha256", CLIENT_SECRET).update(`${CLIENT_ID},${uuid},${stream}`).digest("hex");
 const firmaWebhook = (ts, cuerpo) => `v0=${crypto.createHmac("sha256", TOKEN_WEBHOOK).update(`v0:${ts}:${cuerpo}`).digest("hex")}`;
 async function webhook(evento, payload, opciones = {}) {
-  const cuerpo = JSON.stringify({ event: evento, event_ts: Date.now(), payload });
+  // Con sangría y espacios A PROPÓSITO: la firma de Zoom cubre los bytes tal
+  // cual llegan, y un servidor que la calculara sobre el JSON re-serializado
+  // (compacto) la rechazaría. Así la suite lo detecta.
+  const cuerpo = JSON.stringify({ event: evento, event_ts: Date.now(), payload }, null, 2);
   const ts = String(opciones.ts ?? Math.floor(Date.now() / 1000));
   const firma = opciones.firma ?? firmaWebhook(ts, cuerpo);
   const r = await fetch(`${opciones.base ?? API3}/api/zoom/webhook`, {
