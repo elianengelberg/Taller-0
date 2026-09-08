@@ -185,7 +185,7 @@ export default function Home() {
             />
             <ActionCard
               highlight
-              title="Zoom · Teams · Meet"
+              title="Reuniones externas"
               description="¿Te mandaron un link de reunión? Pegalo acá y sumale subtítulos, traducción y grabación."
               cta={
                 <>

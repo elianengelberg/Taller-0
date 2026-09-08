@@ -1202,6 +1202,13 @@ export default function ExternalMeeting() {
                         }
                       : null
                   }
+                  // Sólo tu voz: en iPhone/iPad, mientras no llegue ni una
+                  // frase de otra persona, el escenario lo dice y ofrece el bot.
+                  soloTuVoz={
+                    unSoloMicrofono &&
+                    Boolean(self) &&
+                    !(meeting?.transcript ?? []).some((l) => l.speakerId !== self?.id)
+                  }
                   accionBot={
                     botDeSala ? (
                       <BotButton

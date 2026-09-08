@@ -472,6 +472,24 @@ async function botonesChicos(p, minimo = 40) {
     check("la app instalada navega DIRECTO a la reunión (cero ventanas internas)",
       navegoAMeet && abiertosPwa === 0, `navego=${navegoAMeet} abiertos=${abiertosPwa}`);
     check("y Unify sigue en su capa de subtítulos", pw.url().includes("/externa/reunion"));
+    // LA VERDAD DEL TELÉFONO. Con la reunión en este mismo aparato, iOS sólo
+    // deja oír tu voz (un Meet real: la persona hablaba y veía lo suyo, y de
+    // los demás nada, sin saber por qué ni qué hacer). El escenario lo dice
+    // y ofrece el bot; y apenas llega la voz de otra persona, el aviso se va.
+    if (esIphone) {
+      const cuerpoW = () => pw.evaluate(() => document.body.innerText).catch(() => "");
+      const esperarW = async (fn, ms) => { const h = Date.now() + ms; while (Date.now() < h) { if (await fn()) return true; await sleep(400); } return false; };
+      check("en iPhone el escenario dice la verdad: con la reunión en este aparato sólo se oye tu voz",
+        await esperarW(async () => /sólo le deja oír tu voz/i.test(await cuerpoW()), 6000), (await cuerpoW()).slice(0, 120).replace(/\n/g, " "));
+      check("y ofrece el bot como salida para transcribir a todos", (await pw.getByRole("button", { name: /bot/i }).count()) >= 1);
+      await fetch(`${API}/api/meet-bridge/${encodeURIComponent("google-meet:pwa-inst-ala")}/transcript`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ speaker: "Bruno", text: "hola desde la reunión, ¿me escuchan?", lang: "es-AR" }),
+      }).catch(() => {});
+      check("apenas llega la voz de otra persona (extensión, bot), el aviso de «sólo tu voz» se va",
+        await esperarW(async () => { const t = await cuerpoW(); return /me escuchan/.test(t) && !/sólo le deja oír tu voz|sólo se oye tu voz/i.test(t); }, 10_000),
+        (await cuerpoW()).slice(0, 160).replace(/\n/g, " "));
+    }
     await ctxPwa.close();
 
     await ctx.close();

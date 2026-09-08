@@ -69,8 +69,8 @@ export function onExtensionDetectada(cb: (version: string) => void): () => void 
 
 // El botón "Buscar actualización" de /instalar llama esto. Lo llena initPwa
 // (necesita updateSW, que vive adentro); antes de eso, responde "sin-sw".
-export let buscarActualizacionAhora: () => Promise<"aplicando" | "al-dia" | "sin-sw"> = async () =>
-  "sin-sw";
+export type ResultadoBusqueda = "aplicando" | "al-dia" | "sin-sw" | "trabada";
+export let buscarActualizacionAhora: () => Promise<ResultadoBusqueda> = async () => "sin-sw";
 
 export function isStandalone(): boolean {
   return (
@@ -186,20 +186,73 @@ export function initPwa(): void {
   // Ya se mandó a activar la versión nueva en esta carga de la página.
   let aplicada = false;
 
+  // La recarga la ponemos nosotros (en activarVersionEnEspera). Workbox
+  // también recarga, pero SÓLO si considera que la versión nueva es "una
+  // actualización de esta pestaña"; la que dejó esperando otra pestaña (o la
+  // sesión anterior) le figura como externa y no recarga nunca: la app
+  // quedaría con el service worker nuevo y los chunks viejos en pantalla.
+  // Recargar dos veces no hace daño.
+
+  const demora = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
   /**
-   * La recarga, puesta por nosotros.
+   * Activar la versión que espera, y recargar cuando tome el control.
    *
-   * Workbox también recarga, pero SÓLO si considera que la versión nueva es
-   * "una actualización de esta pestaña". La que dejó esperando otra pestaña
-   * (o la sesión anterior) le figura como externa y no recarga nunca: la app
-   * quedaría con el service worker nuevo y los chunks viejos en pantalla.
-   * Este listener cierra ese agujero, y recargar dos veces no hace daño.
+   * El camino normal es el mensaje SKIP_WAITING (lo manda vite-plugin-pwa) y
+   * el evento controllerchange. En Safari, sobre todo en la app instalada en
+   * iPhone o iPad, ese camino a veces no termina: el mensaje no llega al
+   * service worker que espera, o el evento no se dispara. La pantalla quedaba
+   * en "Aplicando la versión nueva…" para siempre. Acá no se confía en un
+   * solo mecanismo: el mensaje se manda también directo, se SONDEA quién
+   * controla la página, y si en `esperaMs` nada cambió se contesta que no
+   * (la salida que sí funciona en ese caso es cerrar la app del todo y
+   * volver a abrirla: al no quedar ninguna pestaña vieja, la versión nueva
+   * entra sola).
+   *
+   * Devuelve true si la versión nueva tomó el control (la recarga ya está
+   * pedida), false si no pasó nada.
    */
-  const recargarAlTomarControl = () => {
-    navigator.serviceWorker?.addEventListener(
-      "controllerchange",
-      () => window.location.reload(),
-      { once: true }
+  const activarVersionEnEspera = async (esperaMs: number): Promise<boolean> => {
+    const sw = navigator.serviceWorker;
+    if (!sw) return false;
+    const reg = await Promise.race([sw.getRegistration(), demora(3000).then(() => undefined)]).catch(
+      () => undefined
+    );
+    const controlAnterior = sw.controller;
+    let tomoControl = false;
+    const alTomar = () => {
+      if (tomoControl) return;
+      tomoControl = true;
+      window.location.reload();
+    };
+    sw.addEventListener("controllerchange", alTomar, { once: true });
+    void updateSW(true).catch(() => {});
+    try {
+      reg?.waiting?.postMessage({ type: "SKIP_WAITING" });
+    } catch {
+      /* sin waiting, o el navegador no deja mandar mensajes: el sondeo decide */
+    }
+    const hasta = Date.now() + esperaMs;
+    while (Date.now() < hasta) {
+      await demora(400);
+      if (tomoControl) return true;
+      if (sw.controller && sw.controller !== controlAnterior) {
+        alTomar();
+        return true;
+      }
+    }
+    return tomoControl;
+  };
+
+  // Cuando la versión nueva no se deja activar desde acá (Safari), decirlo
+  // con la salida que sí funciona, en vez de dejar el aviso colgado.
+  const avisarQueHayQueCerrar = () => {
+    showToast(
+      {
+        kind: "info",
+        text: "Hay una versión nueva de Unify bajada, pero este navegador no la deja aplicar desde acá. Cerrá Unify del todo y volvé a abrirla: se aplica sola.",
+      },
+      20_000
     );
   };
 
@@ -210,8 +263,9 @@ export function initPwa(): void {
         text: "Hay una versión nueva de Unify.",
         actionLabel: "Actualizar",
         onAction: () => {
-          recargarAlTomarControl();
-          void updateSW(true);
+          void activarVersionEnEspera(15_000).then((ok) => {
+            if (!ok) avisarQueHayQueCerrar();
+          });
         },
       },
       30_000
@@ -237,8 +291,9 @@ export function initPwa(): void {
           : "Hay una versión nueva de Unify. Tocá Actualizar para aplicarla ya (recarga la pantalla).",
         actionLabel: "Actualizar",
         onAction: () => {
-          recargarAlTomarControl();
-          void updateSW(true);
+          void activarVersionEnEspera(15_000).then((ok) => {
+            if (!ok) avisarQueHayQueCerrar();
+          });
         },
       },
       30_000
@@ -260,8 +315,9 @@ export function initPwa(): void {
     pendiente = false;
     aplicada = true;
     anotarAuto();
-    recargarAlTomarControl();
-    void updateSW(true);
+    void activarVersionEnEspera(15_000).then((ok) => {
+      if (!ok) avisarQueHayQueCerrar();
+    });
     return true;
   };
   // La búsqueda A PEDIDO (el botón "Buscar actualización" de /instalar):
@@ -272,7 +328,6 @@ export function initPwa(): void {
     // service worker queda pendiente (red lenta, pedido bloqueado, servidor
     // dormido): el botón se quedaba en "Buscando…" para siempre y no había
     // forma de saber si estabas al día. Ahora siempre contesta.
-    const demora = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
     try {
       const reg = await Promise.race([
         navigator.serviceWorker?.getRegistration(),
@@ -286,9 +341,9 @@ export function initPwa(): void {
         await demora(500);
       }
       if (!reg.waiting) return "al-dia";
-      recargarAlTomarControl();
-      void updateSW(true);
-      return "aplicando";
+      // Hasta 12 s para que la versión nueva tome el control; si no lo hace,
+      // se dice (Safari) en vez de quedar en "Aplicando…" para siempre.
+      return (await activarVersionEnEspera(12_000)) ? "aplicando" : "trabada";
     } catch {
       return "sin-sw";
     }

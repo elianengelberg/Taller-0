@@ -62,6 +62,16 @@ interface Props {
    * desde el servidor. Se ofrece mientras no haya ni una frase.
    */
   accionBot?: ReactNode;
+  /**
+   * SÓLO TU VOZ. En iPhone y iPad el sistema le da el micrófono a una sola
+   * app y cancela lo que sale por el propio parlante: Unify oye a quien lo
+   * tiene abierto y a nadie más. Mientras no llegue ni una frase de otra
+   * persona, el escenario lo dice y ofrece la salida (el bot) TAMBIÉN cuando
+   * ya hay frases propias en pantalla. Antes eso sólo se veía en la pantalla
+   * vacía: la persona hablaba, veía lo suyo, y nunca supo por qué los demás
+   * no aparecían ni cómo cambiarlo.
+   */
+  soloTuVoz?: boolean;
   /** Cuántas personas hay en la capa de Unify. */
   participantCount: number;
 }
@@ -89,6 +99,7 @@ export default function CompanionSubtitleStage({
   accionEscucharTodos,
   notaGrabacion,
   accionBot,
+  soloTuVoz = false,
   participantCount,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -208,6 +219,16 @@ export default function CompanionSubtitleStage({
                   Con la reunión sonando en <b>altavoz</b> (en esta compu o en un aparato al lado),
                   el micrófono capta todas las voces solo.
                 </>
+              ) : soloTuVoz ? (
+                // La verdad del teléfono y la tablet: con la reunión en este
+                // mismo aparato, el sistema sólo deja oír tu voz (cancela lo
+                // que sale por su propio parlante). Prometer "altavoz y capta a
+                // todos" era mentir: es lo que pasó de verdad en un Meet.
+                <>
+                  En {aparato.corto}, con la reunión en este mismo aparato, el sistema sólo le deja
+                  oír <b>tu voz</b>. Si la reunión suena en <b>otro</b> aparato al lado (una compu,
+                  una tele), el micrófono la capta. Para transcribir a todos desde acá, mandá el bot.
+                </>
               ) : (
                 <>
                   Poné la reunión en <b>altavoz</b>, sin auriculares, y dejá esta pantalla al frente:
@@ -247,6 +268,22 @@ export default function CompanionSubtitleStage({
           </div>
         ) : (
           <div className="mx-auto flex max-w-3xl flex-col gap-4">
+            {/* Ya hay frases, pero todas tuyas: decirlo acá, donde la persona
+                está mirando, y dejar el bot a un toque. */}
+            {soloTuVoz && accionBot && (
+              <div
+                role="note"
+                className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-left"
+              >
+                <p className="text-sm font-semibold text-amber-200">Por ahora sólo se oye tu voz</p>
+                <p className="mt-1 text-xs leading-relaxed text-ink-300">
+                  En {aparato.corto}, con la reunión en este mismo aparato, el sistema no deja captar a
+                  los demás. Para que se transcriba y traduzca a todos, mandá el bot: entra a la
+                  reunión y escucha desde el servidor.
+                </p>
+                {accionBot}
+              </div>
+            )}
             {lines.map((line, i) => {
               const role = roleFor?.(line.speakerName) ?? null;
               const isLast = i === lines.length - 1 && !interim;

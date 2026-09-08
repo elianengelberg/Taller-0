@@ -118,7 +118,9 @@ const check = (n, ok, d = "") => { results.push(ok); console.log(`${ok ? "PASS" 
     const original = fs.readFileSync(SW, "utf8");
     // Cada versión de prueba se delata: contesta /__prueba-version con su
     // nombre. Si la página lo lee, es que ESA versión la está controlando.
-    const publicar = (marca) => fs.writeFileSync(SW, `${original}
+    // `sorda`: una versión que ignora el mensaje SKIP_WAITING, como pasa en
+    // Safari (la app instalada en iPhone/iPad) cuando el mensaje no llega.
+    const publicar = (marca, { sorda = false } = {}) => fs.writeFileSync(SW, `${sorda ? original.replace("SKIP_WAITING", "NUNCA") : original}
 self.addEventListener("fetch", (e) => {
   if (new URL(e.request.url).pathname === "/__prueba-version") e.respondWith(new Response(${JSON.stringify(marca)}));
 });
@@ -241,6 +243,31 @@ self.addEventListener("fetch", (e) => {
       check("y la pantalla se recargó sola en la versión nueva", (await cargas(p3)) > antes,
         `cargas: ${antes} → ${await cargas(p3)}`);
       await p3.close();
+
+      // 5e. SAFARI: la versión nueva NO se deja activar desde la página (el
+      //     mensaje no llega al service worker que espera, o el evento no se
+      //     dispara: la app instalada en iPad quedó en "Aplicando la versión
+      //     nueva…" para siempre). Se simula con una versión sorda al
+      //     mensaje. El botón tiene que CONTESTAR con la salida que sí anda
+      //     (cerrar del todo y volver a abrir), y esa salida tiene que andar.
+      publicar("v5", { sorda: true });
+      const p4 = await ctx.newPage();
+      p4.on("pageerror", (e) => errs.push(e.message.slice(0, 140)));
+      await p4.goto(`${B}/instalar`, { waitUntil: "networkidle" });
+      await p4.evaluate(() => navigator.serviceWorker.ready);
+      await p4.getByRole("button", { name: /Buscar actualizaci/i }).first().click();
+      check("si la versión nueva no se deja activar, el botón lo DICE (con la salida) en vez de quedarse en «Aplicando…»",
+        await esperar(p4, (x) => x.evaluate(() => /no la activa desde acá|Cerrá Unify del todo/i.test(document.body.innerText)), 40_000),
+        ((await p4.evaluate(() => document.body.innerText).catch(() => "")).match(/Aplicando[^\n]{0,40}|no la activa[^\n]{0,60}/)?.[0] ?? "?"));
+      check("y no recargó a ciegas: sigue la versión que había, con la nueva esperando",
+        (await version(p4)) === "v4" && (await hayEspera(p4)), `versión=${await version(p4)} espera=${await hayEspera(p4)}`);
+      await p4.close(); // «cerrá Unify del todo»
+      const p5 = await ctx.newPage();
+      p5.on("pageerror", (e) => errs.push(e.message.slice(0, 140)));
+      await p5.goto(`${B}/`, { waitUntil: "domcontentloaded" });
+      check("…y volver a abrirla SÍ aplica la versión nueva (la salida que se indica)",
+        await esperar(p5, async (x) => (await version(x)) === "v5", 30_000), `versión=${await version(p5)}`);
+      await p5.close();
     } finally {
       fs.writeFileSync(SW, original);
     }

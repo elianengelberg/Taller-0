@@ -7,7 +7,7 @@ import GradientBackdrop from "../components/GradientBackdrop";
 import Logo from "../components/Logo";
 import { AppMockupDesktop, AppMockupPhone } from "../components/AppMockup";
 import { AppleIcon, WindowsIcon, AndroidIcon } from "../components/icons";
-import {
+import { type ResultadoBusqueda,
   buscarActualizacionAhora,
   canPromptInstall,
   extensionInstalada,
@@ -126,9 +126,9 @@ export default function Instalar() {
   // y llevar la vista hasta él, en vez de dejar a la persona buscándolo.
   const [siguientePaso, setSiguientePaso] = useState(false);
   // Estado del botón "Buscar actualización ahora" (barra de versión de arriba).
-  const [buscandoUpdate, setBuscandoUpdate] = useState<
-    "quieto" | "buscando" | "aplicando" | "al-dia" | "sin-sw"
-  >("quieto");
+  const [buscandoUpdate, setBuscandoUpdate] = useState<"quieto" | "buscando" | ResultadoBusqueda>(
+    "quieto"
+  );
   const seccionExt = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const soltar = onExtensionDetectada(setExtVersion);
@@ -288,6 +288,16 @@ export default function Instalar() {
           {buscandoUpdate === "sin-sw" && (
             <span className="text-xs text-ink-400">
               Acá no corre la app instalable (probá desde la app o recargá la página).
+            </span>
+          )}
+          {/* Safari (la app instalada en iPhone/iPad, sobre todo) a veces no
+              deja activar la versión nueva desde la página: la única salida
+              es cerrar del todo y volver a abrir, y hay que decirlo. */}
+          {buscandoUpdate === "trabada" && (
+            <span role="status" className="text-xs leading-relaxed text-amber-200">
+              La versión nueva ya está bajada, pero este navegador no la activa desde acá. Cerrá
+              Unify del todo (en iPhone o iPad: deslizá la app hacia arriba en el selector de apps)
+              y volvé a abrirla: se aplica sola.
             </span>
           )}
         </div>
