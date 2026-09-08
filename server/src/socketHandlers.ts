@@ -1,6 +1,11 @@
 import { Server, Socket } from "socket.io";
 import { recortarRepetido } from "./repetidos";
-import { detectarIdioma } from "./idioma";
+import { crearMemoriaDeIdioma, detectarIdioma } from "./idioma";
+// Lo que se viene hablando en cada reunión (y de boca de cada persona): con
+// eso se resuelven las frases demasiado cortas para detectarles el idioma
+// ("Okay", "yes, exactly"), que si no quedaban con la etiqueta del
+// reconocimiento -- el idioma de quien escucha -- y por lo tanto sin traducir.
+const memoriaIdioma = crearMemoriaDeIdioma();
 import { verifyToken } from "./auth";
 import * as db from "./db";
 import {
@@ -729,9 +734,18 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       // Trust what was actually detected over what we assumed, but only
       // override when detection confidently disagrees -- otherwise keep the
       // richer configured code (e.g. "es-AR" instead of collapsing to "es").
-      const idiomaDicho = cleanup.detectedLang ?? detectarIdioma(cleanup.text);
-      const mismatch = idiomaDicho !== null && idiomaDicho !== shortLang(assumedSourceLang);
-      const sourceLang = mismatch ? idiomaDicho! : assumedSourceLang;
+      const claveHablante = `${meeting.id}|${socket.id}`;
+      if (cleanup.detectedLang) {
+        memoriaIdioma.anotar(claveHablante, cleanup.detectedLang);
+        memoriaIdioma.anotar(meeting.id, cleanup.detectedLang);
+      }
+      const idiomaDicho = memoriaIdioma.resolver(
+        [claveHablante, meeting.id],
+        cleanup.text,
+        cleanup.detectedLang ?? assumedSourceLang
+      );
+      const mismatch = idiomaDicho !== shortLang(assumedSourceLang);
+      const sourceLang = mismatch ? idiomaDicho : assumedSourceLang;
 
       if (!line) {
         if (!cleanup.text) return;

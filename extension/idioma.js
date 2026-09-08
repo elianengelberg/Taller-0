@@ -87,7 +87,52 @@ function idiomaEfectivo(texto, etiqueta) {
     const detectado = detectarIdioma(texto);
     return detectado && detectado !== corto ? detectado : corto;
 }
+function crearMemoriaDeIdioma(opciones = {}) {
+    const vidaMs = opciones.vidaMs ?? 30 * 60000;
+    const maxClaves = opciones.maxClaves ?? 500;
+    const visto = new Map();
+    function anotar(clave, idioma) {
+        if (!clave || !idioma)
+            return;
+        // Reinsertar mueve la clave al final: al podar se van las más viejas.
+        visto.delete(clave);
+        visto.set(clave, { idioma, at: Date.now() });
+        while (visto.size > maxClaves) {
+            const primera = visto.keys().next();
+            if (primera.done)
+                break;
+            visto.delete(primera.value);
+        }
+    }
+    function recordar(clave) {
+        const dato = visto.get(clave);
+        if (!dato)
+            return null;
+        if (Date.now() - dato.at > vidaMs) {
+            visto.delete(clave);
+            return null;
+        }
+        return dato.idioma;
+    }
+    function resolver(claves, texto, etiqueta) {
+        const lista = (Array.isArray(claves) ? claves : [claves]).filter(Boolean);
+        const corto = String(etiqueta || "").split("-")[0].toLowerCase();
+        const detectado = detectarIdioma(texto);
+        if (detectado) {
+            for (const clave of lista)
+                anotar(clave, detectado);
+            return detectado;
+        }
+        for (const clave of lista) {
+            const recordado = recordar(clave);
+            if (recordado)
+                return recordado;
+        }
+        return corto;
+    }
+    return { anotar, recordar, resolver };
+}
 
 // Un content script no tiene módulos: se cuelga de window para content.js y
 // prompt-injector.js (que corren después, ver manifest.json).
-window.__unifyIdioma = { detectarIdioma, idiomaEfectivo };
+window.__unifyIdioma = { detectarIdioma, idiomaEfectivo, crearMemoriaDeIdioma };

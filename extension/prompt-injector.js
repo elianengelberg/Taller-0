@@ -30,6 +30,13 @@
   // Traducciones por id de línea, para no volver a pedir la misma dos veces.
   // Se vacía al cambiar el idioma.
   const traducciones = new Map();
+  // Lo que se viene hablando en esta reunión (idioma.js corre antes, ver el
+  // manifest): resuelve las frases demasiado cortas para detectarles el
+  // idioma, que si no quedaban con la etiqueta del reconocimiento y se
+  // mostraban sin traducir.
+  const memoriaIdioma = window.__unifyIdioma?.crearMemoriaDeIdioma
+    ? window.__unifyIdioma.crearMemoriaDeIdioma()
+    : null;
 
   function safeDecode(value) {
     try { return decodeURIComponent(value); } catch { return value; }
@@ -1196,9 +1203,19 @@
       // La etiqueta es el idioma configurado, no el de la frase (te hablan
       // en inglés con el oído en español y llega "es-AR"): se decide por
       // lo que dice el texto (idioma.js, cargado antes que este script).
-      const origen = window.__unifyIdioma
-        ? window.__unifyIdioma.idiomaEfectivo(linea.text, linea.sourceLang)
-        : (linea.sourceLang || "").split("-")[0].toLowerCase();
+      // Una frase corta ("Okay") no se puede detectar: ahí manda lo que se
+      // viene hablando en esta reunión (y de boca de esta persona), no la
+      // etiqueta -- que es el idioma configurado de quien escucha, y por eso
+      // las frases cortas en inglés se mostraban sin traducir.
+      const origen = memoriaIdioma
+        ? memoriaIdioma.resolver(
+            [`${linea.speakerId || linea.speakerName || ""}`, "__sala__"],
+            linea.text,
+            linea.sourceLang
+          )
+        : window.__unifyIdioma
+          ? window.__unifyIdioma.idiomaEfectivo(linea.text, linea.sourceLang)
+          : (linea.sourceLang || "").split("-")[0].toLowerCase();
       if (origen && origen === cfg.lang) return;
       // Si el servidor ya la calculó (viene pegada a la línea), ni se pide.
       const hecha = linea.translations?.[cfg.lang];

@@ -21,7 +21,7 @@ function aJs(fuente) {
   return outputText.replace(/^export /gm, "");
 }
 
-for (const [nombre, exportado] of [["idioma", "{ detectarIdioma, idiomaEfectivo }"], ["repetidos", "{ recortarRepetido, crearMemoriaDeRepetidos }"]]) {
+for (const [nombre, exportado] of [["idioma", "{ detectarIdioma, idiomaEfectivo, crearMemoriaDeIdioma }"], ["repetidos", "{ recortarRepetido, crearMemoriaDeRepetidos }"]]) {
   const origen = `client/src/lib/${nombre}.ts`;
   const fuente = readFileSync(path.join(raiz, origen), "utf8");
   writeFileSync(path.join(raiz, `server/src/${nombre}.ts`), aviso(origen) + fuente);

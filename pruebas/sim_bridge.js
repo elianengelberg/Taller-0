@@ -212,6 +212,32 @@ const post = (p, b, token) => fetch(API + p, { method: "POST",
   check("y una en español etiquetada «en-US» viaja como español",
     deCarla?.sourceLang === "es", String(deCarla?.sourceLang));
 
+  // LAS FRASES CORTAS, que es lo que de verdad llega de los subtítulos de
+  // Meet: "Okay", "yes, exactly". Con menos de tres palabras nadie puede
+  // detectar el idioma, y hasta acá se le creía a la etiqueta -- la del
+  // reconocimiento, o sea el idioma de QUIEN ESCUCHA. En una reunión en
+  // inglés eso dejaba casi todas las líneas marcadas "es-AR" y por lo tanto
+  // sin traducir: exactamente lo reportado. Ahora manda lo que se viene
+  // hablando en esta sala.
+  {
+    const antesCortas = live.length;
+    for (const t of ["Okay", "yes, exactly", "perfect"]) {
+      await post(`/api/meet-bridge/${code}/transcript`, { speaker: "Ellen", text: t, lang: "es-AR" });
+      await sleep(2200); // más que la fusión de fragmentos seguidos: líneas separadas
+    }
+    const cortas = live.slice(antesCortas).filter((l) => l.speakerName === "Ellen");
+    check("después de una frase larga en inglés, las cortas de esa persona también viajan como inglés",
+      cortas.length >= 3 && cortas.every((l) => l.sourceLang === "en"),
+      cortas.map((l) => `${l.text}=${l.sourceLang}`).join(" | "));
+    // Y una persona que SÍ habla español no se contagia: su frase larga manda.
+    const antesCaro = live.length;
+    await post(`/api/meet-bridge/${code}/transcript`, { speaker: "Caro", text: "yo prefiero que lo veamos el jueves con todo el equipo tranquilos", lang: "es-AR" });
+    await sleep(700);
+    const deCaro = live.slice(antesCaro).find((l) => l.speakerName === "Caro");
+    check("y quien habla en español sigue viajando como español (la memoria no arrastra a todos)",
+      deCaro?.sourceLang !== "en", String(deCaro?.sourceLang));
+  }
+
   s.disconnect();
   const failed = results.filter((r) => !r).length;
   console.log(`\n${results.length - failed}/${results.length} OK`);

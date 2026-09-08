@@ -1,6 +1,9 @@
 import cors from "cors";
 import { recortarRepetido } from "./repetidos";
-import { detectarIdioma } from "./idioma";
+import { crearMemoriaDeIdioma, detectarIdioma } from "./idioma";
+// Lo que se viene hablando en cada sala (y de boca de cada persona): con eso
+// se resuelven las frases demasiado cortas para detectarles el idioma.
+const memoriaIdioma = crearMemoriaDeIdioma();
 import { configurarRtms, escucharSinBot, estadoRtms, manejarWebhookZoom, reunionPorNumero, rtmsEnabled } from "./rtms";
 import express, { NextFunction, Request, Response } from "express";
 import { createServer } from "http";
@@ -2507,10 +2510,21 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
   const textoFinal = cleanup.text || text;
   // Sin IA (o si no supo decirlo), el idioma se lee del propio texto: una
   // frase en inglés etiquetada "es-AR" tiene que viajar como "en" para que
-  // cada pantalla la traduzca.
-  const idiomaDicho = cleanup.detectedLang ?? detectarIdioma(textoFinal);
-  const mismatch = idiomaDicho !== null && idiomaDicho !== shortLang(lang);
-  const sourceLang = mismatch ? idiomaDicho! : lang;
+  // cada pantalla la traduzca. Y cuando el texto es demasiado corto para
+  // estar seguro ("Okay", "yes, exactly" -- la mayoría de los pedacitos que
+  // manda la extensión), manda lo que se viene hablando en esta sala y de
+  // boca de esta persona, no la etiqueta del reconocimiento.
+  if (cleanup.detectedLang) {
+    memoriaIdioma.anotar(`${meeting.id}|${speaker}`, cleanup.detectedLang);
+    memoriaIdioma.anotar(meeting.id, cleanup.detectedLang);
+  }
+  const idiomaDicho = memoriaIdioma.resolver(
+    [`${meeting.id}|${speaker}`, meeting.id],
+    textoFinal,
+    cleanup.detectedLang ?? lang
+  );
+  const mismatch = idiomaDicho !== shortLang(lang);
+  const sourceLang = mismatch ? idiomaDicho : lang;
   if (!line) {
     line = abrirOFusionar(textoFinal, sourceLang);
   } else {
@@ -2521,6 +2535,18 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
       line.text = (line.text.slice(0, i) + textoFinal + line.text.slice(i + text.length)).trim().slice(0, 2000);
     }
     if (!mergeTarget) line.sourceLang = sourceLang;
+    // La línea CRECIÓ al fusionar: lo que era "Okay" (corto, sin certeza) ya
+    // puede ser una frase entera que se lee sola. Sin esto, la línea se
+    // quedaba con el idioma del primer pedacito para siempre -- y sin
+    // traducir, aunque terminara siendo un párrafo en inglés.
+    else {
+      const deLaLineaEntera = detectarIdioma(line.text);
+      if (deLaLineaEntera && deLaLineaEntera !== shortLang(line.sourceLang)) {
+        line.sourceLang = deLaLineaEntera;
+        memoriaIdioma.anotar(`${meeting.id}|${speaker}`, deLaLineaEntera);
+        memoriaIdioma.anotar(meeting.id, deLaLineaEntera);
+      }
+    }
     // Deja de ser provisional recién cuando NINGÚN fragmento de la línea
     // sigue esperando su corrección.
     const quedan = (limpiezasPendientes.get(line.id) ?? 1) - 1;

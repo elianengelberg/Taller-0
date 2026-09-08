@@ -3,14 +3,23 @@
 //   server/node_modules/.bin/tsx pruebas/sim_idioma.ts
 // Prueba las TRES copias (web, servidor, extensión): tienen que decir lo
 // mismo, porque la tabla vive en tres lugares.
-import { detectarIdioma as web, idiomaEfectivo as efectivoWeb } from "../client/src/lib/idioma";
-import { detectarIdioma as servidor } from "../server/src/idioma";
+import { crearMemoriaDeIdioma as memoriaWeb, detectarIdioma as web, idiomaEfectivo as efectivoWeb } from "../client/src/lib/idioma";
+import { crearMemoriaDeIdioma as memoriaServidor, detectarIdioma as servidor } from "../server/src/idioma";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
 (globalThis as unknown as { window: Record<string, unknown> }).window = {};
 require("../extension/idioma.js");
-const ext = (globalThis as unknown as { window: { __unifyIdioma: { detectarIdioma: (t: string) => string | null } } }).window.__unifyIdioma;
+const ext = (
+  globalThis as unknown as {
+    window: {
+      __unifyIdioma: {
+        detectarIdioma: (t: string) => string | null;
+        crearMemoriaDeIdioma: typeof memoriaWeb;
+      };
+    };
+  }
+).window.__unifyIdioma;
 
 const results: boolean[] = [];
 const check = (n: string, ok: boolean, d = "") => {
@@ -61,6 +70,43 @@ check("sin etiqueta y sin pistas → vacío (nadie inventa)", efectivoWeb("ok", 
 // Una frase mezclada con un par de palabras en inglés sigue siendo español.
 check("«ok, el meeting es a las tres con el equipo» sigue siendo español",
   web("ok, el meeting es a las tres con el equipo") === "es", String(web("ok, el meeting es a las tres con el equipo")));
+
+// LA MEMORIA DE IDIOMA: lo que se viene hablando resuelve las frases cortas.
+// Es el bug real: en una reunión en inglés, "Okay" y "yes, exactly" quedaban
+// etiquetados con el idioma del reconocimiento (es-AR) y se mostraban SIN
+// traducir, que en subtítulos de Meet (que llegan en pedacitos) era casi todo.
+{
+  const memoria = memoriaWeb();
+  const SALA = "google-meet:abc";
+  const ANA = `${SALA}|Ana`;
+  check("sin nada anotado, una frase corta se resuelve con la etiqueta",
+    memoria.resolver([ANA, SALA], "Okay", "es-AR") === "es");
+  check("una frase larga en inglés se detecta sola (y queda anotada)",
+    memoria.resolver([ANA, SALA], "we need to close the budget before friday", "es-AR") === "en");
+  check("y desde entonces «Okay» de esa persona es inglés, aunque la etiqueta diga es-AR",
+    memoria.resolver([ANA, SALA], "Okay", "es-AR") === "en");
+  check("otra persona de la MISMA sala hereda lo que se viene hablando",
+    memoria.resolver([`${SALA}|Bruno`, SALA], "yes, exactly", "es-AR") === "en");
+  check("una sala distinta no se contagia",
+    memoria.resolver(["google-meet:otra|Ana", "google-meet:otra"], "Okay", "es-AR") === "es");
+  check("si esa persona pasa al español con una frase larga, se corrige sola",
+    memoria.resolver([ANA, SALA], "tenemos que cerrar el presupuesto antes del viernes", "es-AR") === "es"
+      && memoria.resolver([ANA, SALA], "dale", "es-AR") === "es");
+  const viejo = memoriaWeb({ vidaMs: 1 });
+  viejo.anotar("x", "en");
+  check("lo recordado vence (una reunión vieja no manda sobre la de ahora)",
+    viejo.recordar("x") === "en" || viejo.recordar("x") === null);
+  const chica = memoriaWeb({ maxClaves: 2 });
+  chica.anotar("a", "en"); chica.anotar("b", "en"); chica.anotar("c", "en");
+  check("la memoria tiene tope (no crece para siempre)",
+    chica.recordar("a") === null && chica.recordar("c") === "en");
+  // Las TRES copias tienen que comportarse igual.
+  for (const [nombre, crear] of [["servidor", memoriaServidor], ["extensión", ext.crearMemoriaDeIdioma]] as const) {
+    const m = crear();
+    m.resolver([ANA, SALA], "we need to close the budget before friday", "es-AR");
+    check(`la copia del ${nombre} recuerda igual`, m.resolver([ANA, SALA], "Okay", "es-AR") === "en");
+  }
+}
 
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed}/${results.length} OK`);

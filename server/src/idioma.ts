@@ -76,3 +76,82 @@ export function idiomaEfectivo(texto: string, etiqueta: string | null | undefine
   const detectado = detectarIdioma(texto);
   return detectado && detectado !== corto ? detectado : corto;
 }
+
+// LO QUE SE VIENE HABLANDO EN ESTA REUNIÓN.
+//
+// El detector calla ante una frase corta ("Okay", "yes, exactly", "perfect"):
+// con menos de tres palabras no hay con qué estar seguro, y hasta acá esa
+// duda se resolvía creyéndole a la etiqueta -- que es el idioma CONFIGURADO
+// del reconocimiento, casi siempre el tuyo. En una reunión en inglés eso
+// dejaba a las frases cortas marcadas "es-AR", y por lo tanto SIN TRADUCIR:
+// pasó de verdad, y como los subtítulos de Meet llegan en pedacitos, era la
+// mayoría de las líneas.
+//
+// La duda se resuelve con lo que ya se sabe: si en esta sala (y sobre todo
+// de boca de esta persona) las frases largas vinieron en inglés, "Okay" es
+// inglés. Se recuerda sólo lo que el detector afirmó con seguridad, por un
+// rato y con un tope de claves: una reunión que cambia de idioma se corrige
+// sola en cuanto alguien dice una frase larga en el nuevo.
+export interface MemoriaDeIdioma {
+  /** Anota una certeza (viene del detector o de la IA correctora). */
+  anotar(clave: string, idioma: string): void;
+  /** Qué se venía hablando ahí, si sigue vigente. */
+  recordar(clave: string): string | null;
+  /**
+   * El idioma de esta frase: lo detectado si el texto alcanza; si no, lo
+   * último seguro de esas claves (de la más específica a la más general);
+   * si tampoco hay, la etiqueta.
+   */
+  resolver(claves: string | string[], texto: string, etiqueta: string | null | undefined): string;
+}
+
+export function crearMemoriaDeIdioma(
+  opciones: { vidaMs?: number; maxClaves?: number } = {}
+): MemoriaDeIdioma {
+  const vidaMs = opciones.vidaMs ?? 30 * 60_000;
+  const maxClaves = opciones.maxClaves ?? 500;
+  const visto = new Map<string, { idioma: string; at: number }>();
+
+  function anotar(clave: string, idioma: string): void {
+    if (!clave || !idioma) return;
+    // Reinsertar mueve la clave al final: al podar se van las más viejas.
+    visto.delete(clave);
+    visto.set(clave, { idioma, at: Date.now() });
+    while (visto.size > maxClaves) {
+      const primera = visto.keys().next();
+      if (primera.done) break;
+      visto.delete(primera.value);
+    }
+  }
+
+  function recordar(clave: string): string | null {
+    const dato = visto.get(clave);
+    if (!dato) return null;
+    if (Date.now() - dato.at > vidaMs) {
+      visto.delete(clave);
+      return null;
+    }
+    return dato.idioma;
+  }
+
+  function resolver(
+    claves: string | string[],
+    texto: string,
+    etiqueta: string | null | undefined
+  ): string {
+    const lista = (Array.isArray(claves) ? claves : [claves]).filter(Boolean);
+    const corto = String(etiqueta || "").split("-")[0].toLowerCase();
+    const detectado = detectarIdioma(texto);
+    if (detectado) {
+      for (const clave of lista) anotar(clave, detectado);
+      return detectado;
+    }
+    for (const clave of lista) {
+      const recordado = recordar(clave);
+      if (recordado) return recordado;
+    }
+    return corto;
+  }
+
+  return { anotar, recordar, resolver };
+}
