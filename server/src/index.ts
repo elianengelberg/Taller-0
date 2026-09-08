@@ -1563,7 +1563,16 @@ app.post("/api/meetings/:id/recording-upload", uploadLimit, async (req, res) => 
 // as a guest (before this call, owner_id is NULL) so it appears in their
 // history. No-ops (ok: false) if the meeting already has a different owner.
 app.post("/api/meetings/:id/claim", requireAuth, async (req, res) => {
-  const ok = await claimMeeting(req.params.id, (req as AuthedRequest).userId!);
+  // PACIENTE: la reunión de una sala companion se crea en memoria al instante
+  // y en la base un momento después. Reclamarla en ese hueco devolvía
+  // ok:false sin ruido y la reunión quedaba huérfana (la IA después decía
+  // «no encontramos esa reunión»). Mismo trato que meetingExistsPaciente.
+  const userId = (req as AuthedRequest).userId!;
+  let ok = false;
+  for (let intento = 0; intento < 5 && !ok; intento++) {
+    ok = await claimMeeting(req.params.id, userId);
+    if (!ok) await new Promise((r) => setTimeout(r, 200));
+  }
   res.json({ ok });
 });
 
