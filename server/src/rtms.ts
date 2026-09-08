@@ -574,6 +574,7 @@ export function manejarWebhookZoom(req: Request & { rawBody?: string }, res: Res
   const body = (req.body ?? {}) as { event?: string; payload?: Record<string, unknown> };
   // El reto de validación de la URL (al guardar el webhook en el Marketplace).
   if (body.event === "endpoint.url_validation") {
+    log("webhook: Zoom valida la URL");
     const plain = String(body.payload?.plainToken ?? "");
     if (!plain) {
       res.status(400).json({ error: "Falta plainToken." });
@@ -584,12 +585,16 @@ export function manejarWebhookZoom(req: Request & { rawBody?: string }, res: Res
   }
   const crudo = req.rawBody ?? JSON.stringify(req.body ?? {});
   if (!webhookAutentico(req.headers as Record<string, string | string[] | undefined>, crudo, cfg.webhookSecret)) {
+    // Diagnóstico honesto: distinguir "Zoom nunca llamó" de "llamó y la firma
+    // no cerró" (secret token distinto al de la app, o reloj corrido).
+    log(`webhook ${body.event ?? "(sin evento)"} RECHAZADO: la firma no cierra (¿ZOOM_WEBHOOK_SECRET_TOKEN es el Secret Token de ESTA app?) ts=${String(req.headers["x-zm-request-timestamp"] ?? "-")}`);
     res.status(401).json({ error: "La firma del webhook no es de Zoom." });
     return;
   }
   const payload = ((body.payload as { object?: Record<string, unknown> } | undefined)?.object ??
     body.payload ??
     {}) as Record<string, unknown>;
+  log(`webhook ${body.event ?? "(sin evento)"} stream=${String(payload.rtms_stream_id ?? "-")} reunión=${String(payload.meeting_uuid ?? "-")}`);
   switch (body.event) {
     case "meeting.rtms_started":
       res.json({ ok: true });
