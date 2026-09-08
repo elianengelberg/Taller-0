@@ -334,21 +334,111 @@
   // ===========================================================================
   const caps = { region: null, entries: new Map(), observer: null, nudged: false };
 
+  // Cómo se llama la región (y el botón) de subtítulos según el idioma de la
+  // interfaz de Meet. Antes sólo se reconocían «Subtítulos» y «Captions»: con
+  // Meet en portugués, francés o alemán la extensión caía al micrófono en
+  // silencio y "solo salía lo que yo decía".
+  const ETIQUETA_SUBTITULOS = /subt[ií]tul|caption|legenda|sous-titre|untertitel|sottotitol|ondertitel|napisy|字幕|자막/i;
+  const regionPorEtiqueta = () => {
+    for (const r of document.querySelectorAll('[role="region"][aria-label]')) {
+      if (ETIQUETA_SUBTITULOS.test(r.getAttribute("aria-label") || "")) return r;
+    }
+    return null;
+  };
+
+  // POR SU FORMA Y SU RITMO. Google cambia los jsname y las etiquetas de Meet
+  // sin avisar, y cada vez que pasó la extensión dejó de ver a los demás sin
+  // decir nada. Cuando ningún selector conocido encuentra la región, se la
+  // reconoce por lo que ES: el contenedor cuyas filas traen la foto de quien
+  // habla y un texto que se reescribe varias veces por segundo mientras
+  // habla. Nada más en Meet reescribe el mismo texto a ese ritmo (el chat
+  // agrega mensajes enteros; el reloj cambia por minuto), y por eso se exige
+  // actividad reciente antes de dar una región por buena.
+  const actividadDeTexto = new Map(); // elemento → marcas de tiempo de sus cambios de texto
+  const PROPIO = "#unify-root, #unify-subs, #unify-panel, #unify-aviso";
+  function anotarActividad(muts) {
+    const ahora = Date.now();
+    for (const m of muts) {
+      let el = null;
+      if (m.type === "characterData") el = m.target.parentElement;
+      else if (m.type === "childList" && m.addedNodes.length) {
+        const n = m.addedNodes[0];
+        el = n.nodeType === Node.TEXT_NODE ? n.parentElement : n.nodeType === Node.ELEMENT_NODE ? n : null;
+      }
+      if (!el || !el.isConnected || el.closest(PROPIO)) continue;
+      const marcas = actividadDeTexto.get(el) || [];
+      marcas.push(ahora);
+      if (marcas.length > 40) marcas.shift();
+      actividadDeTexto.set(el, marcas);
+    }
+    if (actividadDeTexto.size > 400) {
+      for (const [el, marcas] of actividadDeTexto) {
+        if (!el.isConnected || ahora - marcas[marcas.length - 1] > 30000) actividadDeTexto.delete(el);
+        if (actividadDeTexto.size <= 200) break;
+      }
+    }
+  }
+  const esFilaDeSubtitulo = (h) =>
+    h.nodeType === Node.ELEMENT_NODE &&
+    Boolean(h.querySelector('img, [role="img"], svg, [data-avatar]')) &&
+    (h.textContent || "").trim().length > 0;
+  function regionPorForma() {
+    const ahora = Date.now();
+    const puntos = new Map();
+    for (const [el, marcas] of actividadDeTexto) {
+      if (!el.isConnected) {
+        actividadDeTexto.delete(el);
+        continue;
+      }
+      const recientes = marcas.filter((t) => ahora - t < 15000).length;
+      if (recientes < 6) continue;
+      if (el.closest('button, [role="button"], [role="textbox"], [contenteditable], input, textarea')) continue;
+      // Subir hasta el contenedor cuyos hijos son FILAS (foto + texto), como
+      // las filas de subtítulos de Meet; la fila que se está escribiendo
+      // tiene que ser una de ellas.
+      let fila = el;
+      for (let i = 0; fila && i < 8; i++) {
+        const padre = fila.parentElement;
+        if (!padre || padre === document.body || padre === document.documentElement) break;
+        const hijos = Array.from(padre.children);
+        const filas = hijos.filter(esFilaDeSubtitulo);
+        if (filas.length >= 1 && filas.length >= hijos.length * 0.6 && esFilaDeSubtitulo(fila)) {
+          puntos.set(padre, (puntos.get(padre) || 0) + recientes);
+          break;
+        }
+        fila = padre;
+      }
+    }
+    let mejor = null;
+    let max = 0;
+    for (const [c, n] of puntos) if (n > max) { mejor = c; max = n; }
+    if (mejor) log("región de subtítulos reconocida por su forma y su ritmo");
+    return mejor;
+  }
+  new MutationObserver(anotarActividad).observe(document.documentElement, {
+    characterData: true,
+    childList: true,
+    subtree: true,
+  });
+
   const findCaptionRegion = () =>
-    document.querySelector('[role="region"][aria-label*="ubtítul"]') ||
-    document.querySelector('[role="region"][aria-label*="aption"]') ||
+    regionPorEtiqueta() ||
     document.querySelector('div[jsname="dsyhDe"]') ||
     document.querySelector("[data-use-tweaked-caption-styles]") ||
+    regionPorForma() ||
     null;
 
   function ensureCaptionsOn() {
     if (findCaptionRegion()) return true;
-    const btn = document.querySelector(
-      'button[aria-label*="ubtítulos"], button[aria-label*="aptions"], button[jsname="r8qRAd"]'
-    );
+    const btn =
+      Array.from(document.querySelectorAll('button[aria-label], [role="button"][aria-label]')).find((b) =>
+        ETIQUETA_SUBTITULOS.test(b.getAttribute("aria-label") || "")
+      ) || document.querySelector('button[jsname="r8qRAd"]');
     if (!btn) return false;
     const label = (btn.getAttribute("aria-label") || "").toLowerCase();
-    const isOff = /activar|turn on/.test(label) || btn.getAttribute("aria-pressed") === "false";
+    const isOff =
+      /activar|turn on|ativar|activer|einschalten|attiva|inschakelen|włącz/.test(label) ||
+      btn.getAttribute("aria-pressed") === "false";
     if (isOff && !caps.nudged) {
       caps.nudged = true;
       btn.click();
@@ -522,6 +612,10 @@
     caps.observer?.disconnect();
     caps.observer = new MutationObserver(() => scanCaptions(region));
     caps.observer.observe(region, { childList: true, subtree: true, characterData: true });
+    // Lo que ya está escrito en la región cuando se la encuentra (con el
+    // reconocimiento por forma, alguien YA estaba hablando): se lee ahora,
+    // no recién con el próximo cambio.
+    scanCaptions(region);
     log("leyendo subtítulos de Meet");
     return true;
   }
@@ -793,8 +887,8 @@
         ? 'Escuchando a todos los participantes desde los subtítulos de Meet. ' +
           '<span class="tip">¿Salen palabras raras? Los escribe Meet: revisá su idioma en <b>CC → ⚙</b>.</span>'
         : state.usingMic
-          ? "Meet no está dando subtítulos: por ahora solo se transcribe tu micrófono. Activá el botón CC de Meet para capturar a todos."
-          : "Activá los subtítulos de Meet (botón CC) para transcribir a todos.";
+          ? "Meet no está dando subtítulos: por ahora solo se transcribe TU micrófono, a los demás no se los oye. Activá los subtítulos de Meet (botón CC abajo, o la tecla c) para capturar a todos."
+          : "Activá los subtítulos de Meet (botón CC abajo, o la tecla c) para transcribir a todos.";
       el.capHint.classList.toggle("ok", ok);
     }
 

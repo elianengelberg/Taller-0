@@ -44,8 +44,8 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
       }
       return realFetch(url, opts);
     };
-    const caps = document.getElementById("caps");
     window.__say = async (speaker, full) => {
+      const caps = document.getElementById("caps");
       const row = document.createElement("div");
       row.innerHTML = '<img alt=""><div class="n"></div><div class="t"></div>';
       caps.appendChild(row);
@@ -539,6 +539,33 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
     const junto = nuevas.map((p) => p.text).join(" ").replace(/\s+/g, " ").trim();
     check("y al partirlo no se pierde NI UNA palabra",
       junto === monologo, junto === monologo ? "texto completo" : `quedó: …${junto.slice(-80)}`);
+  }
+
+  // MEET CAMBIÓ SU DOM. Google renombra jsname y etiquetas sin avisar: si la
+  // región de subtítulos deja de llamarse «Subtítulos», la extensión caía al
+  // micrófono en silencio y "solo salía lo que yo decía" (reporte real, en la
+  // compu). Ahora la reconoce por su FORMA (filas con foto y texto) y su
+  // RITMO (texto que se reescribe mientras alguien habla). Acá: se reemplaza
+  // la región por una sin rol, sin etiqueta y sin jsname, y alguien habla.
+  {
+    const antes = posted.length;
+    await page.evaluate(() => {
+      document.getElementById("caps").remove();
+      const nueva = document.createElement("div");
+      nueva.id = "caps";
+      document.body.appendChild(nueva);
+    });
+    await page.waitForTimeout(2500); // la extensión pierde la región vieja
+    await page.evaluate(() => window.__say("Nora Ibáñez", "sin etiqueta la región igual se reconoce por su forma y su ritmo de escritura"));
+    await page.waitForTimeout(4500);
+    const deNora = posted.slice(antes).filter((p) => p.speaker === "Nora Ibáñez");
+    check("si Meet renombra la región de subtítulos, la extensión la reconoce igual (por su forma y su ritmo)",
+      deNora.length >= 1 && /forma y su ritmo/.test(deNora.map((p) => p.text).join(" ")), `envíos=${deNora.length}`);
+    const hint = await page.evaluate(() => document.getElementById("unify-root").shadowRoot.querySelector("[data-el=capHint]")?.textContent || "");
+    // El aviso de idioma de una prueba anterior es pegajoso a propósito (no se
+    // pisa); lo que importa acá es que el panel NO diga que cayó al micrófono.
+    check("y el panel no dice que cayó al micrófono (sigue con los subtítulos de Meet)",
+      !/solo se transcribe TU micrófono|Activá los subtítulos de Meet/i.test(hint), hint.slice(0, 80));
   }
 
   // LA TRADUCCIÓN NO PARPADEA. Cuando la IA del servidor corrige una palabra

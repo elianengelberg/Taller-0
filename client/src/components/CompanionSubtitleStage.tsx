@@ -72,8 +72,97 @@ interface Props {
    * no aparecían ni cómo cambiarlo.
    */
   soloTuVoz?: boolean;
+  /** La pantalla compartida vino SIN audio: los demás no pueden salir. */
+  sinAudioCompartido?: boolean;
+  /** Este navegador no sabe transcribir una pista (Chrome viejo, otro). */
+  navegadorSinPista?: boolean;
+  /** Es un Google Meet: la extensión de Chrome lee sus subtítulos con nombres. */
+  esMeet?: boolean;
   /** Cuántas personas hay en la capa de Unify. */
   participantCount: number;
+}
+
+// EL AVISO DE «SÓLO TU VOZ», con la salida que corresponde a ESTE aparato.
+//
+// Es lo que pasó de verdad en un Meet, en la compu y en la tablet: la
+// persona hablaba, veía lo suyo, y de los demás nada, sin saber por qué ni
+// qué tocar. La causa es la misma en todos lados (el micrófono oye a quien
+// tiene Unify abierto; lo que sale por el propio parlante lo cancela el
+// navegador o el sistema), y la salida cambia según el aparato: en una compu
+// compartir la pantalla CON audio (o la extensión en la pestaña de Meet); en
+// un teléfono o tablet, el bot. Se muestra mientras no llegue ni una frase
+// de otra persona, haya o no frases propias en pantalla.
+function AvisoSoloTuVoz({
+  aparato,
+  accionEscucharTodos,
+  accionBot,
+  sinAudioCompartido,
+  navegadorSinPista,
+  esMeet,
+}: {
+  aparato: ReturnType<typeof detectarDispositivo>;
+  accionEscucharTodos?: (() => void) | null;
+  accionBot?: ReactNode;
+  sinAudioCompartido?: boolean;
+  navegadorSinPista?: boolean;
+  esMeet?: boolean;
+}) {
+  return (
+    <div
+      role="note"
+      aria-label="Por ahora sólo se oye tu voz"
+      className="w-full max-w-md rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-left"
+    >
+      <p className="text-sm font-semibold text-amber-200">Por ahora sólo se oye tu voz</p>
+      {aparato.esCompu ? (
+        <>
+          <p className="mt-1 text-xs leading-relaxed text-ink-300">
+            {sinAudioCompartido
+              ? "La pantalla que compartiste vino sin audio, así que los demás no pueden salir en los subtítulos. Volvé a compartir eligiendo «Toda la pantalla» y tildando «Compartir audio del sistema» (en Mac: la pestaña de la reunión, con su audio)."
+              : navegadorSinPista
+                ? "Este navegador no puede transcribir el audio de la reunión (hace falta Chrome actualizado). Con la reunión en esta misma compu, el micrófono sólo te oye a vos."
+                : "Con la reunión en esta misma compu, el navegador cancela lo que sale por el parlante y el micrófono sólo te oye a vos. Para que se transcriba y traduzca a toda la reunión, compartí la pantalla con su audio:"}
+          </p>
+          {accionEscucharTodos && (
+            <>
+              <button
+                type="button"
+                onClick={accionEscucharTodos}
+                className="mt-2.5 w-full rounded-xl bg-brand-500 px-4 py-3 text-sm font-semibold text-on-accent hover:bg-brand-600"
+              >
+                {sinAudioCompartido ? "Compartir de nuevo, con audio" : "Escuchar a TODA la reunión"}
+              </button>
+              {!sinAudioCompartido && (
+                <p className="mt-1.5 text-xs leading-relaxed text-ink-400">
+                  Elegí <b className="text-ink-300">Toda la pantalla</b> y tildá{" "}
+                  <b className="text-ink-300">Compartir audio del sistema</b>: así transcribo a todos y la
+                  reunión queda grabada en video. En Mac el audio del sistema no existe: ahí elegí la
+                  pestaña de la reunión con su audio, o usá el altavoz.
+                </p>
+              )}
+            </>
+          )}
+          {esMeet && (
+            <p className="mt-2 text-xs leading-relaxed text-ink-400">
+              En Google Meet hay otro camino, con el nombre de cada persona: la{" "}
+              <a href="/instalar" target="_blank" rel="noreferrer" className="text-brand-300 underline underline-offset-2">
+                extensión de Unify
+              </a>{" "}
+              en la pestaña de Meet lee sus subtítulos.
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="mt-1 text-xs leading-relaxed text-ink-300">
+          En {aparato.corto}, con la reunión en este mismo aparato, el sistema sólo le deja oír tu voz
+          (lo que sale por su propio parlante lo cancela). Si la reunión suena en <b>otro</b> aparato al
+          lado (una compu, una tele), el micrófono la capta. Para que se transcriba y traduzca a todos
+          desde acá, mandá el bot: entra a la reunión y escucha desde el servidor.
+        </p>
+      )}
+      {accionBot}
+    </div>
+  );
 }
 
 // Pantalla de subtítulos para usar AL LADO de la reunión.
@@ -100,6 +189,9 @@ export default function CompanionSubtitleStage({
   notaGrabacion,
   accionBot,
   soloTuVoz = false,
+  sinAudioCompartido = false,
+  navegadorSinPista = false,
+  esMeet = false,
   participantCount,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -213,29 +305,23 @@ export default function CompanionSubtitleStage({
                 teléfono el modo de uso ES el altavoz; en una compu son las dos
                 ventanas lado a lado. Mostrarle a cada uno la de todos era
                 obligarlo a buscar la suya. */}
-            <p className="max-w-sm rounded-xl border border-brand-500/40 bg-brand-500/10 px-3 py-2.5 text-sm leading-relaxed text-ink-200">
-              {aparato.esCompu ? (
-                <>
-                  Con la reunión sonando en <b>altavoz</b> (en esta compu o en un aparato al lado),
-                  el micrófono capta todas las voces solo.
-                </>
-              ) : soloTuVoz ? (
-                // La verdad del teléfono y la tablet: con la reunión en este
-                // mismo aparato, el sistema sólo deja oír tu voz (cancela lo
-                // que sale por su propio parlante). Prometer "altavoz y capta a
-                // todos" era mentir: es lo que pasó de verdad en un Meet.
-                <>
-                  En {aparato.corto}, con la reunión en este mismo aparato, el sistema sólo le deja
-                  oír <b>tu voz</b>. Si la reunión suena en <b>otro</b> aparato al lado (una compu,
-                  una tele), el micrófono la capta. Para transcribir a todos desde acá, mandá el bot.
-                </>
-              ) : (
-                <>
-                  Poné la reunión en <b>altavoz</b>, sin auriculares, y dejá esta pantalla al frente:
-                  el micrófono capta a todos y los subtítulos corren acá, con su traducción.
-                </>
-              )}
-            </p>
+            {soloTuVoz ? (
+              <AvisoSoloTuVoz
+                aparato={aparato}
+                accionEscucharTodos={accionEscucharTodos}
+                accionBot={accionBot}
+                sinAudioCompartido={sinAudioCompartido}
+                navegadorSinPista={navegadorSinPista}
+                esMeet={esMeet}
+              />
+            ) : (
+              // Ya se está oyendo a la reunión entera (la pista de la pantalla
+              // compartida, la extensión o el bot): sólo falta que hablen.
+              <p className="max-w-sm rounded-xl border border-brand-500/40 bg-brand-500/10 px-3 py-2.5 text-sm leading-relaxed text-ink-200">
+                Escuchando a <b>toda la reunión</b>: apenas alguien hable, sus palabras aparecen acá,
+                con su traducción.
+              </p>
+            )}
             <p className="max-w-sm rounded-xl border border-dashed border-ink-600 px-3 py-2 text-xs leading-relaxed text-ink-400">
               {verLosDos}
             </p>
@@ -244,45 +330,23 @@ export default function CompanionSubtitleStage({
                 reunión ENTERA, directo del parlante digital -- y de paso el
                 video queda grabado. Es el botón que convierte "me escucha a
                 mí" en "escucha a todos". */}
-            {accionEscucharTodos && (
-              <div className="w-full max-w-sm">
-                <button
-                  type="button"
-                  onClick={accionEscucharTodos}
-                  className="w-full rounded-xl bg-brand-500 px-4 py-3 text-sm font-semibold text-on-accent hover:bg-brand-600"
-                >
-                  Escuchar a TODA la reunión
-                </button>
-                <p className="mt-1.5 text-xs leading-relaxed text-ink-400">
-                  Elegí <b className="text-ink-300">Toda la pantalla</b> y tildá{" "}
-                  <b className="text-ink-300">Compartir audio del sistema</b>: así transcribo a
-                  todos (no sólo tu voz) y la reunión queda grabada en video. En Mac el audio del
-                  sistema no existe: ahí elegí la pestaña de la reunión, o usá el altavoz.
-                </p>
-              </div>
-            )}
-            {/* Si el aparato no presta el micrófono (la app de la llamada se
-                lo queda, que es lo que hace iOS), esta es la salida que SÍ
-                funciona: el bot escucha y graba desde el servidor. */}
-            {accionBot && <div className="w-full max-w-sm text-left">{accionBot}</div>}
+            {/* Sin el aviso (ya se oye a todos), el bot sigue a mano por si
+                este aparato no presta el micrófono. */}
+            {!soloTuVoz && accionBot && <div className="w-full max-w-sm text-left">{accionBot}</div>}
           </div>
         ) : (
           <div className="mx-auto flex max-w-3xl flex-col gap-4">
             {/* Ya hay frases, pero todas tuyas: decirlo acá, donde la persona
                 está mirando, y dejar el bot a un toque. */}
-            {soloTuVoz && accionBot && (
-              <div
-                role="note"
-                className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-left"
-              >
-                <p className="text-sm font-semibold text-amber-200">Por ahora sólo se oye tu voz</p>
-                <p className="mt-1 text-xs leading-relaxed text-ink-300">
-                  En {aparato.corto}, con la reunión en este mismo aparato, el sistema no deja captar a
-                  los demás. Para que se transcriba y traduzca a todos, mandá el bot: entra a la
-                  reunión y escucha desde el servidor.
-                </p>
-                {accionBot}
-              </div>
+            {soloTuVoz && (
+              <AvisoSoloTuVoz
+                aparato={aparato}
+                accionEscucharTodos={accionEscucharTodos}
+                accionBot={accionBot}
+                sinAudioCompartido={sinAudioCompartido}
+                navegadorSinPista={navegadorSinPista}
+                esMeet={esMeet}
+              />
             )}
             {lines.map((line, i) => {
               const role = roleFor?.(line.speakerName) ?? null;

@@ -1202,13 +1202,23 @@ export default function ExternalMeeting() {
                         }
                       : null
                   }
-                  // Sólo tu voz: en iPhone/iPad, mientras no llegue ni una
-                  // frase de otra persona, el escenario lo dice y ofrece el bot.
+                  // Sólo tu voz: mientras no llegue ni una frase de otra
+                  // persona y no se esté oyendo la pista de la reunión, el
+                  // escenario lo dice y ofrece la salida de ESTE aparato.
+                  // (Antes de que la sala confirme quién sos, la transcripción
+                  // está vacía: el aviso sale desde el primer instante, sin
+                  // esperar al socket.)
                   soloTuVoz={
-                    unSoloMicrofono &&
-                    Boolean(self) &&
-                    !(meeting?.transcript ?? []).some((l) => l.speakerId !== self?.id)
+                    !(meeting?.transcript ?? []).some((l) => l.speakerId !== self?.id) &&
+                    !(recorder.remoteAudioTrack && reunionSoportada)
                   }
+                  sinAudioCompartido={
+                    recorder.status === "recording" && recorder.kind === "screen" && !recorder.remoteAudioTrack
+                  }
+                  navegadorSinPista={
+                    capturaPosible && (chromeSinPista || Boolean(recorder.remoteAudioTrack && !reunionSoportada))
+                  }
+                  esMeet={draft?.mode === "companion" && draft.embed.kind === "meet"}
                   accionBot={
                     botDeSala ? (
                       <BotButton

@@ -95,6 +95,25 @@ async function detectAndJoin(page, link, { passcode } = {}) {
       check("y el clic pide la captura de pantalla con audio (getDisplayMedia)",
         await p.evaluate(() => window.__gdmLlamadas >= 1),
         `llamadas=${await p.evaluate(() => window.__gdmLlamadas)}`);
+      // SÓLO TU VOZ, dicho donde se mira (reporte real: en la compu la
+      // persona hablaba, veía lo suyo, y de los demás nada, sin saber por
+      // qué). Mientras no llegue una voz ajena, el aviso queda con la oreja y
+      // el camino de la extensión; apenas llega una (extensión/bot), se va.
+      const aviso = p.getByRole("note", { name: /sólo se oye tu voz/i });
+      check("mientras sólo se oye tu voz, el escenario lo dice con la salida de la compu (compartir con audio, o la extensión en Meet)",
+        (await aviso.count()) === 1 && /Compartir audio del sistema/.test((await aviso.textContent().catch(() => "")) || "") && /extensión de Unify/.test((await aviso.textContent().catch(() => "")) || ""),
+        ((await aviso.textContent().catch(() => "")) || "").slice(0, 100));
+      await fetch(`http://localhost:4001/api/meet-bridge/${encodeURIComponent("google-meet:oye-todo-sxx")}/transcript`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ speaker: "Bruno", text: "hola desde la reunión de afuera, ¿se escucha?", lang: "es-AR" }),
+      }).catch(() => {});
+      let seFue = false;
+      for (let i = 0; i < 25 && !seFue; i++) {
+        await p.waitForTimeout(400);
+        seFue = (await aviso.count()) === 0 && (await p.getByText(/se escucha\?/).count()) >= 1;
+      }
+      check("apenas llega la voz de otra persona, el aviso se va y la frase aparece con su nombre", seFue && (await p.getByText("Bruno").count()) >= 1,
+        `aviso=${await aviso.count()} frase=${await p.getByText(/se escucha\?/).count()}`);
     }
     // Volver a la detección de Teams para los checks que siguen.
     await detectAndJoin(p, "https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0");
