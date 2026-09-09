@@ -21,10 +21,10 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
   @font-face { font-family: 'Google Symbols'; src: url(http://localhost:4189/fuente-bloqueada.woff2) format('woff2'); }
 </style></head>
 <body style="margin:0;background:#202124;height:100vh">
-  <button aria-label="Salir de la llamada">Salir</button>
+  <button aria-label="Salir de la llamada" onclick="window.__colgado = true">Salir</button>
   <button aria-label="Mostrar a todos (3)">Personas</button>
-  <div data-is-muted="false" aria-label="Desactivar micrófono"></div>
-  <div data-is-muted="false" aria-label="Desactivar cámara"></div>
+  <div data-is-muted="false" aria-label="Desactivar micrófono"><button aria-label="Desactivar micrófono" onclick="window.__mic()">mic</button></div>
+  <div data-is-muted="false" aria-label="Desactivar cámara"><button aria-label="Desactivar cámara" onclick="window.__cam()">cam</button></div>
   <div role="region" aria-label="Subtítulos" id="caps"></div>
   <script>
     // Capturamos lo que la extensión envía al backend de Unify.
@@ -43,6 +43,17 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
         return new Response(JSON.stringify({ translatedText: "TRADUCIDO" }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       return realFetch(url, opts);
+    };
+    // Los botones de la llamada, como en Meet: el estado vive en el ancestro
+    // con data-is-muted y el clic va al botón de adentro.
+    window.__colgado = false;
+    window.__mic = () => {
+      const d = document.querySelector('[aria-label="Desactivar micrófono"][data-is-muted]');
+      d.setAttribute("data-is-muted", d.getAttribute("data-is-muted") === "true" ? "false" : "true");
+    };
+    window.__cam = () => {
+      const d = document.querySelector('[aria-label="Desactivar cámara"][data-is-muted]');
+      d.setAttribute("data-is-muted", d.getAttribute("data-is-muted") === "true" ? "false" : "true");
     };
     window.__say = async (speaker, full) => {
       const caps = document.getElementById("caps");
@@ -105,6 +116,17 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
   // El content script vive en un mundo aislado: hay que interceptar en el
   // navegador, no pisando window.fetch de la página.
   const posted = [];
+  // Lo que la barra de Unify le pide a la extensión (silenciar, cortar).
+  const ordenesPendientes = [];
+  // Espera activa corta: la extensión sondea las órdenes cada dos segundos.
+  const esperarQue = async (fn, ms) => {
+    const hasta = Date.now() + ms;
+    while (Date.now() < hasta) {
+      try { if (await fn()) return true; } catch { /* la página se está repintando */ }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return false;
+  };
   // Lo que el servidor de VERDAD contesta: el texto ya corregido por la IA y,
   // si Meet está escribiendo en otro idioma, cuál. `respuestaIA` deja que una
   // prueba puntual encienda ese comportamiento.
@@ -121,7 +143,10 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
       });
     }
     if (url.endsWith("/session")) {
-      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ dbId: "fake", transcript: [], participants: [] }) });
+      // Las órdenes que la barra de Unify dejó para esta reunión: se sirven
+      // UNA vez, como hace el servidor de verdad.
+      const comandos = ordenesPendientes.splice(0, ordenesPendientes.length);
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ dbId: "fake", transcript: [], participants: [], comandos }) });
     }
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
   });
@@ -541,6 +566,28 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
       junto === monologo, junto === monologo ? "texto completo" : `quedó: …${junto.slice(-80)}`);
   }
 
+  // LOS BOTONES DE UNIFY, QUE AHORA HACEN LO QUE DICEN. La barra de Unify no
+  // puede tocar Meet por sí sola: apretar «silenciar» no silenciaba nada y el
+  // teléfono rojo no cortaba (reporte real). Con la extensión en la pestaña,
+  // la orden llega por la sala y ella aprieta el botón de Meet.
+  {
+    const micAntes = await page.evaluate(() => document.querySelector('[aria-label="Desactivar micrófono"][data-is-muted]').getAttribute("data-is-muted"));
+    ordenesPendientes.push({ id: "orden-1", accion: "mic-toggle" });
+    const silenciado = await esperarQue(async () =>
+      (await page.evaluate(() => document.querySelector('[aria-label="Desactivar micrófono"][data-is-muted]').getAttribute("data-is-muted"))) !== micAntes, 8000);
+    check("«silenciar» desde Unify silencia DE VERDAD el micrófono en Meet", silenciado,
+      `antes=${micAntes} ahora=${await page.evaluate(() => document.querySelector('[aria-label="Desactivar micrófono"][data-is-muted]').getAttribute("data-is-muted"))}`);
+    // La misma orden repetida (mismo id) no se ejecuta dos veces.
+    const estadoAhora = await page.evaluate(() => document.querySelector('[aria-label="Desactivar micrófono"][data-is-muted]').getAttribute("data-is-muted"));
+    ordenesPendientes.push({ id: "orden-1", accion: "mic-toggle" });
+    await page.waitForTimeout(3000);
+    check("y una orden repetida no se ejecuta dos veces",
+      (await page.evaluate(() => document.querySelector('[aria-label="Desactivar micrófono"][data-is-muted]').getAttribute("data-is-muted"))) === estadoAhora);
+    ordenesPendientes.push({ id: "orden-2", accion: "colgar" });
+    const colgo = await esperarQue(async () => page.evaluate(() => window.__colgado === true), 8000);
+    check("«cortar» desde Unify aprieta el botón de salir de la llamada de Meet", colgo);
+  }
+
   // MEET CAMBIÓ SU DOM. Google renombra jsname y etiquetas sin avisar: si la
   // región de subtítulos deja de llamarse «Subtítulos», la extensión caía al
   // micrófono en silencio y "solo salía lo que yo decía" (reporte real, en la
@@ -674,7 +721,7 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
     // cámara, y "Unirse ahora". (Cargar una llamada y recortarla después no
     // sería el mismo caso: el aviso ya habría salido con el texto de adentro.)
     const SALA_DE_ESPERA = PAGE.replace(
-      '<button aria-label="Salir de la llamada">Salir</button>',
+      '<button aria-label="Salir de la llamada" onclick="window.__colgado = true">Salir</button>',
       '<button id="entrar">Unirse ahora</button>'
     );
     await ctx.route("**/lmn-opqr-stu", (route) =>

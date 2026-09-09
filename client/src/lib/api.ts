@@ -1063,6 +1063,26 @@ export async function dispatchBot(params: {
 // Reportar contenido generado por IA (respuestas del asistente, informes).
 // Abierto a cualquiera que lo vea; con sesión, el reporte queda ligado a la
 // cuenta. Devuelve `error` en vez de tirar, para mostrarlo al lado del botón.
+// LAS ÓRDENES PARA LA REUNIÓN DE AFUERA (silenciar, cortar). La barra de
+// Unify no puede tocar Meet por sí sola: deja la orden en la sala y la
+// extensión, que está en la pestaña de Meet, aprieta el botón de verdad.
+// Sólo se ofrece cuando la extensión está reportando esa reunión.
+export async function ordenarEnLaReunion(
+  roomKey: string,
+  accion: "mic-toggle" | "mic-on" | "mic-off" | "cam-toggle" | "colgar"
+): Promise<boolean> {
+  try {
+    const res = await fetchWithTimeout(`${SERVER_URL}/api/meet-bridge/${encodeURIComponent(roomKey)}/comando`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accion }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function reportarContenidoIA(params: {
   tipo: "respuesta" | "informe" | "otro";
   contenido: string;

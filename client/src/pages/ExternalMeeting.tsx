@@ -20,6 +20,9 @@ import TranscriptPanel from "../components/TranscriptPanel";
 import ZoomEmbed from "../components/ZoomEmbed";
 import {
   CaptionsIcon,
+  LogoutIcon,
+  MicIcon,
+  MicOffIcon,
   PeopleIcon,
   ShieldIcon,
   PhoneOffIcon,
@@ -39,7 +42,7 @@ import {
   pedirCartelDeMedios,
   usePermisoDeMicrofono,
 } from "../hooks/usePermisoDeMicrofono";
-import { askMeetingAI, fetchPlatformConfig, type PlatformConfig } from "../lib/api";
+import { askMeetingAI, fetchPlatformConfig, ordenarEnLaReunion, type PlatformConfig } from "../lib/api";
 import { LANGUAGES, codigoCompletoDe, etiquetaDeIdioma, shortLang } from "../lib/languages";
 import { recentCaptionEntries } from "../lib/captionLines";
 import {
@@ -220,12 +223,26 @@ export default function ExternalMeeting() {
     sendTranscriptLine,
     setSelfLanguage,
     leaveMeeting,
+    meetState,
     // Lo que otro está diciendo ahora mismo (bot / extensión), sin esperar a
     // que termine la frase.
     interinoAjeno,
   } = useMeeting();
 
   const [activePanel, setActivePanel] = useState<PanelKey>(null);
+  // LOS BOTONES QUE DE VERDAD TOCAN LA REUNIÓN. La llamada vive en Meet, no
+  // acá: silenciar y cortar sólo se pueden hacer si la extensión está en esa
+  // pestaña (ella aprieta los botones de Meet). Si no está, no se muestran:
+  // un botón que no hace nada es peor que no tener botón (reporte real:
+  // "apretaba mutear y no me muteaba, apretaba cortar y no cortaba").
+  const [ordenEnCurso, setOrdenEnCurso] = useState<string | null>(null);
+  const extensionViva = Boolean(meetState && Date.now() - meetState.at < 30_000 && meetState.inCall);
+  async function ordenar(accion: "mic-toggle" | "cam-toggle" | "colgar") {
+    if (!roomKey) return;
+    setOrdenEnCurso(accion);
+    await ordenarEnLaReunion(roomKey, accion);
+    window.setTimeout(() => setOrdenEnCurso(null), 1200);
+  }
   // Qué tiene configurado el servidor (acá importa Zoom sin bot: cambia qué
   // hace «mandar el bot» en una reunión de Zoom).
   const [platforms, setPlatforms] = useState<PlatformConfig | null>(null);
@@ -1431,10 +1448,47 @@ export default function ExternalMeeting() {
             {recording ? <StopIcon className="h-5 w-5" /> : <RecordIcon className="h-5 w-5" />}
           </IconButton>
         </div>
-        <IconButton label="Salir de la reunión" caption="Salir" danger onClick={handleLeave}>
-          <PhoneOffIcon className="h-5 w-5" />
+        {/* Con la extensión en la pestaña de Meet, estos SÍ tocan la
+            reunión: ella aprieta los botones de Meet. */}
+        {extensionViva && (
+          <>
+            <IconButton
+              label={meetState?.micMuted ? "Activar tu micrófono en Meet" : "Silenciar tu micrófono en Meet"}
+              caption={meetState?.micMuted ? "Activar mic" : "Silenciar"}
+              active={ordenEnCurso === "mic-toggle"}
+              danger={Boolean(meetState?.micMuted)}
+              onClick={() => void ordenar("mic-toggle")}
+            >
+              {meetState?.micMuted ? <MicOffIcon className="h-5 w-5" /> : <MicIcon className="h-5 w-5" />}
+            </IconButton>
+            <IconButton
+              label="Cortar la reunión en Meet"
+              caption="Cortar"
+              danger
+              onClick={() => void ordenar("colgar")}
+            >
+              <PhoneOffIcon className="h-5 w-5" />
+            </IconButton>
+          </>
+        )}
+        {/* «Salir» cierra la capa de Unify, no la llamada. Con el teléfono
+            rojo parecía el botón de cortar de la reunión y no cortaba nada. */}
+        <IconButton
+          label="Salir de Unify (la reunión sigue en su app)"
+          caption="Salir de Unify"
+          onClick={handleLeave}
+        >
+          <LogoutIcon className="h-5 w-5" />
         </IconButton>
       </div>
+      {/* Sin la extensión no hay forma de tocar la reunión desde acá: se dice
+          dónde están esos botones en vez de mostrar unos que no harían nada. */}
+      {draft?.mode === "companion" && !extensionViva && (
+        <p className="border-t border-ink-800 bg-ink-900/95 px-4 pb-2 text-center text-[11px] leading-snug text-ink-400">
+          Tu micrófono y cortar la llamada están en {draft.roomLabel || "la reunión"}: estos botones
+          son los de Unify (subtítulos, transcripción, IA y grabación).
+        </p>
+      )}
       {pendingLeave && <SaveMeetingPrompt onSave={confirmSaveMeeting} onSkip={skipSaveMeeting} />}
       {savingRecording && (
         // Tokens de tema (la versión anterior era texto blanco sobre una

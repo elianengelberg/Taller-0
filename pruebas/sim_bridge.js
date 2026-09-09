@@ -272,6 +272,27 @@ const post = (p, b, token) => fetch(API + p, { method: "POST",
       live.slice(antesLineas).map((l) => l.text.slice(0, 40)).join(" | "));
   }
 
+  // LAS ÓRDENES PARA LA REUNIÓN DE AFUERA. La barra de Unify no puede tocar
+  // Meet por sí sola (apretar «silenciar» no silenciaba nada, reporte real):
+  // deja la orden acá y la extensión, que está en esa pestaña, aprieta el
+  // botón de Meet. Se entregan UNA vez.
+  {
+    const mala = await post(`/api/meet-bridge/${code}/comando`, { accion: "formatear-todo" });
+    check("una orden desconocida se rechaza", mala.status === 400, `HTTP ${mala.status}`);
+    const ok1 = await post(`/api/meet-bridge/${code}/comando`, { accion: "mic-toggle" });
+    const ok2 = await post(`/api/meet-bridge/${code}/comando`, { accion: "colgar" });
+    check("silenciar y cortar se aceptan", ok1.status === 200 && ok2.status === 200, `${ok1.status}/${ok2.status}`);
+    const ses = await fetch(`${API}/api/meet-bridge/${code}/session`).then((r) => r.json());
+    check("la extensión las recibe, en orden y con su id",
+      Array.isArray(ses.comandos) && ses.comandos.length === 2 &&
+        ses.comandos[0].accion === "mic-toggle" && ses.comandos[1].accion === "colgar" &&
+        typeof ses.comandos[0].id === "string",
+      JSON.stringify(ses.comandos));
+    const ses2 = await fetch(`${API}/api/meet-bridge/${code}/session`).then((r) => r.json());
+    check("y NO se entregan dos veces (una orden vieja no se ejecuta sola después)",
+      Array.isArray(ses2.comandos) && ses2.comandos.length === 0, JSON.stringify(ses2.comandos));
+  }
+
   s.disconnect();
   const failed = results.filter((r) => !r).length;
   console.log(`\n${results.length - failed}/${results.length} OK`);

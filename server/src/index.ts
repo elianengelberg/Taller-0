@@ -2618,6 +2618,41 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
 
 // Lets the extension panel bootstrap: which saved meeting backs this Meet code,
 // and what has been said so far (so re-opening the panel isn't a blank slate).
+// LAS ÓRDENES PARA LA REUNIÓN DE AFUERA.
+//
+// La barra de Unify tiene botones que parecen de llamada, pero la llamada
+// vive en Meet: apretar «silenciar» no silenciaba nada y apretar el teléfono
+// rojo no cortaba la reunión (reporte real: «los botones de Unify no
+// sirven»). Donde la extensión está en la pestaña de Meet SÍ se puede: la
+// web deja acá la orden y la extensión, que ya sondea esta sala, la ejecuta
+// con los propios botones de Meet. La cola vive en memoria y es corta: una
+// orden vieja no tiene que ejecutarse diez minutos después.
+type OrdenSala = { id: string; accion: string; at: number };
+const ordenesPorSala = new Map<string, OrdenSala[]>();
+const ACCIONES_SALA = new Set(["mic-on", "mic-off", "mic-toggle", "cam-on", "cam-off", "cam-toggle", "colgar"]);
+const VIDA_ORDEN_MS = 30_000;
+
+app.post("/api/meet-bridge/:meetId/comando", bridgeLimit, (req, res) => {
+  const roomKey = bridgeRoomKey(req.params.meetId);
+  if (!roomKey) {
+    res.status(400).json({ error: "Clave de reunión inválida." });
+    return;
+  }
+  const accion = String(req.body?.accion ?? "");
+  if (!ACCIONES_SALA.has(accion)) {
+    res.status(400).json({ error: "Acción desconocida." });
+    return;
+  }
+  const cola = (ordenesPorSala.get(roomKey) ?? []).filter((o) => Date.now() - o.at < VIDA_ORDEN_MS);
+  cola.push({ id: crypto.randomUUID(), accion, at: Date.now() });
+  ordenesPorSala.set(roomKey, cola.slice(-5));
+  if (ordenesPorSala.size > 500) {
+    const primera = ordenesPorSala.keys().next().value;
+    if (primera !== undefined) ordenesPorSala.delete(primera);
+  }
+  res.json({ ok: true });
+});
+
 app.get("/api/meet-bridge/:meetId/session", bridgeLimit, (req, res) => {
   const roomKey = bridgeRoomKey(req.params.meetId);
   if (!roomKey) {
@@ -2651,6 +2686,13 @@ app.get("/api/meet-bridge/:meetId/session", bridgeLimit, (req, res) => {
     // La fase del bot, si alguien mandó uno a esta sala: el botón del cliente
     // la sondea para mostrar el progreso (o el fallo, con su porqué).
     bot: botEstadoPorSala.get(roomKey) ?? null,
+    // Las órdenes que la barra dejó para la reunión de afuera (silenciar,
+    // colgar). Se entregan UNA vez: quien las lee, las ejecuta.
+    comandos: (() => {
+      const cola = (ordenesPorSala.get(roomKey) ?? []).filter((o) => Date.now() - o.at < VIDA_ORDEN_MS);
+      if (cola.length) ordenesPorSala.delete(roomKey);
+      return cola.map((o) => ({ id: o.id, accion: o.accion }));
+    })(),
   });
 });
 

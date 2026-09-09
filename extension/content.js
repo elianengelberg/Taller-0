@@ -61,6 +61,7 @@
     try {
       const s = await api(`/api/meet-bridge/${code}/session`);
       state.session = { code, dbId: s.dbId };
+      atenderOrdenes(s.comandos);
       // El popup y el atajo de teclado graban sin volver a preguntarle a la
       // pestaña: les dejamos acá los datos de la reunión.
       chrome.runtime.sendMessage({
@@ -1133,6 +1134,77 @@
   };
 
   // ===========================================================================
+  // LAS ÓRDENES DE LA BARRA DE UNIFY (silenciar, cortar)
+  // ===========================================================================
+  // La barra de Unify tiene botones que parecen de llamada, pero la llamada
+  // es de Meet: apretarlos no hacía nada (reporte real). Acá se ejecutan de
+  // verdad, apretando los propios botones de Meet -- que es exactamente lo
+  // que haría la persona.
+  const ordenesHechas = new Set();
+
+  function botonDeControl(kind) {
+    return (
+      (kind === "mic"
+        ? document.querySelector('[data-is-muted][aria-label*="icróf"], [data-is-muted][aria-label*="icrophone"]')
+        : document.querySelector('[data-is-muted][aria-label*="ámara"], [data-is-muted][aria-label*="amera"]')) ||
+      document.querySelectorAll("[data-is-muted]")[kind === "mic" ? 0 : 1] ||
+      null
+    );
+  }
+  function botonDeColgar() {
+    for (const b of document.querySelectorAll('button[aria-label], [role="button"][aria-label]')) {
+      if (COLGAR_RE.test(b.getAttribute("aria-label") || "")) return b;
+    }
+    return null;
+  }
+  // Meet marca el estado con data-is-muted, a veces en el botón mismo y a
+  // veces en un envoltorio: el clic tiene que ir al botón de verdad, esté
+  // arriba o abajo en el árbol. (Con `closest` solo, se clickeaba el
+  // envoltorio y no pasaba nada.)
+  const clicable = (el) => {
+    if (!el) return null;
+    if (el.matches?.('button, [role="button"]')) return el;
+    return el.querySelector?.('button, [role="button"]') || el.closest?.('button, [role="button"]') || el;
+  };
+
+  function ejecutarOrden(accion) {
+    if (accion === "colgar") {
+      const b = botonDeColgar();
+      if (!b) return false;
+      b.click();
+      return true;
+    }
+    const kind = accion.startsWith("mic") ? "mic" : "cam";
+    const el = botonDeControl(kind);
+    const b = clicable(el);
+    if (!el || !b) return false;
+    const silenciado = el.getAttribute("data-is-muted") === "true";
+    // "on" = encendido (NO silenciado); "off" = silenciado/apagado.
+    const quiereApagado = accion.endsWith("-off");
+    const quiereEncendido = accion.endsWith("-on");
+    if ((quiereApagado && silenciado) || (quiereEncendido && !silenciado)) return true; // ya estaba
+    b.click();
+    return true;
+  }
+
+  function atenderOrdenes(comandos) {
+    if (!Array.isArray(comandos) || !comandos.length) return;
+    for (const c of comandos) {
+      const id = c && c.id;
+      if (!id || ordenesHechas.has(id)) continue;
+      ordenesHechas.add(id);
+      if (ordenesHechas.size > 200) ordenesHechas.clear();
+      try {
+        const ok = ejecutarOrden(String(c.accion || ""));
+        log(`orden de Unify «${c.accion}»: ${ok ? "hecha" : "no se encontró el control de Meet"}`);
+      } catch (e) {
+        log("no se pudo ejecutar la orden:", e?.message);
+      }
+    }
+    void syncState(true);
+  }
+
+  // ===========================================================================
   // Estado de la llamada hacia Unify
   // ===========================================================================
   let lastState = "";
@@ -1378,6 +1450,21 @@
     }
   }, 2000);
   setInterval(() => void syncState(true), 10000);
+  // Las órdenes que deja la barra de Unify (silenciar, cortar): se buscan
+  // seguido para que el botón se sienta inmediato, y sólo con la llamada en
+  // curso (fuera de la reunión no hay nada que ejecutar).
+  setInterval(() => {
+    void (async () => {
+      const code = meetCode();
+      if (!code || !inCall()) return;
+      try {
+        const s = await api(`/api/meet-bridge/${code}/session`);
+        atenderOrdenes(s.comandos);
+      } catch {
+        /* la próxima vuelta lo reintenta */
+      }
+    })();
+  }, 2000);
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.kind === "unify-record-state") ui.setRecording(Boolean(msg.recording));
