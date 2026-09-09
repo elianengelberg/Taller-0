@@ -779,10 +779,20 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       // reconocimiento: "commanders" con toda seriedad en vez de "cómo andás".
       const cleanup = await cleanTranscriptFragment(effectiveAlternatives, recentContext, assumedSourceLang);
 
-      // The meeting (or this participant) may have disappeared while we were
-      // waiting on the cleanup call -- re-check before touching state.
-      const stillPresent = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
-      if (!stillPresent || stillPresent !== meeting || !meeting.participants.has(socket.id)) return;
+      // The meeting may have disappeared while we were waiting on the
+      // cleanup call -- re-check before touching state. Se busca por el id de
+      // LA REUNIÓN, no por `currentMeetingId`: ese lo pone en null el propio
+      // socket al desconectarse, así que preguntar por ahí daba «la reunión
+      // ya no está» cada vez que quien hablaba se iba, aunque siguiera llena.
+      const stillPresent = getMeeting(meeting.id);
+      if (!stillPresent || stillPresent !== meeting) return;
+      // Antes también se salía acá si QUIEN HABLÓ ya se había ido. Pero su
+      // última frase ya estaba en pantalla marcada «provisional», y lo
+      // provisional NO se traduce en ninguna pantalla (esperan la corrección
+      // de la IA, que era justo la que se estaba tirando a la basura): la
+      // despedida de quien se va quedaba sin traducir para todos, para
+      // siempre. La reunión sigue viva y los demás la están leyendo, así que
+      // la frase se termina igual: se corrige, se cierra y se traduce.
 
       // Trust what was actually detected over what we assumed, but only
       // override when detection confidently disagrees -- otherwise keep the
@@ -833,7 +843,10 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
       );
       if (Object.keys(translations).length === 0) return;
 
-      const stillThere = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
+      // Igual que arriba: por el id de la reunión, no por el del socket (que
+      // ya puede estar desconectado). Si no, la traducción de la última frase
+      // de quien se va se tiraba a la basura.
+      const stillThere = getMeeting(meeting.id);
       if (!stillThere || stillThere !== meeting) return;
       // A later fragment may have merged into (and replaced the text of)
       // this same line while translation was in flight -- don't let a

@@ -646,6 +646,29 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
     const cruda = await deRita();
     check("con un idioma elegido, la línea recién dicha muestra su traducción",
       /OLD the marketing/.test(cruda.trad), cruda.trad || "sin traducción");
+    // EL CARTEL DE ARRIBA DEL VIDEO, que es lo que se está mirando. La
+    // traducción llega medio segundo DESPUÉS de que la frase se pintó: si
+    // nadie repinta el cartel, la traducción se queda en el panel de al lado
+    // y sobre el video se lee el idioma que no se entiende (bug real).
+    const subsDe = () =>
+      page.evaluate(() => {
+        const s = document.getElementById("unify-root").shadowRoot.querySelector(".subs");
+        if (!s) return { visible: false, trad: "", orig: "", traducido: false };
+        const tr = s.querySelector(".tr");
+        return {
+          visible: s.classList.contains("is-on"),
+          trad: tr && !tr.hidden ? tr.textContent : "",
+          orig: s.querySelector(".orig")?.textContent ?? "",
+          traducido: s.classList.contains("traducido"),
+        };
+      });
+    const subCrudo = await subsDe();
+    check("el subtítulo SOBRE EL VIDEO también se traduce (no sólo el panel de al lado)",
+      subCrudo.visible && /OLD the marketing/.test(subCrudo.trad),
+      subCrudo.visible ? subCrudo.trad || "el cartel se quedó SIN traducción" : "el cartel no está visible");
+    check("y ahí la traducción manda: el cartel se marca traducido y el original queda de apoyo",
+      subCrudo.traducido && /prosupuesto de marketing/.test(subCrudo.orig),
+      `${subCrudo.traducido ? "marcado" : "SIN marcar"} | ${subCrudo.orig.slice(0, 40)}`);
     // t+1 s: la corrección ya llegó; la traducción nueva todavía viaja.
     await page.waitForTimeout(1000);
     const puente = await deRita();
@@ -659,6 +682,10 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
     const final = await deRita();
     check("al llegar, la traducción nueva reemplaza a la del puente",
       /NEW the marketing/.test(final.trad), final.trad || "sin traducción nueva");
+    const subFinal = await subsDe();
+    check("y el cartel sobre el video también pasa a la traducción nueva",
+      /NEW the marketing/.test(subFinal.trad),
+      subFinal.trad || "el cartel se quedó con la traducción vieja");
     respuestaIA = null;
     demorarTraduccionDe = null;
     await page.locator("#unify-root .langsel").selectOption("");

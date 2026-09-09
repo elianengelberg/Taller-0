@@ -170,11 +170,15 @@
       if (r?.translatedText && r.translatedText !== textoPedido) {
         line.translated = r.translatedText;
         ui.renderStream();
+        // Y el cartel de arriba del video, que es lo que se está leyendo:
+        // sin esto la traducción llegaba sólo al panel lateral.
+        ui.refrescarSubtitulo(line);
       } else if (r?.translatedText === textoPedido && line.translated) {
         // Ya está en tu idioma: si quedó una traducción vieja de puente
         // (de antes de una corrección), acá se retira.
         line.translated = null;
         ui.renderStream();
+        ui.refrescarSubtitulo(line);
       }
     } catch {
       /* la traducción es un extra: si falla, queda el original */
@@ -756,6 +760,11 @@
   const ui = (() => {
     let host = null, shadow = null, el = {}, tab = "stream", drawerOpen = false;
     let subsTimer = null;
+    // Cuál es la línea que se está mostrando SOBRE EL VIDEO ahora mismo. La
+    // traducción llega medio segundo después que la frase: sin esto, el
+    // subtítulo flotante se quedaba con el original para siempre y la
+    // traducción sólo aparecía en el panel de al lado.
+    let subLinea = null;
 
     function mount() {
       if (host && document.body.contains(host)) return;
@@ -990,6 +999,24 @@
 
     function showSubtitle(line) {
       if (!el.subs) return;
+      subLinea = line;
+      pintarSubtitulo(line);
+      el.subs.classList.add("is-on");
+      clearTimeout(subsTimer);
+      subsTimer = setTimeout(() => el.subs.classList.remove("is-on"), 6500);
+    }
+
+    // Vuelve a pintar el subtítulo que YA está en pantalla (llegó su
+    // traducción, o la IA corrigió la frase) sin reiniciar el reloj: el
+    // cartel no tiene por qué quedarse más tiempo por haberse traducido.
+    function refrescarSubtitulo(line) {
+      if (!el.subs || !line || subLinea !== line) return;
+      if (!el.subs.classList.contains("is-on")) return;
+      pintarSubtitulo(line);
+    }
+
+    function pintarSubtitulo(line) {
+      if (!el.subs) return;
       const r = roleOf(state.roles[line.speaker] ?? "");
       el.subRole.textContent = r.label;
       el.subRole.style.setProperty("--role", r.color);
@@ -1013,9 +1040,6 @@
       // Con traducción, ESA es la lectura principal (grande, arriba) y el
       // original queda debajo, chico: a eso vino quien traduce.
       el.subs.classList.toggle("traducido", Boolean(line.translated));
-      el.subs.classList.add("is-on");
-      clearTimeout(subsTimer);
-      subsTimer = setTimeout(() => el.subs.classList.remove("is-on"), 6500);
     }
 
     function refreshAccount() {
@@ -1145,7 +1169,7 @@
       unmount() { host?.remove(); host = null; shadow = null; el = {}; },
       get mounted() { return Boolean(host && document.body.contains(host)); },
       toggleDrawer, setStatus, setCaptionsReady, setRecording, avisarIdiomaDeMeet,
-      renderStream, renderRoles, renderMicCard, showSubtitle, refreshAccount,
+      renderStream, renderRoles, renderMicCard, showSubtitle, refrescarSubtitulo, refreshAccount,
       // El idioma puede resolverse DESPUÉS de montar la interfaz (el storage
       // es asíncrono): esto empareja el selector con cfg.lang cuando llega.
       syncLang() { if (el.lang) el.lang.value = cfg.lang || ""; },

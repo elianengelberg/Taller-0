@@ -57,7 +57,7 @@ export function useLineTranslations(lines: TranslatableLine[], targetLang: strin
     if (targetLang === ORIGINAL_LANG) return;
     let cancelled = false;
 
-    lines.forEach((line) => {
+    lines.forEach((line, i) => {
       // El largo del texto viaja en la clave: el servidor FUSIONA fragmentos
       // seguidos en una misma línea (misma id, texto que crece), y una
       // traducción hecha para el texto corto no vale para el largo. Con la
@@ -66,7 +66,12 @@ export function useLineTranslations(lines: TranslatableLine[], targetLang: strin
       // una clave ya ocupada y se ignoraba.
       // Mientras la IA no corrigió la línea (salió al instante, cruda), no
       // se traduce: en un segundo llega la versión buena y se traduce ESA.
-      if (line.provisional) return;
+      // Pero sólo se espera por las ÚLTIMAS: si una línea quedó atrás y
+      // sigue provisional, esa corrección ya no va a llegar (se cortó la
+      // conexión, se reinició el servidor, quien hablaba se fue) y antes
+      // esa frase se quedaba sin traducir PARA SIEMPRE. Traducir la cruda
+      // es mucho mejor que dejarla en un idioma que no se entiende.
+      if (line.provisional && i >= lines.length - 2) return;
       const key = claveDe(line, targetLang);
       // `in` y no truthiness: una traducción vacía legítima no debe
       // re-pedirse en loop para siempre.
