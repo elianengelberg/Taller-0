@@ -44,6 +44,7 @@ import {
 } from "../hooks/usePermisoDeMicrofono";
 import { askMeetingAI, fetchPlatformConfig, ordenarEnLaReunion, type PlatformConfig } from "../lib/api";
 import { usePantallaChica } from "../lib/pantalla";
+import { SERVER_URL } from "../lib/socket";
 import { LANGUAGES, codigoCompletoDe, etiquetaDeIdioma, shortLang } from "../lib/languages";
 import { recentCaptionEntries } from "../lib/captionLines";
 import {
@@ -267,6 +268,32 @@ export default function ExternalMeeting() {
   // Etiquetas locales por persona (ver lib/companionRoles): una sala companion
   // no tiene anfitrión que reparta roles, así que cada quien rotula como ve.
   const roomKey = draft?.mode === "companion" ? draft.externalKey : "";
+
+  // CÓMO VIENE LA GRABACIÓN DEL BOT. La reunión aparecía en el historial sin
+  // video y no había forma de saber por qué (reporte real). El bot ahora
+  // avisa cada paso a la sala y acá se muestra: grabando, subiendo, guardada
+  // o el motivo del fallo.
+  const [grabacionBot, setGrabacionBot] = useState<{ estado: string; detalle: string | null } | null>(null);
+  useEffect(() => {
+    if (!roomKey) return;
+    let vivo = true;
+    const mirar = async () => {
+      try {
+        const r = await fetch(`${SERVER_URL}/api/meet-bridge/${encodeURIComponent(roomKey)}/session`);
+        if (!r.ok || !vivo) return;
+        const d = (await r.json()) as { grabacion?: { estado: string; detalle: string | null } | null };
+        if (vivo) setGrabacionBot(d.grabacion ?? null);
+      } catch {
+        /* la próxima vuelta */
+      }
+    };
+    void mirar();
+    const t = window.setInterval(() => void mirar(), 10_000);
+    return () => {
+      vivo = false;
+      window.clearInterval(t);
+    };
+  }, [roomKey]);
   const [roles, setRoles] = useState<RoleMap>(() => (roomKey ? loadRoles(roomKey) : {}));
   function setRole(name: string, roleId: string) {
     setRoles((prev) => {
@@ -1167,6 +1194,30 @@ export default function ExternalMeeting() {
           <span className="hidden truncate text-xs text-ink-400 sm:inline">{draft.roomLabel}</span>
         </div>
       </header>
+
+      {/* La grabación del bot, dicha donde se ve. Es la respuesta a «no se
+          grabó la reunión»: o está grabando, o se dice por qué no. */}
+      {grabacionBot && (
+        <div
+          role="status"
+          className={`flex items-center justify-center gap-2 border-b px-4 py-1.5 text-xs leading-snug ${
+            grabacionBot.estado === "fallo"
+              ? "border-warn-bg/30 bg-warn-bg/10 text-warn"
+              : "border-ink-800 bg-ink-800/60 text-ink-200"
+          }`}
+        >
+          <span className="font-medium">
+            {grabacionBot.estado === "grabando"
+              ? "● El bot está grabando la reunión"
+              : grabacionBot.estado === "subiendo"
+                ? "Guardando la grabación…"
+                : grabacionBot.estado === "guardada"
+                  ? "✓ La grabación quedó en tu historial"
+                  : "No se pudo grabar la reunión"}
+          </span>
+          {grabacionBot.detalle && grabacionBot.estado === "fallo" && <span>{grabacionBot.detalle}</span>}
+        </div>
+      )}
 
       {showRecHint && !compacto && (
         <div className="flex items-center justify-center gap-3 border-b border-brand-500/30 bg-brand-500/10 px-4 py-2 text-xs text-brand-300">

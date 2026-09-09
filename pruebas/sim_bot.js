@@ -258,6 +258,28 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     try { process.kill(-srv.pid, "SIGTERM"); } catch { try { srv.kill("SIGTERM"); } catch {} }
   }
 
+  console.log("\n── 4b. La grabación del bot se ve desde la reunión ──");
+  {
+    // «No se grabó la reunión» era mudo: el video no aparecía en el historial
+    // y no había forma de saber por qué (reporte real). Ahora el bot avisa
+    // cada paso a la sala y la web lo muestra.
+    const key = `externa:reunion.falsa/grab-estado-${Date.now()}`;
+    const estado = (cuerpo) => fetch(`${API}/api/meet-bridge/${encodeURIComponent(key)}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo),
+    });
+    const leer = async () => (await fetch(`${API}/api/meet-bridge/${encodeURIComponent(key)}/session`).then((r) => r.json())).grabacion;
+    await estado({ inCall: true, botGrabacion: "grabando", botGrabacionDetalle: "El bot está grabando la reunión." });
+    const g1 = await leer();
+    check("mientras graba, la sala lo sabe", g1?.estado === "grabando", JSON.stringify(g1));
+    await estado({ botGrabacion: "guardada", botGrabacionDetalle: "La grabación quedó en el historial." });
+    const g2 = await leer();
+    check("y cuando la guarda, también", g2?.estado === "guardada", JSON.stringify(g2));
+    await estado({ botGrabacion: "fallo", botGrabacionDetalle: "El bot no pudo capturar la pantalla de la reunión, así que no hay video." });
+    const g3 = await leer();
+    check("y si NO se pudo grabar, queda dicho el motivo (no un silencio)",
+      g3?.estado === "fallo" && /no pudo capturar/.test(g3?.detalle || ""), JSON.stringify(g3));
+  }
+
   console.log("\n── 5. El botón «Que entre el bot por mí» en la web ──");
   {
     const { chromium } = require("/opt/node22/lib/node_modules/playwright/node_modules/playwright-core");

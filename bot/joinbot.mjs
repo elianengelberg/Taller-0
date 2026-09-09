@@ -168,6 +168,14 @@ async function dbIdDeLaSala() {
   return s.dbId;
 }
 
+// Que la web se entere de cómo viene la grabación: "no se grabó" tiene que
+// poder verse desde la reunión y desde el historial, no sólo en el journal
+// del host (reporte real: la reunión quedó sin video y no había forma de
+// saber por qué).
+async function avisarGrabacion(estado, detalle) {
+  await postEstado({ botGrabacion: estado, botGrabacionDetalle: detalle ?? null });
+}
+
 async function subirGrabacion() {
   if (!recStream) return;
   const stream = recStream;
@@ -175,8 +183,9 @@ async function subirGrabacion() {
   await new Promise((res) => stream.end(res));
   if (!recBytes) {
     // Antes esto era un salto MUDO: la reunión aparecía sin video y nadie
-    // sabía por qué. Que quede dicho en el journal.
+    // sabía por qué. Que quede dicho en el journal Y en la reunión.
     log("grabación: no llegó NI UN chunk de video (la captura de pestaña no arrancó); nada para subir");
+    await avisarGrabacion("fallo", "El bot no pudo capturar la pantalla de la reunión, así que no hay video.");
     try { unlinkSync(recPath); } catch {}
     return;
   }
@@ -184,27 +193,50 @@ async function subirGrabacion() {
     // El aviso de inicio pudo fallar (red); un último intento antes de rendirse.
     try { recDbId = await dbIdDeLaSala(); } catch (e) { log("grabación: sin reunión adónde subirla:", e.message); }
   }
-  if (!recDbId) { try { unlinkSync(recPath); } catch {} return; }
-  const durationMs = Math.max(1, Date.now() - recStartTs);
-  log(`grabación: subiendo ${(recBytes / 1024 / 1024).toFixed(1)} MB…`);
-  try {
-    const res = await fetch(
-      `${SERVER_URL}/api/meetings/${encodeURIComponent(recDbId)}/recording-upload?durationMs=${Math.round(durationMs)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "video/webm" },
-        body: Readable.toWeb(createReadStream(recPath)),
-        duplex: "half",
-      }
-    );
-    if (res.ok) log("grabación: guardada, queda en el historial de la reunión");
-    else {
-      const data = await res.json().catch(() => ({}));
-      log(`grabación: el servidor no la aceptó (HTTP ${res.status})${data?.error ? `: ${data.error}` : ""}`);
-    }
-  } catch (e) {
-    log("grabación: no se pudo subir:", e.message);
+  if (!recDbId) {
+    await avisarGrabacion("fallo", "La grabación no tenía a qué reunión colgarse.");
+    try { unlinkSync(recPath); } catch {}
+    return;
   }
+  const durationMs = Math.max(1, Date.now() - recStartTs);
+  const mb = (recBytes / 1024 / 1024).toFixed(1);
+  log(`grabación: subiendo ${mb} MB…`);
+  await avisarGrabacion("subiendo", `Subiendo la grabación (${mb} MB).`);
+  // Subir es lo último que hace el bot y es lo que MÁS cuesta perder: una
+  // reunión entera de video. Un tropiezo de red no puede tirarla, así que se
+  // reintenta (el archivo sigue en disco hasta que se logra o se agotan).
+  let subida = false;
+  let ultimoMotivo = "";
+  for (let intento = 1; intento <= 3 && !subida; intento++) {
+    try {
+      const res = await fetch(
+        `${SERVER_URL}/api/meetings/${encodeURIComponent(recDbId)}/recording-upload?durationMs=${Math.round(durationMs)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "video/webm" },
+          body: Readable.toWeb(createReadStream(recPath)),
+          duplex: "half",
+        }
+      );
+      if (res.ok) {
+        subida = true;
+        log("grabación: guardada, queda en el historial de la reunión");
+        await avisarGrabacion("guardada", "La grabación quedó en el historial.");
+        break;
+      }
+      const data = await res.json().catch(() => ({}));
+      ultimoMotivo = `HTTP ${res.status}${data?.error ? `: ${data.error}` : ""}`;
+      log(`grabación: el servidor no la aceptó (intento ${intento}) ${ultimoMotivo}`);
+      // Un 4xx no se arregla reintentando (grabación demasiado grande, o la
+      // reunión no existe): se corta acá.
+      if (res.status >= 400 && res.status < 500) break;
+    } catch (e) {
+      ultimoMotivo = e.message;
+      log(`grabación: no se pudo subir (intento ${intento}):`, e.message);
+    }
+    if (!subida && intento < 3) await new Promise((r) => setTimeout(r, intento * 4000));
+  }
+  if (!subida) await avisarGrabacion("fallo", `No se pudo guardar la grabación. ${ultimoMotivo}`.trim());
   try { unlinkSync(recPath); } catch { /* temporal */ }
 }
 
@@ -570,6 +602,7 @@ async function arrancarEscucha(page) {
       recDbId = await dbIdDeLaSala();
       await fetch(`${SERVER_URL}/api/meetings/${encodeURIComponent(recDbId)}/recording-started`, { method: "POST" });
       log("grabación: video de la reunión GRABÁNDOSE (reunión", recDbId + ")");
+      await avisarGrabacion("grabando", "El bot está grabando la reunión.");
     } catch (e) {
       log("grabación: no pude avisar el inicio:", e.message);
     }

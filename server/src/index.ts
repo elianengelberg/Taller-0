@@ -2271,28 +2271,71 @@ app.post("/api/meet-bridge/:meetId", bridgeLimit, (req, res) => {
   const b = req.body ?? {};
   // Whitelist + clamp every field: this endpoint is reachable by anyone who
   // knows the meet code, so nothing here is trusted beyond display.
+  // PARCIAL, no de cero. El bot manda avisos cortos ("estoy grabando", "pedí
+  // entrar") sin repetir todo el estado, y como acá se armaba un estado
+  // NUEVO con lo que viniera, cada aviso apagaba la llamada: la barra creía
+  // que la reunión había terminado. Ahora lo que no viene en el aviso se
+  // mantiene como estaba, y lo que viene manda (incluido un `inCall: false`
+  // explícito, que es como la extensión avisa que se cerró la pestaña).
+  const previo = ultimoEstadoPorSala.get(meetId);
+  const trae = (clave: string) => Object.prototype.hasOwnProperty.call(b, clave);
   const state = {
     meetId,
-    inCall: Boolean(b.inCall),
-    participantCount:
-      Number.isFinite(Number(b.participantCount)) && Number(b.participantCount) >= 0
+    inCall: trae("inCall") ? Boolean(b.inCall) : (previo?.inCall ?? false),
+    participantCount: trae("participantCount")
+      ? Number.isFinite(Number(b.participantCount)) && Number(b.participantCount) >= 0
         ? Math.min(Math.floor(Number(b.participantCount)), 1000)
-        : null,
-    micMuted: typeof b.micMuted === "boolean" ? b.micMuted : null,
-    cameraOff: typeof b.cameraOff === "boolean" ? b.cameraOff : null,
-    presenting: typeof b.presenting === "boolean" ? b.presenting : null,
-    activeSpeakers: Array.isArray(b.activeSpeakers)
-      ? b.activeSpeakers.slice(0, 10).map((n: unknown) => String(n).slice(0, 60))
-      : [],
-    participants: Array.isArray(b.participants)
-      ? b.participants.slice(0, 100).map((n: unknown) => String(n).slice(0, 60))
-      : null,
+        : null
+      : (previo?.participantCount ?? null),
+    micMuted: trae("micMuted")
+      ? typeof b.micMuted === "boolean"
+        ? b.micMuted
+        : null
+      : (previo?.micMuted ?? null),
+    cameraOff: trae("cameraOff")
+      ? typeof b.cameraOff === "boolean"
+        ? b.cameraOff
+        : null
+      : (previo?.cameraOff ?? null),
+    presenting: trae("presenting")
+      ? typeof b.presenting === "boolean"
+        ? b.presenting
+        : null
+      : (previo?.presenting ?? null),
+    activeSpeakers: trae("activeSpeakers")
+      ? Array.isArray(b.activeSpeakers)
+        ? b.activeSpeakers.slice(0, 10).map((n: unknown) => String(n).slice(0, 60))
+        : []
+      : (previo?.activeSpeakers ?? []),
+    participants: trae("participants")
+      ? Array.isArray(b.participants)
+        ? b.participants.slice(0, 100).map((n: unknown) => String(n).slice(0, 60))
+        : null
+      : (previo?.participants ?? null),
     at: Date.now(),
   };
+  ultimoEstadoPorSala.set(meetId, state);
+  if (ultimoEstadoPorSala.size > 500) {
+    const primera = ultimoEstadoPorSala.keys().next().value;
+    if (primera !== undefined) ultimoEstadoPorSala.delete(primera);
+  }
   // La fase del BOT ("abriendo", "esperando-admision", "adentro", "fallo" +
   // su porqué) se GUARDA además de emitirse: el botón "Que entre el bot"
   // la sondea para contar en vivo qué está pasando, en vez del "mandado"
   // ciego que dejaba a la gente esperando un bot que ya había muerto.
+  // CÓMO VIENE LA GRABACIÓN del bot: "no se grabó" tiene que poder verse
+  // desde la reunión, no sólo en el journal del host del bot.
+  if (typeof b.botGrabacion === "string" && b.botGrabacion) {
+    grabacionPorSala.set(roomKey, {
+      estado: String(b.botGrabacion).slice(0, 20),
+      detalle: typeof b.botGrabacionDetalle === "string" ? String(b.botGrabacionDetalle).slice(0, 300) : null,
+      at: Date.now(),
+    });
+    if (grabacionPorSala.size >= 500) {
+      const primera = grabacionPorSala.keys().next().value;
+      if (primera !== undefined) grabacionPorSala.delete(primera);
+    }
+  }
   if (typeof b.botFase === "string" && b.botFase) {
     if (botEstadoPorSala.size >= 500) {
       const primera = botEstadoPorSala.keys().next().value;
@@ -2627,6 +2670,23 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
 // web deja acá la orden y la extensión, que ya sondea esta sala, la ejecuta
 // con los propios botones de Meet. La cola vive en memoria y es corta: una
 // orden vieja no tiene que ejecutarse diez minutos después.
+const grabacionPorSala = new Map<string, { estado: string; detalle: string | null; at: number }>();
+
+// El último estado que se emitió por sala: los avisos cortos del bot se
+// mezclan con esto en vez de pisarlo (ver el POST del puente).
+interface EstadoSala {
+  meetId: string;
+  inCall: boolean;
+  participantCount: number | null;
+  micMuted: boolean | null;
+  cameraOff: boolean | null;
+  presenting: boolean | null;
+  activeSpeakers: string[];
+  participants: string[] | null;
+  at: number;
+}
+const ultimoEstadoPorSala = new Map<string, EstadoSala>();
+
 type OrdenSala = { id: string; accion: string; at: number };
 const ordenesPorSala = new Map<string, OrdenSala[]>();
 const ACCIONES_SALA = new Set(["mic-on", "mic-off", "mic-toggle", "cam-on", "cam-off", "cam-toggle", "colgar"]);
@@ -2686,6 +2746,9 @@ app.get("/api/meet-bridge/:meetId/session", bridgeLimit, (req, res) => {
     // La fase del bot, si alguien mandó uno a esta sala: el botón del cliente
     // la sondea para mostrar el progreso (o el fallo, con su porqué).
     bot: botEstadoPorSala.get(roomKey) ?? null,
+    // Cómo viene la grabación del bot (grabando / subiendo / guardada /
+    // fallo, con su motivo).
+    grabacion: grabacionPorSala.get(roomKey) ?? null,
     // Las órdenes que la barra dejó para la reunión de afuera (silenciar,
     // colgar). Se entregan UNA vez: quien las lee, las ejecuta.
     comandos: (() => {
