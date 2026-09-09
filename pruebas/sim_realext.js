@@ -142,7 +142,7 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
         body: JSON.stringify({ ok: true, dbId: "fake", ...(extra || {}) }),
       });
     }
-    if (url.endsWith("/session")) {
+    if (url.includes("/session")) {
       // Las órdenes que la barra de Unify dejó para esta reunión: se sirven
       // UNA vez, como hace el servidor de verdad.
       const comandos = ordenesPendientes.splice(0, ordenesPendientes.length);

@@ -59,9 +59,10 @@
     if (!code) return null;
     if (state.session.code === code && state.session.dbId) return state.session.dbId;
     try {
+      // Esta lectura es para armar la sesión (una vez): NO pide las órdenes,
+      // que las trae el sondeo de abajo con `ordenes=1`.
       const s = await api(`/api/meet-bridge/${code}/session`);
       state.session = { code, dbId: s.dbId };
-      atenderOrdenes(s.comandos);
       // El popup y el atajo de teclado graban sin volver a preguntarle a la
       // pestaña: les dejamos acá los datos de la reunión.
       chrome.runtime.sendMessage({
@@ -588,7 +589,36 @@
     if (enCurso !== rec.ultimoCartel) {
       rec.ultimoCartel = enCurso;
       ui.showSubtitle({ speaker: rec.speaker || "Participante", text: enCurso, translated: null });
+      // Y a la SALA, para que la pantalla de Unify (la del iPad al lado, la
+      // de la compu) lo vea mientras se dice. Adentro de Meet el cartel ya
+      // salía al instante, pero afuera había que esperar el asentamiento y
+      // la IA: varios segundos de diferencia entre lo que se oye y lo que se
+      // lee. Lo interino no se guarda ni se traduce: lo reemplaza la frase.
+      postInterino(rec.speaker || "Participante", enCurso);
     }
+  }
+
+  // Lo que se está diciendo ahora mismo, hacia la sala. Con freno: llega
+  // varias veces por segundo y no hace falta mandar cada repintado.
+  let ultimoInterino = 0;
+  function postInterino(speaker, texto) {
+    const t = String(texto || "").trim();
+    const code = meetCode();
+    if (!t || !code) return;
+    const ahora = Date.now();
+    if (ahora - ultimoInterino < 400) return;
+    ultimoInterino = ahora;
+    void api(`/api/meet-bridge/${code}/transcript`, {
+      method: "POST",
+      body: JSON.stringify({
+        speaker,
+        text: t.slice(0, 300),
+        lang: navigator.language || "es-AR",
+        interim: true,
+      }),
+    }).catch(() => {
+      /* un interino perdido no importa: en medio segundo va otro */
+    });
   }
 
   function scanCaptions(region) {
@@ -1461,7 +1491,10 @@
       const code = meetCode();
       if (!code || !inCall()) return;
       try {
-        const s = await api(`/api/meet-bridge/${code}/session`);
+        // `ordenes=1`: las órdenes son para la extensión, y quien las lee se
+        // las lleva. Los demás sondeos de esta misma sesión (la web, el botón
+        // del bot) no deben consumirlas.
+        const s = await api(`/api/meet-bridge/${code}/session?ordenes=1`);
         atenderOrdenes(s.comandos);
       } catch {
         /* la próxima vuelta lo reintenta */

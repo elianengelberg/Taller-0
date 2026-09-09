@@ -543,7 +543,9 @@ export default function ExternalMeeting() {
   useEffect(() => {
     ultimaVozRef.current = Date.now();
     setSilencioLargo(false);
-  }, [interimCaption, transcriptLargo, micAttempt]);
+    // También cuenta lo que se está diciendo del otro lado (bot, extensión):
+    // si están entrando voces, avisar "no llega ninguna voz" sería mentir.
+  }, [interimCaption, interinoAjeno?.text, transcriptLargo, micAttempt]);
   useEffect(() => {
     if (!escuchando) {
       setSilencioLargo(false);

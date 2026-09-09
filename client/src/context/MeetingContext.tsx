@@ -401,9 +401,15 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     });
     socket.on("transcript-line", ({ line }: { line: TranscriptLine }) => {
       dispatch({ type: "TRANSCRIPT_LINE", line });
-      // La frase terminada ocupa el lugar de lo que se venía escuchando.
-      setInterinoAjeno(null);
-      if (interinoTimer.current) window.clearTimeout(interinoTimer.current);
+      // La frase terminada ocupa el lugar de lo que se venía escuchando de
+      // ESA persona. Antes se borraba con cualquier línea: si mientras el bot
+      // traía lo que decía alguien vos decías algo, lo de la otra persona
+      // desaparecía a mitad de camino.
+      setInterinoAjeno((previo) => {
+        if (!previo || previo.speaker !== line.speakerName) return previo;
+        if (interinoTimer.current) window.clearTimeout(interinoTimer.current);
+        return null;
+      });
     });
     // Lo que se está diciendo AHORA MISMO (bot / extensión). No se guarda ni
     // se traduce: se muestra y lo reemplaza la frase final. Si deja de

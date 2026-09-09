@@ -282,15 +282,63 @@ const post = (p, b, token) => fetch(API + p, { method: "POST",
     const ok1 = await post(`/api/meet-bridge/${code}/comando`, { accion: "mic-toggle" });
     const ok2 = await post(`/api/meet-bridge/${code}/comando`, { accion: "colgar" });
     check("silenciar y cortar se aceptan", ok1.status === 200 && ok2.status === 200, `${ok1.status}/${ok2.status}`);
-    const ses = await fetch(`${API}/api/meet-bridge/${code}/session`).then((r) => r.json());
+    const ses = await fetch(`${API}/api/meet-bridge/${code}/session?ordenes=1`).then((r) => r.json());
     check("la extensión las recibe, en orden y con su id",
       Array.isArray(ses.comandos) && ses.comandos.length === 2 &&
         ses.comandos[0].accion === "mic-toggle" && ses.comandos[1].accion === "colgar" &&
         typeof ses.comandos[0].id === "string",
       JSON.stringify(ses.comandos));
-    const ses2 = await fetch(`${API}/api/meet-bridge/${code}/session`).then((r) => r.json());
+    const ses2 = await fetch(`${API}/api/meet-bridge/${code}/session?ordenes=1`).then((r) => r.json());
     check("y NO se entregan dos veces (una orden vieja no se ejecuta sola después)",
       Array.isArray(ses2.comandos) && ses2.comandos.length === 0, JSON.stringify(ses2.comandos));
+    // Y quien NO las pide (la web sondeando la grabación, el botón del bot)
+    // no se las lleva: si no, la extensión no las ejecutaría nunca.
+    await post(`/api/meet-bridge/${code}/comando`, { accion: "mic-toggle" });
+    const mirona = await fetch(`${API}/api/meet-bridge/${code}/session`).then((r) => r.json());
+    check("un sondeo cualquiera NO se lleva las órdenes de la extensión",
+      Array.isArray(mirona.comandos) && mirona.comandos.length === 0, JSON.stringify(mirona.comandos));
+    const extension = await fetch(`${API}/api/meet-bridge/${code}/session?ordenes=1`).then((r) => r.json());
+    check("y la extensión las sigue recibiendo",
+      Array.isArray(extension.comandos) && extension.comandos.length === 1, JSON.stringify(extension.comandos));
+  }
+
+  // EL CUPO. Lo interino llega varias veces por segundo: si compartiera el
+  // cupo de las frases de verdad se lo comería entero y, hablando de corrido,
+  // las frases terminadas empezarían a rebotar (429) justo cuando más
+  // importan. Se cuentan aparte.
+  {
+    const key = encodeURIComponent(`externa:reunion.falsa/cupo-${Date.now()}`);
+    let rebotes = 0;
+    let noOk = 0;
+    for (let i = 0; i < 45; i++) {
+      const r = await post(`/api/meet-bridge/${key}/transcript`, { speaker: "Bot", text: `en curso ${i}`, lang: "es-AR", interim: true });
+      if (r.status === 429) rebotes++;
+      if (r.status !== 200) noOk++;
+    }
+    check("45 interinos seguidos entran sin rebotar", rebotes === 0 && noOk === 0, `rebotes=${rebotes} otros=${noOk}`);
+    const real = await post(`/api/meet-bridge/${key}/transcript`, { speaker: "Bot", text: "y esta frase terminada tiene que entrar igual", lang: "es-AR" });
+    check("y una frase TERMINADA sigue entrando después de esa lluvia (no se quedó sin cupo)",
+      real.status === 200, `HTTP ${real.status}`);
+  }
+
+  // LA TRANSCRIPCIÓN NO SE PICA EN UNA REUNIÓN EN INGLÉS. La primera frase
+  // larga hace que la línea quede marcada "en"; el fragmento siguiente llega
+  // otra vez etiquetado "es-AR" (el reconocimiento manda SU idioma). Si el
+  // pegado se decidiera con la etiqueta cruda, cada pedacito abriría línea
+  // nueva: la misma idea partida en frases sueltas.
+  {
+    const antes = live.length;
+    const hablante = `Ellen ${Date.now()}`;
+    await post(`/api/meet-bridge/${code}/transcript`, { speaker: hablante, text: "we need to close the budget before friday", lang: "es-AR" });
+    await sleep(700);
+    await post(`/api/meet-bridge/${code}/transcript`, { speaker: hablante, text: "and the numbers look fine to me", lang: "es-AR" });
+    await sleep(900);
+    const suyas = live.slice(antes).filter((l) => l.speakerName === hablante);
+    const ids = new Set(suyas.map((l) => l.id));
+    check("dos fragmentos seguidos de la misma persona quedan en UNA línea (no se pica)",
+      ids.size === 1, `líneas=${ids.size}`);
+    const texto = suyas[suyas.length - 1]?.text ?? "";
+    check("y la línea tiene las dos partes", /close the budget/.test(texto) && /numbers look fine/.test(texto), texto.slice(0, 90));
   }
 
   s.disconnect();

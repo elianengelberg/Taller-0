@@ -1875,6 +1875,29 @@ function recordarLineaBridge(meetingId: string, speakerName: string, lineId: str
   ultimaLineaBridge.set(meetingId, { speakerName, lineId, dbMessageId: null, lastAt: Date.now() });
 }
 
+// LO INTERINO TIENE SU PROPIO CUPO. Es lo que se está diciendo ahora mismo:
+// llega varias veces por segundo, no toca la base ni la IA ni la traducción,
+// y se olvida enseguida. Si compartiera el cupo de las frases de verdad se
+// lo comería entero -- 4 por segundo son 40 en diez segundos, justo el
+// límite -- y las frases terminadas empezarían a rebotar con 429 mientras
+// alguien habla de corrido. Que es exactamente lo que no puede pasar.
+const limitadorInterinos = new Map<string, { windowStart: number; count: number }>();
+function allowInterinos(meetId: string): boolean {
+  const now = Date.now();
+  const entry = limitadorInterinos.get(meetId) ?? { windowStart: now, count: 0 };
+  if (now - entry.windowStart > 10_000) {
+    entry.windowStart = now;
+    entry.count = 0;
+  }
+  entry.count += 1;
+  limitadorInterinos.set(meetId, entry);
+  if (limitadorInterinos.size > 500) {
+    const primera = limitadorInterinos.keys().next().value;
+    if (primera !== undefined) limitadorInterinos.delete(primera);
+  }
+  return entry.count <= 60;
+}
+
 function allowMeetBridge(meetId: string): boolean {
   const now = Date.now();
   const entry = meetBridgeLimiters.get(meetId) ?? { windowStart: now, count: 0 };
@@ -2381,8 +2404,11 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
     res.status(400).json({ error: "Clave de reunión inválida." });
     return;
   }
-  if (!allowMeetBridge(roomKey)) {
-    res.status(429).json({ error: "Demasiadas líneas seguidas." });
+  // Lo interino se cuenta aparte (ver allowInterinos): si compartiera el cupo
+  // de las frases de verdad, hablar de corrido las haría rebotar.
+  const esInterino = req.body?.interim === true;
+  if (!(esInterino ? allowInterinos(roomKey) : allowMeetBridge(roomKey))) {
+    res.status(429).json({ error: esInterino ? "Demasiados interinos seguidos." : "Demasiadas líneas seguidas." });
     return;
   }
   const speaker = String(req.body?.speaker ?? "").slice(0, 60);
@@ -2396,7 +2422,7 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
   // viaja al instante por su propio camino: se reparte a la sala y se
   // olvida (no toca la base, ni la IA, ni la traducción), y cuando llega la
   // frase final ocupa su lugar como siempre.
-  if (req.body?.interim === true) {
+  if (esInterino) {
     const meetingInterina = companionForRoomKey(roomKey);
     io.to(roomFor(meetingInterina.id)).emit("transcript-interim", {
       speaker: speaker || "Participante",
@@ -2472,6 +2498,13 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
   // sale antes de que la IA diga en qué idioma vino de verdad.
   const memoria = ultimaLineaBridge.get(meeting.id);
   const ultima = meeting.transcript[meeting.transcript.length - 1];
+  // El idioma con el que va a viajar ESTE fragmento, no la etiqueta cruda.
+  // La línea anterior pudo quedar marcada "en" (se le detectó el idioma de
+  // verdad) mientras el fragmento nuevo llega otra vez etiquetado "es-AR":
+  // comparar la etiqueta contra el idioma real daba SIEMPRE distinto en una
+  // reunión en inglés, así que cada pedacito abría línea nueva y la
+  // transcripción quedaba picada en frases sueltas.
+  const idiomaProbable = memoriaIdioma.resolver([`${meeting.id}|${speaker}`, meeting.id], text, lang);
   const mergeTarget =
     memoria &&
     ultima &&
@@ -2479,7 +2512,7 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
     ultima.speakerName === speaker &&
     Date.now() - memoria.lastAt < BRIDGE_MERGE_WINDOW_MS &&
     ultima.text.length < BRIDGE_MERGE_MAX_CHARS &&
-    shortLang(ultima.sourceLang) === shortLang(lang)
+    shortLang(ultima.sourceLang) === idiomaProbable
       ? ultima
       : undefined;
 
@@ -2725,8 +2758,13 @@ app.get("/api/meet-bridge/:meetId/session", bridgeLimit, (req, res) => {
     // fallo, con su motivo).
     grabacion: grabacionPorSala.get(roomKey) ?? null,
     // Las órdenes que la barra dejó para la reunión de afuera (silenciar,
-    // colgar). Se entregan UNA vez: quien las lee, las ejecuta.
+    // colgar). Se entregan UNA vez y SÓLO a quien las pide con `?ordenes=1`:
+    // la extensión. Esta misma sesión la sondean también la web (para ver
+    // cómo viene la grabación) y el botón del bot, y si se las llevaran
+    // ellos, la extensión no las ejecutaría nunca -- el botón "silenciar"
+    // andaría una de cada tres veces.
     comandos: (() => {
+      if (req.query.ordenes !== "1") return [];
       const cola = (ordenesPorSala.get(roomKey) ?? []).filter((o) => Date.now() - o.at < VIDA_ORDEN_MS);
       if (cola.length) ordenesPorSala.delete(roomKey);
       return cola.map((o) => ({ id: o.id, accion: o.accion }));

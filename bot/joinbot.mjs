@@ -106,7 +106,9 @@ async function postInterino(texto) {
   const t = String(texto || "").trim();
   if (!t) return;
   const ahora = Date.now();
-  if (ahora - ultimoInterino < 250) return; // como máximo cuatro por segundo
+  // Dos y media por segundo alcanza para que se lea "en vivo" y deja aire de
+  // sobra en el cupo del puente (que las frases de verdad necesitan entero).
+  if (ahora - ultimoInterino < 400) return;
   ultimoInterino = ahora;
   try {
     await fetch(`${SERVER_URL}/api/meet-bridge/${encodeURIComponent(ROOM_KEY)}/transcript`, {
