@@ -1233,6 +1233,25 @@ export default function ExternalMeeting() {
         </div>
       </header>
 
+      {/* Los controles de Unify, en su propio renglón. NO flotando encima de
+          la reunión: ahí tapaban la cabecera y se comían los toques del botón
+          de entrar (ver el comentario en CompanionDock). */}
+      <CompanionDock
+        participantCount={participantCount}
+        connected={connectionStatus === "connected"}
+        targetLangChoice={targetLangChoice}
+        onTargetLangChange={setTargetLangChoice}
+        inviteUrl={inviteUrl}
+        roomLabel={draft.roomLabel}
+        onFlotantes={pipSoportado ? () => void toggleFlotantes() : null}
+        flotantesActivo={pipAbierto}
+        autoLabel={etiquetaDeIdioma(spokenLang)}
+        idiomaReunion={idiomaReunionElegido}
+        idiomaReunionEfectivo={etiquetaDeIdioma(langReunion)}
+        onIdiomaReunionChange={elegirIdiomaReunion}
+        compacto={compacto}
+      />
+
       {/* La grabación del bot, dicha donde se ve. Es la respuesta a «no se
           grabó la reunión»: o está grabando, o se dice por qué no. */}
       {grabacionBot && (
@@ -1356,12 +1375,15 @@ export default function ExternalMeeting() {
                         url={botDeSala.url}
                         roomKey={botDeSala.roomKey}
                         platform={botDeSala.platform}
-                        lang={spokenLang}
+                        // EL IDIOMA QUE VA A ESCUCHAR EL BOT es el de la
+                        // reunión, no el tuyo. El bot no oye tu micrófono: oye
+                        // a los demás. Mandándole el tuyo, una reunión en otro
+                        // idioma le llegaba al reconocedor configurado mal y
+                        // salían palabras inventadas -- o no salía nada. En
+                        // «Automático» esto ES tu idioma, así que el caso de
+                        // siempre no cambia.
+                        lang={langReunion}
                         sinParticipante={botSinParticipante}
-                        // En iPhone y iPad el bot es la ÚNICA forma de oír a
-                        // los demás: se manda solo en cuanto se entra, sin
-                        // que haya que buscar el botón (se puede apagar).
-                        automatico={unSoloMicrofono}
                         titulo={`¿${aparato.corto} no escucha la reunión?`}
                         descripcion={
                           botSinParticipante
@@ -1388,29 +1410,15 @@ export default function ExternalMeeting() {
             />
           )}
 
-          <CompanionDock
-            participantCount={participantCount}
-            connected={connectionStatus === "connected"}
-            targetLangChoice={targetLangChoice}
-            onTargetLangChange={setTargetLangChoice}
-            inviteUrl={inviteUrl}
-            roomLabel={draft.roomLabel}
-            onFlotantes={pipSoportado ? () => void toggleFlotantes() : null}
-            flotantesActivo={pipAbierto}
-            autoLabel={etiquetaDeIdioma(spokenLang)}
-            idiomaReunion={idiomaReunionElegido}
-            idiomaReunionEfectivo={etiquetaDeIdioma(langReunion)}
-            onIdiomaReunionChange={elegirIdiomaReunion}
-          />
           {flotantesAviso && (
-            <div className="fixed right-4 top-28 z-40 max-w-[260px] rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-snug text-warn shadow-lg backdrop-blur">
+            <div className="pointer-events-none fixed right-4 top-28 z-40 max-w-[260px] rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-snug text-warn shadow-lg backdrop-blur">
               {flotantesAviso}
             </div>
           )}
           {avisoIdiomaAjeno && (
             <div
               role="status"
-              className="fixed left-1/2 top-24 z-40 max-w-[420px] -translate-x-1/2 rounded-xl border border-brand-400/50 bg-ink-900/95 px-4 py-2.5 text-sm font-medium text-strong shadow-lg backdrop-blur"
+              className="pointer-events-none fixed left-1/2 top-24 z-40 max-w-[420px] -translate-x-1/2 rounded-xl border border-brand-400/50 bg-ink-900/95 px-4 py-2.5 text-sm font-medium text-strong shadow-lg backdrop-blur"
             >
               {avisoIdiomaAjeno}
             </div>

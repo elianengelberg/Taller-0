@@ -2562,6 +2562,28 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
   // id. (El panel de la extensión ya la mostraba al instante por su cuenta y
   // adopta la corrección con la respuesta de acá, como siempre.) Sin IA
   // configurada no hay nada que esperar: se emite una sola vez.
+  // LAS DOS LLAMADAS A LA IA, JUNTAS. Corregir la frase y traducirla son dos
+  // viajes a Claude de un segundo largo cada uno, y estaban en fila: la
+  // traducción -- que es lo que la persona LEE, porque manda sobre el
+  // original -- llegaba recién al final de los dos («las traducciones tardan
+  // un montón», reporte real desde el iPad). translateFragmentToAll corrige
+  // por su cuenta antes de traducir (por eso recibe las lecturas candidatas y
+  // no el texto ya corregido), así que puede salir AL MISMO TIEMPO.
+  // Sólo cuando el fragmento abre línea nueva: si se pega a la anterior hay
+  // que traducir la línea ENTERA, y eso recién se sabe más abajo.
+  const idiomasDeLaSala = Array.from(
+    new Set(
+      Array.from(meeting.participants.values())
+        .map((p) => shortLang(p.language ?? ""))
+        .filter(Boolean)
+    )
+  );
+  const destinosAdelantados = idiomasDeLaSala.filter((c) => c !== shortLang(lang));
+  const traduccionAdelantada =
+    !mergeTarget && destinosAdelantados.length
+      ? translateFragmentToAll(candidatas, recentContext, destinosAdelantados, lang).catch(() => ({}))
+      : null;
+
   const provisional = anthropicEnabled;
   let line: ReturnType<typeof addNamedTranscriptLine> | null = null;
   let posicionCruda = -1;
@@ -2631,18 +2653,23 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
 
   // Los destinos, contra el idioma DETECTADO: si se habló en otro idioma que
   // el declarado, quienes "compartían idioma" también reciben su traducción.
-  const targetLangs = Array.from(
-    new Set(
-      Array.from(meeting.participants.values())
-        .map((p) => shortLang(p.language ?? ""))
-        .filter((c) => c && c !== shortLang(sourceLang))
-    )
-  );
+  const targetLangs = idiomasDeLaSala.filter((c) => c !== shortLang(sourceLang));
   // Se traduce la línea ENTERA (no sólo el fragmento): para quien lee en otro
   // idioma, la línea fusionada tiene que estar completa en su idioma.
   const lineaParaTraducir = line;
   const textoQueSeTraduce = line.text;
-  void translateFragmentToAll([line.text], recentContext, targetLangs, sourceLang).then((translations) => {
+  // La que salió en paralelo sirve si los destinos son los MISMOS que se
+  // calcularon recién (si la IA descubrió que se hablaba en otro idioma, hace
+  // falta traducir a idiomas que no se le habían pedido: ahí se pide de
+  // nuevo, que es lo que se hacía siempre).
+  const sirveLaAdelantada =
+    traduccionAdelantada !== null &&
+    targetLangs.length === destinosAdelantados.length &&
+    targetLangs.every((c) => destinosAdelantados.includes(c));
+  const promesaTraduccion = sirveLaAdelantada
+    ? (traduccionAdelantada as Promise<Record<string, string>>)
+    : translateFragmentToAll([line.text], recentContext, targetLangs, sourceLang);
+  void promesaTraduccion.then((translations) => {
     if (Object.keys(translations).length === 0) return;
     // La línea pudo CRECER por otra fusión mientras esta traducción volvía:
     // un parche del texto corto no puede pisar al de la línea completa.

@@ -84,12 +84,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   })();
   check("la sala del bot tiene reunión de respaldo", Boolean(dbId), String(dbId));
 
-  const todas = await esperar(async () => lineasVivo.filter((l) => l.speakerName === "Unify Notetaker").length >= GUION.length, 30_000);
+  // El bot oye la MEZCLA de la reunión y no sabe quién habló: firma como el
+  // oído sin cara que la app ya conoce, no con su propio nombre (decir «lo
+  // dijo Unify Notetaker» era falso, y juntaba a todos bajo un mismo hablante
+  // -- con eso el recorte de repetidos comparaba la frase de uno contra la
+  // del otro y se comía frases legítimas).
+  const DEL_BOT = "Voces de la reunión";
+  const todas = await esperar(async () => lineasVivo.filter((l) => l.speakerName === DEL_BOT).length >= GUION.length, 30_000);
   check("las 3 líneas del bot llegan EN VIVO a la sala companion", todas,
-    `recibidas=${lineasVivo.filter((l) => l.speakerName === "Unify Notetaker").length}`);
-  check("y firman con el nombre del bot (aparece como participante que habla)",
-    lineasVivo.some((l) => l.speakerName === "Unify Notetaker" && /presupuesto/.test(l.text)),
-    JSON.stringify(lineasVivo.map((l) => l.text)).slice(0, 120));
+    `recibidas=${lineasVivo.filter((l) => l.speakerName === DEL_BOT).length}`);
+  check("y firman como «Voces de la reunión», no con el nombre del bot",
+    lineasVivo.some((l) => l.speakerName === DEL_BOT && /presupuesto/.test(l.text)) &&
+      !lineasVivo.some((l) => l.speakerName === "Unify Notetaker"),
+    JSON.stringify(lineasVivo.map((l) => [l.speakerName, l.text])).slice(0, 140));
 
   // El estado en vivo (el bot avisó que está "en la llamada").
   check("el bot publicó que está EN la reunión (estado en vivo)",

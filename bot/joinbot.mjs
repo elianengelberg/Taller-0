@@ -27,7 +27,9 @@
 //                 servidor con la MISMA regla que la web, así el bot y la
 //                 gente caen en una sola sala)
 //   SERVER_URL    base del servidor de Unify (default http://localhost:4001)
-//   BOT_NAME      cómo aparece el bot y cómo firma las líneas
+//   BOT_NAME      cómo aparece el bot EN LA REUNIÓN (las líneas las firma
+//                 «Voces de la reunión»: el bot oye la mezcla y no sabe quién
+//                 habló, ver VOZ_DE_LA_SALA)
 //   PLATFORM      jitsi | google-meet | zoom-web | test
 //   BOT_TEST_LINES  (sólo test) JSON de líneas que la página "dice", para
 //                   ejercitar la cadena sin el servicio de voz real
@@ -83,6 +85,15 @@ const MEETING_URL = process.env.MEETING_URL;
 const ROOM_KEY = process.env.ROOM_KEY;
 const SERVER_URL = (process.env.SERVER_URL || "http://localhost:4001").replace(/\/+$/, "");
 const BOT_NAME = (process.env.BOT_NAME || "Unify Notetaker").slice(0, 60);
+// CON QUÉ NOMBRE ENTRA LA FRASE A LA TRANSCRIPCIÓN. No con el del bot: el bot
+// oye el audio MEZCLADO de la reunión y no sabe quién habló, así que firmar
+// todo como «Unify Notetaker» era decir que habló el bot -- y encima juntaba
+// a todo el mundo bajo un mismo hablante, lo que hacía que el recorte de
+// repetidos comparara la frase de uno contra la del otro y se comiera frases
+// legítimas. «Voces de la reunión» es el oído sin cara que la app ya conoce:
+// si después llega la misma frase CON nombre (la extensión, otro Unify), el
+// nombre gana y la línea pasa a ser de quien habló.
+const VOZ_DE_LA_SALA = "Voces de la reunión";
 const PLATFORM = process.env.PLATFORM || "test";
 const MAX_MIN = Number(process.env.MAX_MIN) > 0 ? Number(process.env.MAX_MIN) : 180;
 
@@ -114,7 +125,7 @@ async function postInterino(texto) {
     await fetch(`${SERVER_URL}/api/meet-bridge/${encodeURIComponent(ROOM_KEY)}/transcript`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ speaker: BOT_NAME, text: t.slice(0, 300), lang: process.env.BOT_LANG || "es-AR", interim: true }),
+      body: JSON.stringify({ speaker: VOZ_DE_LA_SALA, text: t.slice(0, 300), lang: process.env.BOT_LANG || "es-AR", interim: true }),
     });
   } catch {
     /* un interino perdido no importa: en un cuarto de segundo va otro */
@@ -129,7 +140,7 @@ async function postLinea(texto, alts = []) {
     await fetch(`${SERVER_URL}/api/meet-bridge/${encodeURIComponent(ROOM_KEY)}/transcript`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ speaker: BOT_NAME, text: t, lang: process.env.BOT_LANG || "es-AR", alts }),
+      body: JSON.stringify({ speaker: VOZ_DE_LA_SALA, text: t, lang: process.env.BOT_LANG || "es-AR", alts }),
     });
   } catch (e) {
     log("no se pudo postear la línea:", e.message);

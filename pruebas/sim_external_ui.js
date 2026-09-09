@@ -153,6 +153,48 @@ async function detectAndJoin(page, link, { passcode } = {}) {
       abiertos.some((u) => u.includes("meet.google.com/abc-defg-hij")), JSON.stringify(abiertos));
     check("y la capa Unify deja un botón GRANDE para volver a abrirla",
       (await p.getByRole("link", { name: /Abrir la reunión de Meet/i }).count()) > 0);
+    // EL BOTÓN RESPONDE EN TODA SU SUPERFICIE. La barra de Unify (traducir,
+    // flotantes, texto grande) flotaba ENCIMA con position absolute: en el
+    // iPad se estiraba, tapaba la cabecera de la reunión y se comía los toques
+    // en media superficie del botón -- «no funciona todo el botón, hay que
+    // tocar un botón en específico» (reporte real). Se prueba tocando de
+    // verdad: en cinco puntos a lo ancho, quien recibe el toque tiene que ser
+    // el botón.
+    {
+      const tapado = await p.evaluate(() => {
+        const a = [...document.querySelectorAll("a")].find((x) =>
+          /Abrir la reunión de Meet/.test(x.textContent || ""),
+        );
+        if (!a) return { hay: false };
+        const r = a.getBoundingClientRect();
+        const encima = [];
+        for (const f of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+          const el = document.elementFromPoint(r.left + r.width * f, r.top + r.height / 2);
+          if (!el || !(el === a || a.contains(el))) {
+            encima.push(`${Math.round(f * 100)}%: ${el ? el.tagName.toLowerCase() + "." + (el.className || "").toString().slice(0, 24) : "nada"}`);
+          }
+        }
+        return { hay: true, encima };
+      });
+      check("el botón de entrar a la reunión recibe el toque en TODA su superficie",
+        tapado.hay && tapado.encima.length === 0,
+        tapado.hay ? tapado.encima.join(" | ") || "libre" : "no se encontró el botón");
+    }
+    // Y LA CABECERA DE LA REUNIÓN NO QUEDA DEBAJO DE LA BARRA: el código de la
+    // sala tiene que verse, no asomar por detrás («hay un label encima de otro»).
+    {
+      const codigoTapado = await p.evaluate(() => {
+        const el = [...document.querySelectorAll("p")].find((x) =>
+          /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/.test((x.textContent || "").trim()),
+        );
+        if (!el) return { hay: false };
+        const r = el.getBoundingClientRect();
+        const arriba = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return { hay: true, propio: Boolean(arriba && (arriba === el || el.contains(arriba) || arriba.contains(el))) };
+      });
+      check("el código de la reunión se ve entero, sin la barra de Unify encima",
+        codigoTapado.hay && codigoTapado.propio, JSON.stringify(codigoTapado));
+    }
     // AL ACHICAR LA PANTALLA, LOS SUBTÍTULOS SON LO PRINCIPAL. En Split View
     // (o una ventana angosta al lado de Meet) la cabecera, el botón grande y
     // los consejos empujaban lo que se está diciendo fuera de la vista.
