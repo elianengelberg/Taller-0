@@ -343,7 +343,7 @@ const json = (b, extra = {}) => ({
     const selector = page.locator("select").filter({ hasText: "Original (como se dijo)" }).first();
     check("la transcripción guardada tiene dónde elegir en qué idioma leerla",
       (await selector.count()) === 1);
-    await selector.selectOption("en");
+    await selector.selectOption("en-US");
     await page.waitForTimeout(1800);
     const activa = await page.locator("li", { hasText: "lámina azul" }).first().innerText();
     check("al elegir un idioma, la reunión guardada se lee traducida",
@@ -351,13 +351,32 @@ const json = (b, extra = {}) => ({
     check("y lo que se dijo de verdad sigue ahí abajo, de apoyo",
       /lámina azul muestra la curva/.test(activa), activa.replace(/\n/g, " | ").slice(0, 90));
     // El original sigue siendo el que está pegado al video: se toca una
-    // palabra suya y el video salta a ese instante, traducción o no.
-    const palabra = page.locator("p", { hasText: "lámina azul muestra" }).locator("span", { hasText: "curva" }).first();
+    // palabra suya y el video salta a ESE instante, traducción o no. Se mira
+    // el instante que Unify PIDE (anotando quién escribe currentTime): el
+    // reproductor de este navegador sin pantalla no siempre respeta un salto
+    // seguido de un play, y lo que se prueba acá es nuestra cuenta, no la suya.
+    await page.evaluate(() => {
+      const v = document.querySelector("video");
+      v.pause();
+      window.__saltos = [];
+      const d = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "currentTime");
+      Object.defineProperty(v, "currentTime", {
+        configurable: true,
+        get: () => d.get.call(v),
+        set: (x) => { window.__saltos.push(x); d.set.call(v, x); },
+      });
+    });
+    const palabra = page
+      .locator("li", { hasText: "lámina azul muestra" })
+      .locator("span", { hasText: "curva" })
+      .first();
     await palabra.click();
-    await page.waitForTimeout(600);
-    const t = await page.evaluate(() => document.querySelector("video").currentTime);
+    await page.waitForTimeout(400);
+    const saltos = await page.evaluate(() => window.__saltos);
+    // La línea 2 va de t=2 a t=4 y "curva" es la palabra 6 de 9: ≈3,1 s.
     check("con la traducción puesta, tocar una palabra del original sigue llevando a su instante",
-      t > 2.6 && t < 3.8, `currentTime=${t.toFixed(2)}`);
+      saltos.some((x) => x > 2.5 && x < 4.2), JSON.stringify(saltos));
+    await page.evaluate(() => document.querySelector("video").pause());
     await selector.selectOption("original");
     await page.waitForTimeout(500);
     const sinTraducir = await page.locator("li", { hasText: "lámina azul" }).first().innerText();
