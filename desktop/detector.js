@@ -105,18 +105,53 @@ function teamsUsaElMicrofono(salidaReg) {
   return appUsandoElMicrofono(salidaReg) === "teams";
 }
 
-// ¿Qué app está en reunión según el micrófono? (Windows)
-function hayAppConMicrofono() {
+// LOS NAVEGADORES. Una reunión en el navegador no tiene proceso propio y su
+// título se vuelve poco fiable apenas empieza (Meet cambia «abc-defg-hij» por
+// el nombre que le puso el calendario, y cada idioma escribe distinto). Pero
+// mientras la llamada corre, el navegador RETIENE el micrófono igual que
+// cualquier app de reuniones. Que un navegador lo tenga no alcanza solo (una
+// nota de voz también lo toma), así que se usa junto al título: navegador con
+// micrófono + una ventana que se llama como una reunión = reunión.
+const NAVEGADORES = [
+  /#chrome\.exe$/i,
+  /#msedge\.exe$/i,
+  /#opera(?:gx)?\.exe$/i,
+  /#brave\.exe$/i,
+  /#firefox\.exe$/i,
+  /#vivaldi\.exe$/i,
+  /#chromium\.exe$/i,
+  /#arc\.exe$/i,
+];
+function navegadorUsaElMicrofono(salidaReg) {
+  let enNavegador = false;
+  for (const cruda of String(salidaReg || "").split(/\r?\n/)) {
+    const linea = cruda.trim();
+    if (/^HKEY_/i.test(linea)) {
+      enNavegador = NAVEGADORES.some((p) => p.test(linea));
+      continue;
+    }
+    if (!enNavegador) continue;
+    const m = linea.match(/^LastUsedTimeStop\s+REG_QWORD\s+0x([0-9a-f]+)$/i);
+    if (m && /^0+$/.test(m[1])) return true;
+  }
+  return false;
+}
+
+// El registro de micrófonos, crudo, UNA sola vez por sonda (de acá salen las
+// dos preguntas: qué app de reuniones lo tiene, y si lo tiene un navegador).
+function leerRegistroDeMicrofonos() {
   return new Promise((resolve) => {
     exec(
       'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone" /s /v LastUsedTimeStop',
       { windowsHide: true },
-      (err, stdout) => {
-        if (err) return resolve(null);
-        resolve(appUsandoElMicrofono(stdout));
-      }
+      (err, stdout) => resolve(err ? "" : stdout || "")
     );
   });
+}
+
+// ¿Qué app está en reunión según el micrófono? (Windows)
+async function hayAppConMicrofono() {
+  return appUsandoElMicrofono(await leerRegistroDeMicrofonos());
 }
 
 // ── Reuniones en el navegador, por el título de la ventana ──────────────────
@@ -135,6 +170,23 @@ const REUNIONES_POR_TITULO = [
   ["jitsi", /\|\s*Jitsi Meet\b/i],
 ];
 
+// LA SEGUNDA VUELTA, más floja, que sólo se usa cuando el registro dice que
+// un NAVEGADOR tiene el micrófono tomado (o sea: en ese navegador hay una
+// llamada). Ahí ya no hace falta que el título traiga el código ni la palabra
+// «reunión»: alcanza con que la ventana se llame como la plataforma. Es lo
+// que faltaba cuando la reunión ya había empezado y Meet había cambiado el
+// código por el nombre que le puso el calendario -- «me uní en la PC y no
+// detectó que me estaba uniendo a un Meet».
+const REUNIONES_POR_TITULO_FLOJO = [
+  ["meet", /\bMeet\b/i],
+  ["teams", /\bMicrosoft Teams\b/i],
+  ["zoom", /\bZoom\b/i],
+  ["webex", /\bWebex\b/i],
+  ["jitsi", /\bJitsi\b/i],
+  ["whereby", /\bWhereby\b/i],
+  ["discord", /\bDiscord\b/i],
+];
+
 // ¿Alguna ventana está en una reunión del navegador? Devuelve
 // { plataforma, codigo? } o null. Puro texto (se prueba sin Windows).
 function reunionEnTitulos(titulos) {
@@ -146,6 +198,25 @@ function reunionEnTitulos(titulos) {
       if (!m) continue;
       const lectura = { plataforma };
       if (sacarCodigo) lectura.codigo = sacarCodigo(m);
+      return lectura;
+    }
+  }
+  return null;
+}
+
+// La lectura floja (ver la tabla de arriba): con el micrófono del navegador ya
+// confirmado, el título sólo tiene que decir de qué plataforma se trata. Si el
+// título de Meet todavía trae el código, se lo lleva: con el código la barra
+// cae en la MISMA sala que usaría la extensión.
+function reunionEnTitulosFlojo(titulos) {
+  for (const [plataforma, patron] of REUNIONES_POR_TITULO_FLOJO) {
+    for (const cruda of titulos || []) {
+      const titulo = String(cruda || "");
+      if (!titulo || /\bUnify\b/i.test(titulo)) continue;
+      if (!patron.test(titulo)) continue;
+      const lectura = { plataforma };
+      const codigo = titulo.match(/\b([a-z]{3}-[a-z]{4}-[a-z]{3})\b/i);
+      if (plataforma === "meet" && codigo) lectura.codigo = codigo[1].toLowerCase();
       return lectura;
     }
   }
@@ -282,10 +353,18 @@ let ventanas = null; // el ayudante de títulos, levantado en la primera sonda
 const memoriaNavegador = crearMemoriaDeNavegador();
 async function sondaWindows() {
   if (await hayZoomEnReunion()) return "zoom";
-  const app = await hayAppConMicrofono();
+  const reg = await leerRegistroDeMicrofonos();
+  const app = appUsandoElMicrofono(reg);
   if (app) return app;
   if (!ventanas) ventanas = crearSondaVentanas();
-  return memoriaNavegador.recordar(reunionEnTitulos(ventanas.titulos()));
+  const titulos = ventanas.titulos();
+  // Primero la lectura firme (el título dice «reunión» o trae el código).
+  // Si no hay, la floja -- pero SÓLO si un navegador tiene el micrófono
+  // tomado, que es lo que separa una reunión en curso de una pestaña de Meet
+  // abierta sin entrar.
+  let lectura = reunionEnTitulos(titulos);
+  if (!lectura && navegadorUsaElMicrofono(reg)) lectura = reunionEnTitulosFlojo(titulos);
+  return memoriaNavegador.recordar(lectura);
 }
 function detenerSondaWindows() {
   if (ventanas) ventanas.detener();
@@ -378,6 +457,8 @@ module.exports = {
   appUsandoElMicrofono,
   teamsUsaElMicrofono,
   reunionEnTitulos,
+  reunionEnTitulosFlojo,
+  navegadorUsaElMicrofono,
   crearMemoriaDeNavegador,
   crearSondaVentanas,
   GRACIA_NAVEGADOR_MS,

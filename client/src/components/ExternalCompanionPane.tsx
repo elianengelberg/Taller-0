@@ -1,49 +1,51 @@
 import { ReactNode } from "react";
+import { abrirVentanaReunion } from "../lib/ventanaReunion";
 
-// Panel companion genérico: para las plataformas que reconocemos pero que NO
-// se pueden embeber (Teams personal, Webex, Skype, Discord, o un enlace suelto
-// de videollamada). La llamada vive en su propia pestaña y Unify corre al
-// lado: subtítulos, traducción, transcripción, IA y grabación.
-//
-// Es exactamente el mismo trato que Google Meet, que tampoco se puede embeber.
-// Antes estos enlaces terminaban en "la conexión embebida todavía no está
-// disponible" y el usuario se quedaba sin nada; ahora se queda con todo lo que
-// Unify realmente puede darle sin depender de la otra plataforma.
+// La parte de la pantalla para una reunión que vive en OTRA app (Zoom, Teams,
+// o cualquier enlace que no se pueda embeber). Igual que con Meet: acá va el
+// botón para abrirla y, debajo, los subtítulos. De qué reunión se trata y en
+// qué idioma se lee ya lo dice la cabecera.
 export default function ExternalCompanionPane({
   label,
   joinLink,
   nota,
   subtitleStage,
+  compacto = false,
 }: {
   label: string;
   joinLink: string;
   /** Por qué la llamada va afuera y no adentro (si hubo un intento fallido). */
   nota?: string;
   subtitleStage?: ReactNode;
+  compacto?: boolean;
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-ink-800 px-4 py-3">
-        <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-brand-300">{label}</p>
-          <p className="truncate text-sm text-strong">La llamada se abre en {label}</p>
-        </div>
+      <div className={`px-4 ${compacto ? "pt-2" : "pt-3"}`}>
         <a
           href={joinLink}
           target="_blank"
           rel="noopener noreferrer"
-          className="ml-auto shrink-0 rounded-xl bg-brand-500 px-3.5 py-2 text-xs font-semibold text-on-accent hover:bg-brand-600"
+          onClick={(e) => {
+            e.preventDefault();
+            abrirVentanaReunion(joinLink);
+          }}
+          className={`flex items-center justify-center gap-2 rounded-2xl border border-brand-500/60 px-4 text-sm font-semibold text-brand-200 hover:bg-brand-500/10 ${
+            compacto ? "py-2" : "py-2.5"
+          }`}
         >
-          Abrir en {label}
+          Abrir la reunión en {label} →
         </a>
         {nota && (
-          <p role="note" className="w-full text-xs leading-relaxed text-warn/90">
+          <p role="note" className="mt-1.5 text-center text-[11px] leading-relaxed text-warn">
             {nota}
           </p>
         )}
-        <span className="w-full text-[11px] text-ink-500">
-          Dejá esta pantalla al lado de {label} para leer los subtítulos mientras hablan.
-        </span>
+        {!compacto && !nota && (
+          <p className="mt-1.5 text-center text-[11px] leading-snug text-ink-400">
+            La llamada se abre en {label}. Volvé acá para leer los subtítulos con su traducción.
+          </p>
+        )}
       </div>
 
       <div className="min-h-0 flex-1">{subtitleStage}</div>

@@ -5,13 +5,15 @@ import BotButton from "../components/BotButton";
 import IconButton from "../components/IconButton";
 import JitsiEmbed from "../components/JitsiEmbed";
 import LiveCaption from "../components/LiveCaption";
-import CompanionDock from "../components/CompanionDock";
 import CompanionRolesPanel from "../components/CompanionRolesPanel";
 import CompanionSubtitleStage from "../components/CompanionSubtitleStage";
 import ExternalCompanionPane from "../components/ExternalCompanionPane";
+import AjustesDeReunion from "../components/AjustesDeReunion";
+import AvisoSoloTuVoz from "../components/AvisoSoloTuVoz";
+import BarraDeReunion from "../components/BarraDeReunion";
+import EstadoDeEscucha, { ModoDeEscucha } from "../components/EstadoDeEscucha";
 import IframeEmbed from "../components/IframeEmbed";
 import MeetCompanionPane from "../components/MeetCompanionPane";
-import Logo from "../components/Logo";
 import RecordingBanner from "../components/RecordingBanner";
 import SaveMeetingPrompt from "../components/SaveMeetingPrompt";
 import SidePanel from "../components/SidePanel";
@@ -20,15 +22,12 @@ import TranscriptPanel from "../components/TranscriptPanel";
 import ZoomEmbed from "../components/ZoomEmbed";
 import {
   CaptionsIcon,
-  LogoutIcon,
   MicIcon,
   MicOffIcon,
   PeopleIcon,
   ShieldIcon,
   PhoneOffIcon,
-  RecordIcon,
   SparklesIcon,
-  StopIcon,
   TranscriptIcon,
 } from "../components/icons";
 import { useAuth } from "../context/AuthContext";
@@ -61,7 +60,7 @@ import { loadRoles, roleById, RoleMap, saveRoles } from "../lib/companionRoles";
 import { setUnsavedMeeting } from "../lib/unsavedMeeting";
 import { CompanionEmbed } from "../types";
 
-type PanelKey = "transcript" | "ai" | "roles" | null;
+type PanelKey = "transcript" | "ai" | "roles" | "ajustes" | null;
 
 // El <video> con los métodos de PiP que TypeScript no trae de fábrica:
 // los webkit* son de Safari (iPad/iPhone/Mac), el resto es el estándar.
@@ -168,6 +167,7 @@ function CompanionEmbedPane({
     case "external":
       return (
         <ExternalCompanionPane
+          compacto={compacto}
           label={embed.label}
           joinLink={embed.joinLink}
           nota={embed.nota}
@@ -275,6 +275,9 @@ export default function ExternalMeeting() {
   // avisa cada paso a la sala y acá se muestra: grabando, subiendo, guardada
   // o el motivo del fallo.
   const [grabacionBot, setGrabacionBot] = useState<{ estado: string; detalle: string | null } | null>(null);
+  // Y en qué anda el bot: es lo que contesta «¿hay alguien escuchando esta
+  // reunión aunque yo cierre esto?» -- la pregunta central de la pantalla.
+  const [faseBot, setFaseBot] = useState<string | null>(null);
   useEffect(() => {
     if (!roomKey) return;
     let vivo = true;
@@ -282,14 +285,18 @@ export default function ExternalMeeting() {
       try {
         const r = await fetch(`${SERVER_URL}/api/meet-bridge/${encodeURIComponent(roomKey)}/session`);
         if (!r.ok || !vivo) return;
-        const d = (await r.json()) as { grabacion?: { estado: string; detalle: string | null } | null };
+        const d = (await r.json()) as {
+          grabacion?: { estado: string; detalle: string | null } | null;
+          bot?: { fase: string } | null;
+        };
+        if (vivo) setFaseBot(d.bot?.fase ?? null);
         if (vivo) setGrabacionBot(d.grabacion ?? null);
       } catch {
         /* la próxima vuelta */
       }
     };
     void mirar();
-    const t = window.setInterval(() => void mirar(), 10_000);
+    const t = window.setInterval(() => void mirar(), 5_000);
     return () => {
       vivo = false;
       window.clearInterval(t);
@@ -476,10 +483,52 @@ export default function ExternalMeeting() {
       (recorder.kind === "audio" &&
         (recorder.status === "recording" || recorder.status === "processing")));
 
+  // EL MICRÓFONO NO SE PIDE POR ABRIR LA PANTALLA. Antes, al entrar, la
+  // pantalla llamaba al cartel de permisos: en el iPad eso es un cartel del
+  // sistema CADA VEZ («cada vez que abro la pantalla me tira si autorizo el
+  // micrófono»), y encima prometía algo que el navegador no puede cumplir --
+  // con la app en segundo plano no escucha nada. Ahora:
+  //   - si el permiso YA está dado, el micrófono arranca solo y en silencio
+  //     (la compu de siempre, sin cartel ni cambio);
+  //   - si no, no se pide nada hasta que la persona lo pida con un botón, y
+  //     la pantalla ofrece primero la escucha que NO depende de este aparato.
+  const [permisoMic, setPermisoMic] = useState<"granted" | "denied" | "prompt" | "desconocido">(
+    "desconocido",
+  );
+  useEffect(() => {
+    let vivo = true;
+    let estado: PermissionStatus | null = null;
+    void (async () => {
+      try {
+        const p = await navigator.permissions?.query?.({ name: "microphone" as PermissionName });
+        if (!p || !vivo) return;
+        estado = p;
+        setPermisoMic(p.state as "granted" | "denied" | "prompt");
+        p.onchange = () => vivo && setPermisoMic(p.state as "granted" | "denied" | "prompt");
+      } catch {
+        // Safari de iPhone/iPad no sabe contestar esto: queda "desconocido",
+        // que acá significa «no pidas nada hasta que te lo pidan».
+      }
+    })();
+    return () => {
+      vivo = false;
+      if (estado) estado.onchange = null;
+    };
+  }, []);
+  const [escuchaMicPedida, setEscuchaMicPedida] = useState(false);
+  const micEncendido = permisoMic === "granted" || escuchaMicPedida;
+  async function encenderMicrofono() {
+    // El toque ES el gesto que el navegador exige para mostrar su cartel.
+    const r = await pedirCartelDeMedios();
+    if (r === "bloqueado") return; // el aviso de micrófono bloqueado lo explica
+    setEscuchaMicPedida(true);
+    setMicAttempt((n) => n + 1);
+  }
+
   const { supported: captionsSupported, error: captionsError } = useSpeechRecognition({
     key: micAttempt,
     lang: spokenLang,
-    active: connectionStatus === "connected" && !micTomadoPorGrabacion,
+    active: connectionStatus === "connected" && !micTomadoPorGrabacion && micEncendido,
     onInterim: (text) => {
       setInterimCaption(text);
       // Y a la sala: si hay más gente con Unify abierto en esta reunión
@@ -502,37 +551,6 @@ export default function ExternalMeeting() {
   // cada Reintentar) se pide el micrófono para que el navegador muestre su
   // cartel nativo si el permiso está sin decidir -- nadie tiene que ir a
   // Configuración salvo que lo haya bloqueado "para siempre".
-  const cartelListoRef = useRef(false);
-  useEffect(() => {
-    // Sin reconocimiento de voz (Firefox, Safari de compu) el micrófono no
-    // sirve de nada acá: pedirlo al lado del cartel "este navegador no puede
-    // transcribir" sería un permiso sin propósito. No se pide.
-    if (!captionsSupported) return;
-    let vivo = true;
-    void (async () => {
-      try {
-        const p = await navigator.permissions?.query?.({ name: "microphone" as PermissionName });
-        if (p?.state === "granted") {
-          cartelListoRef.current = true;
-          return;
-        }
-      } catch {
-        // sin permissions.query: pedir igual
-      }
-      const r = await pedirCartelDeMedios();
-      // Con el permiso recién dado, el reconocimiento se relanza ya
-      // autorizado -- una sola vez, para no pedir en bucle donde el
-      // navegador no sabe contarnos el estado del permiso.
-      if (vivo && r === "concedido" && !cartelListoRef.current) {
-        cartelListoRef.current = true;
-        setMicAttempt((n) => n + 1);
-      }
-    })();
-    return () => {
-      vivo = false;
-    };
-  }, [micAttempt, captionsSupported]);
-
   const captionsProblem = !captionsSupported
     ? (aparato.sistema === "ios"
         ? `Este navegador de ${aparato.corto} no puede transcribir voz. Para ver subtítulos, abrí Unify en Safari; si ya estás en Safari, mandá el bot y él transcribe todo desde el servidor.`
@@ -551,7 +569,8 @@ export default function ExternalMeeting() {
   // el reconocimiento arranca sin error pero nunca le llega audio. Antes la
   // pantalla mentía "Escuchando" para siempre; ahora avisa y explica las
   // salidas reales.
-  const escuchando = connectionStatus === "connected" && captionsOn && !captionsProblem;
+  const escuchando =
+    connectionStatus === "connected" && captionsOn && micEncendido && !captionsProblem;
   const [silencioLargo, setSilencioLargo] = useState(false);
   const ultimaVozRef = useRef(Date.now());
   const transcriptLargo = meeting?.transcript.length ?? 0;
@@ -613,6 +632,20 @@ export default function ExternalMeeting() {
   const botSinParticipante =
     Boolean(botDeSala && botDeSala.platform === "zoom" && platforms?.zoomRtms) &&
     /^zoom:\d{9,12}$/.test(botDeSala?.roomKey ?? "");
+
+  // El enlace de LA REUNIÓN DE VERDAD (la que vive en Meet/Zoom/Teams), para
+  // poder volver a abrirla desde Ajustes cuando se cerró la pestaña.
+  const enlaceDeLaReunion = (() => {
+    const e = draft?.mode === "companion" ? (degraded ?? draft.embed) : null;
+    if (!e) return null;
+    if (e.kind === "meet") return e.meetLink;
+    if (e.kind === "external") return e.joinLink;
+    if (e.kind === "iframe") return e.joinLink;
+    if (e.kind === "teams") return e.meetingLink;
+    if (e.kind === "zoom") return e.joinLink ?? `https://zoom.us/j/${e.meetingNumber}`;
+    if (e.kind === "jitsi") return `https://${e.domain ?? "meet.jit.si"}/${e.roomName}`;
+    return null;
+  })();
 
   // El botón de grabar. Donde no existe capturar la pantalla (iPhone/iPad)
   // grabar significa el MICRÓFONO: pedir pantalla ahí sólo daba un error. Al
@@ -680,6 +713,46 @@ export default function ExternalMeeting() {
       : capturaPosible && (chromeSinPista || (recorder.remoteAudioTrack && !reunionSoportada))
         ? "Para que los DEMÁS también salgan en los subtítulos, actualizá Chrome (este navegador no puede transcribir el audio de la reunión)."
         : null;
+
+  // QUIÉN ESTÁ ESCUCHANDO, en una sola palabra. El orden es el de la verdad:
+  // el servidor primero (escucha toda la reunión, aunque esta pantalla se
+  // cierre), después este micrófono (que sólo oye con la app adelante), y si
+  // no hay ninguno, «nadie» -- que es cuando la pantalla tiene que ofrecer
+  // las salidas en vez de quedarse callada.
+  const servidorEscuchando =
+    faseBot === "adentro" ||
+    faseBot === "escuchando" ||
+    grabacionBot?.estado === "grabando" ||
+    grabacionBot?.estado === "subiendo" ||
+    grabacionBot?.estado === "guardada";
+  // ¿Está entrando texto DE LA REUNIÓN por el puente? Es la extensión en la
+  // pestaña de Meet, o alguien más con Unify abierto: no hace falta bot ni
+  // este micrófono, y decir «nadie escucha» mientras aparecen frases era
+  // mentir en la cara de la persona.
+  const ultimaAjena = (meeting?.transcript ?? [])
+    .filter((l) => l.speakerId !== self?.id)
+    .slice(-1)[0];
+  const entraTextoDeAfuera = Boolean(ultimaAjena && Date.now() - ultimaAjena.timestamp < 120_000);
+  const modoDeEscucha: ModoDeEscucha =
+    connectionStatus !== "connected"
+      ? "conectando"
+      : servidorEscuchando
+        ? "servidor"
+        : entraTextoDeAfuera
+          ? "puente"
+          : escuchando
+            ? "microfono"
+            : "nadie";
+  const detalleDelServidor =
+    grabacionBot?.estado === "grabando"
+      ? "Está grabando: al terminar queda en tu historial."
+      : grabacionBot?.estado === "subiendo"
+        ? "Guardando la grabación…"
+        : grabacionBot?.estado === "guardada"
+          ? "La grabación ya quedó en tu historial."
+          : grabacionBot?.estado === "fallo"
+            ? `No se pudo grabar${grabacionBot.detalle ? `: ${grabacionBot.detalle}` : "."}`
+            : null;
 
   // --- Grabación automática -------------------------------------------------
   // En una reunión externa la grabación no se pide: arranca sola. Con la
@@ -1205,93 +1278,96 @@ export default function ExternalMeeting() {
 
   return (
     <div className="flex h-dvh flex-col bg-ink-950">
-      {/* Minimal top bar: brand + which meeting we're on + who's here. All the
-          actions live in the fixed toolbar at the bottom (like Zoom / our own
-          meeting), so nothing floats around. */}
-      {/* Barra mínima: identidad y de qué reunión se trata. El estado, el idioma
-          y la invitación viven en el dock flotante sobre el video (ver el
-          diseño), no acá. */}
-      <header
-        className={`flex items-center justify-between gap-2 border-b border-ink-800 bg-ink-900/95 px-4 shadow-soft backdrop-blur-md sm:px-6 ${
-          compacto ? "py-1" : "py-2.5"
-        }`}
-      >
-        <div className="flex min-w-0 items-center gap-3">
-          {/* SIEMPRE tiene que haber un Volver a la vista (regla de la casa):
-              el Salir del dock de abajo no alcanza si no se lo reconoce. Pasa
-              por handleLeave, el salir seguro (guarda y reclama antes de irse). */}
-          <button
-            type="button"
-            onClick={handleLeave}
-            aria-label="Volver al inicio (salís de la reunión)"
-            className="-my-2 flex min-h-[44px] shrink-0 items-center gap-1 rounded-lg px-3 text-sm font-medium text-ink-300 hover:bg-ink-800 hover:text-strong"
-          >
-            <span aria-hidden>←</span> Volver
-          </button>
-          <Logo />
-          <span className="hidden truncate text-xs text-ink-400 sm:inline">{draft.roomLabel}</span>
-        </div>
-      </header>
-
-      {/* Los controles de Unify, en su propio renglón. NO flotando encima de
-          la reunión: ahí tapaban la cabecera y se comían los toques del botón
-          de entrar (ver el comentario en CompanionDock). */}
-      <CompanionDock
-        participantCount={participantCount}
-        connected={connectionStatus === "connected"}
-        targetLangChoice={targetLangChoice}
-        onTargetLangChange={setTargetLangChoice}
-        inviteUrl={inviteUrl}
-        roomLabel={draft.roomLabel}
-        onFlotantes={pipSoportado ? () => void toggleFlotantes() : null}
-        flotantesActivo={pipAbierto}
+      {/* LA CABECERA: de qué reunión se trata, cómo salir, y los dos idiomas.
+          Nada más. Todo lo demás está abajo o en Ajustes. */}
+      <BarraDeReunion
+        sala={draft.roomLabel}
+        personas={participantCount}
+        onSalir={handleLeave}
+        onInvitar={() => togglePanel("ajustes")}
+        leesEn={targetLangChoice}
+        onLeesEn={setTargetLangChoice}
         autoLabel={etiquetaDeIdioma(spokenLang)}
-        idiomaReunion={idiomaReunionElegido}
-        idiomaReunionEfectivo={etiquetaDeIdioma(langReunion)}
-        onIdiomaReunionChange={elegirIdiomaReunion}
+        hablanEn={idiomaReunionElegido}
+        onHablanEn={elegirIdiomaReunion}
+        hablanEnEfectivo={etiquetaDeIdioma(langReunion)}
         compacto={compacto}
       />
 
-      {/* La grabación del bot, dicha donde se ve. Es la respuesta a «no se
-          grabó la reunión»: o está grabando, o se dice por qué no. */}
-      {grabacionBot && (
-        <div
-          role="status"
-          className={`flex items-center justify-center gap-2 border-b px-4 py-1.5 text-xs leading-snug ${
-            grabacionBot.estado === "fallo"
-              ? "border-warn-bg/30 bg-warn-bg/10 text-warn"
-              : "border-ink-800 bg-ink-800/60 text-ink-200"
-          }`}
-        >
-          <span className="font-medium">
-            {grabacionBot.estado === "grabando"
-              ? "● El bot está grabando la reunión"
-              : grabacionBot.estado === "subiendo"
-                ? "Guardando la grabación…"
-                : grabacionBot.estado === "guardada"
-                  ? "✓ La grabación quedó en tu historial"
-                  : "No se pudo grabar la reunión"}
-          </span>
-          {grabacionBot.detalle && grabacionBot.estado === "fallo" && <span>{grabacionBot.detalle}</span>}
-        </div>
-      )}
+      {/* QUIÉN ESTÁ ESCUCHANDO. Una sola pieza en lugar de las tres franjas de
+          texto que había (aviso amarillo + nota gris + consejo), que entre
+          todas no contestaban lo único que importa: si ahora mismo se está
+          transcribiendo, y si no, qué tocar. */}
+      <EstadoDeEscucha
+        modo={modoDeEscucha}
+        problema={captionsProblem ?? avisoIdioma ?? avisoSilencio ?? avisoReunion}
+        detalleServidor={detalleDelServidor}
+        micDisponible={captionsSupported && !micBloqueado}
+        onEncenderMicrofono={escuchaMicPedida ? null : () => void encenderMicrofono()}
+        nota={
+          soloTuVozAhora ? (
+            <AvisoSoloTuVoz
+              aparato={aparato}
+              accionEscucharTodos={
+                screenCaptureSupported &&
+                draft?.mode === "companion" &&
+                (draft.embed.kind === "meet" || draft.embed.kind === "external") &&
+                !(recorder.status === "recording" && recorder.kind === "screen")
+                  ? () => {
+                      // El clic ES el gesto que getDisplayMedia exige.
+                      if (recorder.status === "recording") recorder.stop();
+                      void recorder.start();
+                    }
+                  : null
+              }
+              sinAudioCompartido={
+                recorder.status === "recording" && recorder.kind === "screen" && !recorder.remoteAudioTrack
+              }
+              navegadorSinPista={
+                capturaPosible && (chromeSinPista || Boolean(recorder.remoteAudioTrack && !reunionSoportada))
+              }
+              esMeet={draft?.mode === "companion" && draft.embed.kind === "meet"}
+            />
+          ) : null
+        }
+        accionServidor={
+          botDeSala ? (
+            <BotButton
+              compacto
+              url={botDeSala.url}
+              roomKey={botDeSala.roomKey}
+              platform={botDeSala.platform}
+              // EL IDIOMA QUE VA A ESCUCHAR EL BOT es el de la reunión, no el
+              // tuyo: el bot no oye tu micrófono, oye a los demás.
+              lang={langReunion}
+              sinParticipante={botSinParticipante}
+            />
+          ) : null
+        }
+        compacto={compacto}
+      />
 
-      {showRecHint && !compacto && (
-        <div className="flex items-center justify-center gap-3 border-b border-brand-500/30 bg-brand-500/10 px-4 py-2 text-xs text-brand-300">
-          <span>
-            Listo para grabar: tocá <span className="font-semibold">Grabar</span> y elegí la
-            pestaña de Meet con la casilla de audio tildada.
-          </span>
-          <button
-            type="button"
-            onClick={() => setRecHint(false)}
-            aria-label="Cerrar aviso de grabación"
-            className="rounded-full px-1.5 py-0.5 hover:bg-brand-500/20"
-          >
-            ✕
-          </button>
-        </div>
-      )}
+<RecordingBanner
+        status={recorder.status}
+        uploadStatus={recorder.uploadStatus}
+        error={recorder.error}
+        resultUrl={recorder.resultUrl}
+        resultType={recorder.resultType}
+        kind={recorder.kind}
+        selfCapture={recorder.selfCapture}
+        // Pasar de sólo audio a pantalla necesita un clic: getDisplayMedia
+        // exige un gesto del usuario, y este botón es ese gesto. En el
+        // celular no existe capturar pantalla: ahí el botón ni aparece.
+        onAddScreen={
+          typeof navigator.mediaDevices?.getDisplayMedia === "function"
+            ? () => {
+                recorder.stop();
+                void recorder.start();
+              }
+            : undefined
+        }
+        onDismiss={recorder.reset}
+      />
 
       {/* flex (not just relative) so the transcript/AI panel becomes a real
           column beside the embed on desktop -- SidePanel switches to
@@ -1326,85 +1402,7 @@ export default function ExternalMeeting() {
                     captionsOn && interimCaption ? draft.name || "Vos" : (interinoUtil?.speaker ?? "La reunión")
                   }
                   interimAvatarUrl={user?.avatarUrl ?? null}
-                  targetLabel={targetLabel}
-                  translationFailed={translationFailed}
-                  listening={escuchando}
-                  problem={captionsProblem ?? avisoIdioma ?? avisoSilencio ?? avisoReunion}
-                  onRetry={captionsSupported ? () => setMicAttempt((n) => n + 1) : undefined}
-                  accionEscucharTodos={
-                    screenCaptureSupported &&
-                    draft?.mode === "companion" &&
-                    (draft.embed.kind === "meet" || draft.embed.kind === "external") &&
-                    !(recorder.status === "recording" && recorder.kind === "screen")
-                      ? () => {
-                          // El clic ES el gesto que getDisplayMedia exige. Si
-                          // venía grabando sólo audio, se cierra ese tramo y
-                          // arranca el de pantalla (mismo camino que el botón
-                          // «Agregar pantalla» del banner).
-                          if (recorder.status === "recording") recorder.stop();
-                          void recorder.start();
-                        }
-                      : null
-                  }
-                  accionExtra={
-                    idiomaDetectado
-                      ? {
-                          texto: `Escuchar en ${etiquetaDeIdioma(idiomaDetectado)}`,
-                          onClick: () => setSelfLanguage(codigoCompletoDe(idiomaDetectado)),
-                        }
-                      : null
-                  }
-                  // Sólo tu voz: mientras no llegue ni una frase de otra
-                  // persona y no se esté oyendo la pista de la reunión, el
-                  // escenario lo dice y ofrece la salida de ESTE aparato.
-                  // (Antes de que la sala confirme quién sos, la transcripción
-                  // está vacía: el aviso sale desde el primer instante, sin
-                  // esperar al socket.)
-                  soloTuVoz={soloTuVozAhora}
-                  sinAudioCompartido={
-                    recorder.status === "recording" && recorder.kind === "screen" && !recorder.remoteAudioTrack
-                  }
-                  navegadorSinPista={
-                    capturaPosible && (chromeSinPista || Boolean(recorder.remoteAudioTrack && !reunionSoportada))
-                  }
-                  esMeet={draft?.mode === "companion" && draft.embed.kind === "meet"}
                   compacto={compacto}
-                  accionBot={
-                    botDeSala ? (
-                      <BotButton
-                        url={botDeSala.url}
-                        roomKey={botDeSala.roomKey}
-                        platform={botDeSala.platform}
-                        // EL IDIOMA QUE VA A ESCUCHAR EL BOT es el de la
-                        // reunión, no el tuyo. El bot no oye tu micrófono: oye
-                        // a los demás. Mandándole el tuyo, una reunión en otro
-                        // idioma le llegaba al reconocedor configurado mal y
-                        // salían palabras inventadas -- o no salía nada. En
-                        // «Automático» esto ES tu idioma, así que el caso de
-                        // siempre no cambia.
-                        lang={langReunion}
-                        sinParticipante={botSinParticipante}
-                        titulo={`¿${aparato.corto} no escucha la reunión?`}
-                        descripcion={
-                          botSinParticipante
-                            ? `Pedile a Zoom que le transmita la reunión a Unify: sin participante extra y sin usar el micrófono de ${aparato.nombre}, así que funciona aunque la llamada esté en este mismo aparato.`
-                            : `Mandá el bot: entra a la reunión, graba y transcribe todo desde el servidor. No usa el micrófono de ${aparato.nombre}, así que funciona aunque la llamada esté en este mismo aparato.`
-                        }
-                      />
-                    ) : null
-                  }
-                  // La nota del micrófono de iPhone/iPad se apaga cuando el
-                  // aviso de «sólo se oye tu voz» ya lo explica (decían lo
-                  // mismo, apilado). La de la app de escritorio NO: es la
-                  // única señal de que se está grabando.
-                  notaGrabacion={
-                    escritorioRef.current && recorder.status === "idle"
-                      ? "El video lo está grabando la app de Unify (la pantalla, con el audio del sistema): al cortar la reunión aparece solo en tu historial. Esta barra pone los subtítulos, la traducción y la IA."
-                      : grabacionCedida && recorder.status === "idle" && !soloTuVozAhora
-                        ? `En ${aparato.corto} el micrófono es de una sola cosa a la vez, así que la grabación automática está en pausa para que anden los subtítulos. Si querés que quede el video y la transcripción completa en el historial, mandá el bot: graba desde el servidor y no usa este micrófono. También podés tocar «Grabar» abajo para guardar el audio (mientras dure, los subtítulos se pausan).`
-                        : null
-                  }
-                  participantCount={participantCount}
                 />
               }
             />
@@ -1445,27 +1443,6 @@ export default function ExternalMeeting() {
             />
           )}
 
-          <RecordingBanner
-            status={recorder.status}
-            uploadStatus={recorder.uploadStatus}
-            error={recorder.error}
-            resultUrl={recorder.resultUrl}
-            resultType={recorder.resultType}
-            kind={recorder.kind}
-            selfCapture={recorder.selfCapture}
-            // Pasar de sólo audio a pantalla necesita un clic: getDisplayMedia
-            // exige un gesto del usuario, y este botón es ese gesto. En el
-            // celular no existe capturar pantalla: ahí el botón ni aparece.
-            onAddScreen={
-              typeof navigator.mediaDevices?.getDisplayMedia === "function"
-                ? () => {
-                    recorder.stop();
-                    void recorder.start();
-                  }
-                : undefined
-            }
-            onDismiss={recorder.reset}
-          />
         </div>
 
         {/* SidePanel positions itself (overlay on mobile, static column on
@@ -1491,6 +1468,31 @@ export default function ExternalMeeting() {
           />
         )}
 
+        {activePanel === "ajustes" && (
+          <SidePanel title="Ajustes de la reunión" onClose={() => setActivePanel(null)}>
+            <AjustesDeReunion
+              invitarUrl={inviteUrl}
+              onRoles={() => setActivePanel("roles")}
+              grabando={recording}
+              onGrabar={toggleRecording}
+              puedeGrabar={Boolean(draft)}
+              notaGrabar={
+                grabacionCedida
+                  ? `En ${aparato.corto} el micrófono es de una sola cosa a la vez: mientras grabás, los subtítulos se pausan. Si querés las dos cosas, que escuche Unify desde el servidor.`
+                  : null
+              }
+              abrir={
+                enlaceDeLaReunion
+                  ? {
+                      etiqueta: draft.roomLabel || "la reunión",
+                      alAbrir: () => abrirVentanaReunion(enlaceDeLaReunion),
+                    }
+                  : null
+              }
+            />
+          </SidePanel>
+        )}
+
         {activePanel === "ai" && (
           <SidePanel title="Asistente IA" onClose={() => setActivePanel(null)}>
             {meeting?.dbId ? (
@@ -1508,10 +1510,13 @@ export default function ExternalMeeting() {
         )}
       </div>
 
-      {/* Fixed bottom toolbar -- the Unify layer's controls. Mic / camera /
-          screen-share / participants come from the embedded platform's own
-          toolbar; these are the tools we add on top. */}
-      <div className="flex items-center justify-center gap-2 border-t border-ink-800 bg-ink-900/95 px-3 py-3 shadow-top backdrop-blur-md sm:gap-3 sm:px-6">
+      {/* LA BARRA DE ABAJO: sólo lo que HACE algo en esta reunión. Antes eran
+          seis o siete botones -- entre ellos «Salir de Unify» perdido entre
+          iconitos, y en algunas reuniones dos que no tocaban nada -- y ninguno
+          decía para qué servía hasta apretarlo. Ahora: los subtítulos (lo que
+          se está mirando), los flotantes (para leer sobre otra app), la
+          transcripción, la IA y Ajustes. Salir vive arriba, con su nombre. */}
+      <div className="flex items-center justify-center gap-1.5 border-t border-ink-800 bg-ink-900/95 px-2 py-2.5 shadow-top backdrop-blur-md sm:gap-3 sm:px-6">
         <IconButton
           label="Mostrar u ocultar los subtítulos en vivo"
           caption="Subtítulos"
@@ -1520,6 +1525,19 @@ export default function ExternalMeeting() {
         >
           <CaptionsIcon className="h-5 w-5" />
         </IconButton>
+        {pipSoportado && (
+          <IconButton
+            label="Una ventanita con los subtítulos que queda SIEMPRE encima de las demás apps"
+            caption={pipAbierto ? "Flotantes ✓" : "Subtítulos flotantes"}
+            active={pipAbierto}
+            onClick={() => void toggleFlotantes()}
+          >
+            <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" aria-hidden>
+              <rect x="1.5" y="3.5" width="17" height="13" rx="2" stroke="currentColor" strokeWidth="1.6" />
+              <rect x="9.5" y="9.5" width="7" height="5" rx="1.2" fill="currentColor" />
+            </svg>
+          </IconButton>
+        )}
         <IconButton
           label="Ver la transcripción completa y traducciones"
           caption="Transcripción"
@@ -1529,14 +1547,6 @@ export default function ExternalMeeting() {
           <TranscriptIcon className="h-5 w-5" />
         </IconButton>
         <IconButton
-          label="Asignar roles a los participantes"
-          caption="Roles"
-          active={activePanel === "roles"}
-          onClick={() => togglePanel("roles")}
-        >
-          <ShieldIcon className="h-5 w-5" />
-        </IconButton>
-        <IconButton
           label="Abrir el asistente de IA de la reunión"
           caption="IA"
           active={activePanel === "ai"}
@@ -1544,24 +1554,9 @@ export default function ExternalMeeting() {
         >
           <SparklesIcon className="h-5 w-5" />
         </IconButton>
-        <div className={showRecHint ? "animate-pulse" : undefined}>
-          <IconButton
-            label={
-              recording
-                ? "Detener grabación"
-                : !screenCaptureSupported
-                  ? "Grabar el audio por el micrófono (mientras grabás, los subtítulos se pausan)"
-                  : 'Grabar la reunión (elegí "esta pestaña" y tildá compartir audio)'
-            }
-            caption={recording ? "Grabando" : "Grabar"}
-            danger={recording}
-            onClick={toggleRecording}
-          >
-            {recording ? <StopIcon className="h-5 w-5" /> : <RecordIcon className="h-5 w-5" />}
-          </IconButton>
-        </div>
-        {/* Con la extensión en la pestaña de Meet, estos SÍ tocan la
-            reunión: ella aprieta los botones de Meet. */}
+        {/* Con la extensión en la pestaña de Meet, estos SÍ tocan la reunión:
+            ella aprieta los botones de Meet. Sin extensión no aparecen, en vez
+            de mostrar botones que no harían nada. */}
         {extensionViva && (
           <>
             <IconButton
@@ -1583,24 +1578,15 @@ export default function ExternalMeeting() {
             </IconButton>
           </>
         )}
-        {/* «Salir» cierra la capa de Unify, no la llamada. Con el teléfono
-            rojo parecía el botón de cortar de la reunión y no cortaba nada. */}
         <IconButton
-          label="Salir de Unify (la reunión sigue en su app)"
-          caption="Salir de Unify"
-          onClick={handleLeave}
+          label="Ajustes de esta reunión: invitar, roles, grabar, texto grande"
+          caption="Ajustes"
+          active={activePanel === "ajustes"}
+          onClick={() => togglePanel("ajustes")}
         >
-          <LogoutIcon className="h-5 w-5" />
+          <ShieldIcon className="h-5 w-5" />
         </IconButton>
       </div>
-      {/* Sin la extensión no hay forma de tocar la reunión desde acá: se dice
-          dónde están esos botones en vez de mostrar unos que no harían nada. */}
-      {draft?.mode === "companion" && !extensionViva && (
-        <p className="border-t border-ink-800 bg-ink-900/95 px-4 pb-2 text-center text-[11px] leading-snug text-ink-400">
-          Tu micrófono y cortar la llamada están en {draft.roomLabel || "la reunión"}: estos botones
-          son los de Unify (subtítulos, transcripción, IA y grabación).
-        </p>
-      )}
       {pendingLeave && <SaveMeetingPrompt onSave={confirmSaveMeeting} onSkip={skipSaveMeeting} />}
       {savingRecording && (
         // Tokens de tema (la versión anterior era texto blanco sobre una

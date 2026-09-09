@@ -24,6 +24,13 @@ interface Props {
    * sólo para quien lo pide a propósito (una reunión de otra cuenta).
    */
   sinParticipante?: boolean;
+  /**
+   * SIN TARJETA. En la pantalla nueva de reunión externa esto ya vive DENTRO
+   * de la tarjeta que pregunta quién está escuchando, así que acá sobra el
+   * marco, el título y la bajada: queda el botón (principal, porque es la
+   * salida que no depende de este aparato) y lo que tenga para contestar.
+   */
+  compacto?: boolean;
 }
 
 // EL BOT NUNCA ENTRA SOLO. Estuvo un tiempo mandándose automáticamente en
@@ -53,6 +60,7 @@ export default function BotButton({
   lang,
   titulo,
   descripcion,
+  compacto = false,
   sinParticipante = false,
 }: Props) {
   const { user } = useAuth();
@@ -219,10 +227,26 @@ export default function BotButton({
         ? "Mandando el bot…"
         : "Que entre el bot por mí";
 
+  const etiquetaCompacta = escuchaSinBot
+    ? estado?.tipo === "ok"
+      ? "Unify ya está escuchando ✓"
+      : mandando
+        ? "Avisando a la reunión…"
+        : "Que Unify escuche toda la reunión"
+    : estado?.tipo === "ok"
+      ? "Unify ya está escuchando ✓"
+      : mandando
+        ? "Entrando a la reunión…"
+        : "Que Unify escuche toda la reunión";
+
   return (
-    <div className="mt-4 rounded-xl border border-ink-700 bg-ink-800/40 p-3">
-      <p className="text-sm font-medium text-strong">{tituloFinal}</p>
-      <p className="mt-1 text-xs leading-relaxed text-ink-400">{descripcionFinal}</p>
+    <div className={compacto ? "" : "mt-4 rounded-xl border border-ink-700 bg-ink-800/40 p-3"}>
+      {!compacto && (
+        <>
+          <p className="text-sm font-medium text-strong">{tituloFinal}</p>
+          <p className="mt-1 text-xs leading-relaxed text-ink-400">{descripcionFinal}</p>
+        </>
+      )}
       {/* El bot graba A TU NOMBRE (la reunión queda en tu historial): sin
           sesión, el servidor lo rechaza -- mejor decirlo ANTES del toque que
           fallar en silencio, que es lo que pasaba. */}
@@ -230,18 +254,30 @@ export default function BotButton({
         <button
           type="button"
           onClick={() => navigate("/ingresar")}
-          className="mt-2.5 w-full rounded-xl border border-brand-500/50 px-4 py-2.5 text-sm font-semibold text-brand-200 hover:bg-brand-500/10"
+          className={
+            compacto
+              ? "w-full rounded-xl bg-brand-500 px-4 py-2.5 text-sm font-bold text-on-accent shadow-sm hover:bg-brand-600"
+              : "mt-2.5 w-full rounded-xl border border-brand-500/50 px-4 py-2.5 text-sm font-semibold text-brand-200 hover:bg-brand-500/10"
+          }
         >
-          {escuchaSinBot ? "Iniciá sesión para que Unify escuche" : "Iniciá sesión para mandar el bot"}
+          {compacto
+            ? "Iniciá sesión para que Unify escuche toda la reunión"
+            : escuchaSinBot
+              ? "Iniciá sesión para que Unify escuche"
+              : "Iniciá sesión para mandar el bot"}
         </button>
       ) : (
         <button
           type="button"
           onClick={() => void mandar(modoVisible)}
           disabled={mandando || estado?.tipo === "ok"}
-          className="mt-2.5 w-full rounded-xl border border-brand-500/50 px-4 py-2.5 text-sm font-semibold text-brand-200 hover:bg-brand-500/10 disabled:opacity-60"
+          className={
+            compacto
+              ? "w-full rounded-xl bg-brand-500 px-4 py-2.5 text-sm font-bold text-on-accent shadow-sm hover:bg-brand-600 disabled:opacity-60"
+              : "mt-2.5 w-full rounded-xl border border-brand-500/50 px-4 py-2.5 text-sm font-semibold text-brand-200 hover:bg-brand-500/10 disabled:opacity-60"
+          }
         >
-          {etiqueta}
+          {compacto ? etiquetaCompacta : etiqueta}
         </button>
       )}
       {estado && (

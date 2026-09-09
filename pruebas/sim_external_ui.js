@@ -184,9 +184,13 @@ async function detectAndJoin(page, link, { passcode } = {}) {
     // sala tiene que verse, no asomar por detrás («hay un label encima de otro»).
     {
       const codigoTapado = await p.evaluate(() => {
-        const el = [...document.querySelectorAll("p")].find((x) =>
-          /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/.test((x.textContent || "").trim()),
+        // El código vive en la cabecera, dentro del nombre de la sala
+        // («Google Meet · abc-defg-hij»): se busca el elemento MÁS CHICO que
+        // lo contenga, que es el que se ve.
+        const todos = [...document.querySelectorAll("span, p")].filter((x) =>
+          /\b[a-z]{3}-[a-z]{4}-[a-z]{3}\b/.test((x.textContent || "").trim()),
         );
+        const el = todos.sort((a, b) => (a.textContent || "").length - (b.textContent || "").length)[0];
         if (!el) return { hay: false };
         const r = el.getBoundingClientRect();
         const arriba = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
@@ -336,12 +340,24 @@ async function detectAndJoin(page, link, { passcode } = {}) {
     await p.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
     await p.waitForTimeout(2500);
     const pedidos = await p.evaluate(() => window.__gumPedidos);
-    check("al entrar, el cartel de permisos se dispara solo (getUserMedia)",
-      pedidos.length > 0, JSON.stringify(pedidos).slice(0, 120));
-    check("y pide micrófono Y cámara juntos (un solo cartel)",
-      pedidos.some((c) => {
+    // ABRIR LA PANTALLA NO PIDE EL MICRÓFONO. Antes sí, y en el iPad eso es un
+    // cartel del sistema CADA VEZ que se entra («cada vez que abro la pantalla
+    // me tira si autorizo el micrófono») -- para una escucha que además se
+    // corta apenas la app pasa a segundo plano. Ahora la pantalla ofrece
+    // primero la escucha que NO depende de este aparato, y el micrófono se
+    // pide sólo cuando la persona lo pide.
+    check("al entrar, la pantalla NO dispara el cartel de permisos por su cuenta",
+      pedidos.length === 0, JSON.stringify(pedidos).slice(0, 120));
+    const botonMic = p.getByRole("button", { name: /Usar el micrófono de este aparato/i });
+    check("y ofrece prender el micrófono con un botón, dicho con todas las letras",
+      (await botonMic.count()) === 1);
+    await botonMic.first().click();
+    await p.waitForTimeout(1200);
+    const trasTocar = await p.evaluate(() => window.__gumPedidos);
+    check("recién ahí se pide el permiso, y pide micrófono Y cámara juntos (un solo cartel)",
+      trasTocar.some((c) => {
         try { const o = JSON.parse(c); return o.audio === true && o.video === true; } catch { return false; }
-      }));
+      }), JSON.stringify(trasTocar).slice(0, 120));
     await p.close();
   }
 
@@ -379,8 +395,11 @@ async function detectAndJoin(page, link, { passcode } = {}) {
     check("Jitsi con script bloqueado: no crashea, muestra algo", errs.length === 0, errs[0] || "");
     // Regla de la casa: DENTRO de la reunión también tiene que haber un
     // Volver a la vista en el encabezado (el Salir del dock no alcanza).
-    check("Jitsi adentro: hay un Volver en el encabezado",
-      (await p.getByRole("button", { name: /Volver/i }).count()) > 0);
+    // La regla es que haya una SALIDA a la vista en el encabezado. Ahora se
+    // llama «Salir» (con su ícono), que es lo que hace: sale de Unify y la
+    // reunión sigue en su app.
+    check("Jitsi adentro: hay una salida a la vista en el encabezado",
+      (await p.getByRole("button", { name: /Volver|Salir/i }).count()) > 0);
     await p.close();
   }
 

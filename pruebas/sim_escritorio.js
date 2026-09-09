@@ -192,6 +192,32 @@ async function probarDetector(check) {
     titulo(["Daily | Jitsi Meet - Opera"]) === '{"plataforma":"jitsi"}');
   check("YouTube, TeamSpeak y compañía NO son reuniones",
     reunionEnTitulos(["YouTube - Google Chrome", "TeamSpeak 3", "Meeting notes.docx - Word", "Microsoft Teams"]) === null);
+
+  // LA REUNIÓN YA EMPEZADA. Apenas se entra, Meet cambia el código del título
+  // por el nombre que le puso el calendario -- y ahí la lectura estricta se
+  // queda sin nada («me uní en la PC y no detectó que me estaba uniendo a un
+  // Meet»). La señal que faltaba: el navegador RETIENE el micrófono mientras
+  // la llamada corre, igual que cualquier app de reuniones.
+  const { reunionEnTitulosFlojo, navegadorUsaElMicrofono } = require(path.join(DESK, "detector.js"));
+  check("una reunión de Meet con nombre (sin código en el título) NO la ve la lectura estricta",
+    reunionEnTitulos(["Meet – Reunión semanal de equipo - Google Chrome"]) === null);
+  check("pero sí la floja, que es la que se usa con el micrófono del navegador tomado",
+    JSON.stringify(reunionEnTitulosFlojo(["Meet – Reunión semanal de equipo - Google Chrome"])) === '{"plataforma":"meet"}',
+    JSON.stringify(reunionEnTitulosFlojo(["Meet – Reunión semanal de equipo - Google Chrome"])));
+  check("y si el título todavía trae el código, se lo lleva (misma sala que la extensión)",
+    JSON.stringify(reunionEnTitulosFlojo(["Meet - abc-defg-hij - Opera"])) === '{"plataforma":"meet","codigo":"abc-defg-hij"}');
+  check("la barra de Unify sigue sin detectarse a sí misma ni en la lectura floja",
+    reunionEnTitulosFlojo(["Google Meet · abc-defg-hij · Unify"]) === null);
+  check("Chrome con el micrófono tomado se reconoce como NAVEGADOR en reunión",
+    navegadorUsaElMicrofono(bloque("NonPackaged\\C:#Program Files#Google#Chrome#Application#chrome.exe")) === true);
+  check("y Opera GX también",
+    navegadorUsaElMicrofono(bloque("NonPackaged\\C:#Program Files#Opera GX#opera.exe")) === true);
+  check("un navegador que NO tiene el micrófono no cuenta",
+    navegadorUsaElMicrofono(
+      'HKEY_CURRENT_USER\\...\\microphone\\NonPackaged\\C:#Program Files#Google#Chrome#Application#chrome.exe\n    LastUsedTimeStop    REG_QWORD    0x1d9f8e2\n'
+    ) === false);
+  check("y Teams con el micrófono NO se confunde con un navegador",
+    navegadorUsaElMicrofono(bloque("MSTeams_8wekyb3d8bbwe!MSTeams")) === false);
   // Cambiar de pestaña esconde el título: la reunión se sostiene un rato.
   const memoria = crearMemoriaDeNavegador(1000);
   check("al cambiar de pestaña la reunión del navegador se sostiene (gracia)",

@@ -31,20 +31,18 @@ export default function RecordingBanner({
   if (status === "idle") return null;
 
   if (status === "recording") {
-    // En el teléfono, top-4 chocaba con la barra de Unify: baja un escalón
-    // (los dos estados con tarjeta usan el mismo corrimiento).
     return (
-      // La CAJA no recibe toques: es un cartel, no un control. Con
-      // pointer-events en la caja, sus huecos se comían los clics de lo que
-      // hubiera debajo -- el botón de entrar a la reunión, entre otros. Lo que
-      // sí se toca (los botones de adentro) los vuelve a pedir.
-      <div className="pointer-events-none absolute left-1/2 top-16 flex max-w-[92vw] -translate-x-1/2 flex-col items-center gap-1.5">
-        <div className="pointer-events-none flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1.5 text-xs font-semibold text-on-accent shadow-soft">
+      // EN EL FLUJO, NO ENCIMA. Esto flotaba con position absolute sobre la
+      // pantalla y caía justo sobre la primera frase de los subtítulos: otra
+      // vez un cartel tapando lo que la persona vino a leer (y antes,
+      // comiéndose los toques del botón de abajo). Ahora ocupa su renglón.
+      <div className="flex flex-col items-center gap-1.5 border-b border-ink-800 bg-ink-900/60 px-4 py-1.5">
+        <div className="flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1.5 text-xs font-semibold text-on-accent shadow-soft">
           <RecordIcon className="h-3 w-3 animate-pulse" />
           {kind === "audio" ? "Grabando audio" : "Grabando"}
         </div>
         {kind === "audio" ? (
-          <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-2 rounded-2xl bg-black/70 px-3 py-1.5 text-[11px] text-ink-200 shadow-soft">
+          <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl bg-black/70 px-3 py-1.5 text-[11px] text-ink-200 shadow-soft">
             <span>Estamos grabando el audio. ¿Querés que quede el video y escuchar a TODOS (no sólo tu voz)?</span>
             {onAddScreen && (
               <button
@@ -57,12 +55,12 @@ export default function RecordingBanner({
             )}
           </div>
         ) : selfCapture ? (
-          <div className="pointer-events-none rounded-2xl bg-amber-500/90 px-3 py-1.5 text-[11px] font-medium text-ink-950 shadow-soft">
+          <div className="rounded-2xl bg-amber-500/90 px-3 py-1.5 text-[11px] font-medium text-ink-950 shadow-soft">
             Estás grabando la pantalla entera, así que Unify se ve dentro del video. Para evitarlo,
             detené y elegí sólo la ventana de la reunión.
           </div>
         ) : (
-          <div className="pointer-events-none rounded-full bg-black/60 px-3 py-1 text-[11px] text-ink-200 shadow-soft">
+          <div className="rounded-full bg-black/60 px-3 py-1 text-[11px] text-ink-200 shadow-soft">
             Tu voz queda grabada siempre. Para grabar también lo que dicen los demás, compartí "esta
             pestaña" con la casilla de audio tildada.
           </div>
@@ -73,7 +71,7 @@ export default function RecordingBanner({
 
   if (status === "processing") {
     return (
-      <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2">
+      <div className="flex justify-center border-b border-ink-800 bg-ink-900/60 px-4 py-1.5">
         <div className="rounded-full bg-ink-800/90 px-3 py-1.5 text-xs font-medium text-strong shadow-soft">
           Procesando grabación…
         </div>
@@ -83,8 +81,8 @@ export default function RecordingBanner({
 
   if (status === "error") {
     return (
-      <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 px-4">
-        <div className="pointer-events-auto flex items-center gap-2 rounded-xl bg-red-600/90 px-3 py-2 text-xs font-medium text-on-accent shadow-soft">
+      <div className="flex justify-center border-b border-ink-800 bg-ink-900/60 px-4 py-1.5">
+        <div className="flex items-center gap-2 rounded-xl bg-red-600/90 px-3 py-2 text-xs font-medium text-on-accent shadow-soft">
           {error ?? "No se pudo grabar."}
           <button
             type="button"
@@ -100,8 +98,8 @@ export default function RecordingBanner({
   }
 
   return (
-    <div className="pointer-events-none absolute left-1/2 top-16 w-full max-w-sm -translate-x-1/2 px-4">
-      <div className="pointer-events-auto rounded-xl border border-ink-700 bg-ink-800 p-3 shadow-soft">
+    <div className="mx-auto w-full max-w-sm px-4 py-2">
+      <div className="rounded-xl border border-ink-700 bg-ink-800 p-3 shadow-soft">
         <div className="flex items-start justify-between gap-2">
           <p className="text-sm font-semibold text-strong">Grabación lista</p>
           <button
