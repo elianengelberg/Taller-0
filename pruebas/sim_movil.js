@@ -352,17 +352,27 @@ async function botonesChicos(p, minimo = 40) {
         !/Grabando audio/i.test(cuerpoMic), cuerpoMic.slice(0, 80).replace(/\n/g, " "));
       check("y la pantalla explica por qué la grabación está en pausa",
         /una sola cosa a la vez/i.test(cuerpoMic));
-      check("y ofrece el bot ahí mismo, que graba sin usar este micrófono",
-        /entre el bot por mí|mandar el bot/i.test(cuerpoMic));
+      // La escucha del servidor dejó de llamarse «el bot» en la pantalla: se
+      // llama por lo que hace. El texto viejo se sigue aceptando.
+      check("y ofrece ahí mismo la escucha del servidor, que no usa este micrófono",
+        /Que Unify escuche toda la reunión|entre el bot por mí|mandar el bot/i.test(cuerpoMic), cuerpoMic.slice(0, 90).replace(/\n/g, " "));
 
       // Y si igual quiere grabar el audio: el traspaso del micrófono. Los
       // subtítulos lo SUELTAN primero y recién ahí graba (pedirlo de una era
       // el mismo choque: ni subtítulos ni grabación).
+      // Grabar dejó la barra de abajo (que quedó con lo que se usa todo el
+      // tiempo) y vive en Ajustes, con su explicación al lado.
+      const ajustes = pm.getByRole("button", { name: /Ajustes de esta reunión/i });
+      if (await ajustes.count()) { await ajustes.first().tap(); await pm.waitForTimeout(600); }
       const grabar = pm.getByRole("button", { name: /Grabar el audio por el micrófono/i });
       check("en iPhone el botón ofrece grabar el AUDIO (no una pantalla que no existe)",
         (await grabar.count()) > 0);
       if (await grabar.count()) {
         await grabar.first().tap();
+        // Con la grabación en marcha, el panel ya cumplió: se cierra y el
+        // control queda donde se ve que está grabando (el cartel de arriba,
+        // con su «Detener grabación» al lado).
+        await pm.getByRole("button", { name: /Cerrar panel/i }).first().tap().catch(() => {});
         await pm.waitForTimeout(3000);
         const grabando = (await pm.locator("body").textContent()) || "";
         check("tocarlo SÍ graba (el traspaso del micrófono funciona)",
@@ -481,7 +491,8 @@ async function botonesChicos(p, minimo = 40) {
       const esperarW = async (fn, ms) => { const h = Date.now() + ms; while (Date.now() < h) { if (await fn()) return true; await sleep(400); } return false; };
       check("en iPhone el escenario dice la verdad: con la reunión en este aparato sólo se oye tu voz",
         await esperarW(async () => /sólo le deja oír tu voz/i.test(await cuerpoW()), 6000), (await cuerpoW()).slice(0, 120).replace(/\n/g, " "));
-      check("y ofrece el bot como salida para transcribir a todos", (await pw.getByRole("button", { name: /bot/i }).count()) >= 1);
+      check("y ofrece la escucha del servidor como salida para transcribir a todos",
+        (await pw.getByRole("button", { name: /Que Unify escuche toda la reunión|bot/i }).count()) >= 1);
       await fetch(`${API}/api/meet-bridge/${encodeURIComponent("google-meet:pwa-inst-ala")}/transcript`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ speaker: "Bruno", text: "hola desde la reunión, ¿me escuchan?", lang: "es-AR" }),

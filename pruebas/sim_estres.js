@@ -227,7 +227,7 @@ async function videoTracks(page) {
         if (await b.count()) await b.click({ timeout: 3000 }).catch(() => {});
       }
       // Selector de idioma y la invitación, que abren capas encima.
-      const lang = p.getByTitle(/Idioma en el que ves los subtítulos/i);
+      const lang = p.getByLabel("Traducir los subtítulos a");
       if (await lang.count()) await lang.selectOption(round === 0 ? "en-US" : "es-AR").catch(() => {});
       const inv = p.getByTitle(/Invitar a los demás/i);
       if (await inv.count()) { await inv.click().catch(() => {}); await inv.click().catch(() => {}); }

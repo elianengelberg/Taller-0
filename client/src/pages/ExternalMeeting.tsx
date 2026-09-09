@@ -733,6 +733,21 @@ export default function ExternalMeeting() {
     .filter((l) => l.speakerId !== self?.id)
     .slice(-1)[0];
   const entraTextoDeAfuera = Boolean(ultimaAjena && Date.now() - ultimaAjena.timestamp < 120_000);
+  // EL BOTÓN DE LA ESCUCHA DEL SERVIDOR, uno solo, usado donde haga falta:
+  // en la tarjeta de «no escucha nadie» y dentro del aviso de «sólo tu voz»
+  // (en un teléfono es la única salida real).
+  const botCompacto = botDeSala ? (
+    <BotButton
+      compacto
+      url={botDeSala.url}
+      roomKey={botDeSala.roomKey}
+      platform={botDeSala.platform}
+      // EL IDIOMA QUE VA A ESCUCHAR EL BOT es el de la reunión, no el tuyo: el
+      // bot no oye tu micrófono, oye a los demás.
+      lang={langReunion}
+      sinParticipante={botSinParticipante}
+    />
+  ) : null;
   const modoDeEscucha: ModoDeEscucha =
     connectionStatus !== "connected"
       ? "conectando"
@@ -850,18 +865,32 @@ export default function ExternalMeeting() {
   const savingDeadlineRef = useRef(0);
 
   // Runs `exit` now, or defers it until the recording finishes uploading.
+  // SALIR SALE. «El botón de salir de la reunión no anda» era esto: si había
+  // una grabación subiendo, tocar Salir dejaba a la persona hasta TREINTA
+  // segundos mirando un cartel, sin entender por qué seguía adentro. Y la
+  // espera no hacía falta: el archivo se guarda en el navegador ANTES de
+  // intentar subirlo (ver recordingVault), así que irse en medio de la subida
+  // no pierde nada -- se reintenta sola al volver a abrir Unify.
+  // Lo único que sí hay que esperar es que el archivo TERMINE de armarse, que
+  // es cosa de un segundo, y con un tope corto por las dudas.
   function exitWhenSaved(exit: () => void) {
-    const busy =
+    const guardando =
       recorder.status === "recording" ||
       recorder.status === "processing" ||
       recorder.uploadStatus === "uploading";
-    if (!busy) {
+    if (!guardando) {
       exit();
       return;
     }
     if (recorder.status === "recording") recorder.stop();
     pendingExitRef.current = exit;
-    savingDeadlineRef.current = Date.now() + 30000;
+    // OCHO SEGUNDOS, NO TREINTA. Se espera lo justo para que el archivo
+    // termine de armarse y la subida arranque; pasado eso se sale igual,
+    // porque el archivo ya está guardado en este navegador y se reintenta
+    // solo al volver a abrir Unify. Con treinta, quien tocaba «Salir» se
+    // quedaba medio minuto mirando un cartel sin entender por qué seguía
+    // adentro -- que es como se ve un botón que «no anda».
+    savingDeadlineRef.current = Date.now() + 8000;
     setSavingRecording(true);
   }
 
@@ -1277,7 +1306,11 @@ export default function ExternalMeeting() {
   const recording = recorder.status === "recording";
 
   return (
-    <div className="flex h-dvh flex-col bg-ink-950">
+    // El estado de la conexión, legible por fuera: las pruebas (y cualquiera
+    // que mire el DOM) preguntaban por un texto de la interfaz —«Companion
+    // activo»— que vivía en una barra que ya no existe. Un dato es un dato;
+    // el texto puede cambiar cuando la pantalla mejora.
+    <div className="flex h-dvh flex-col bg-ink-950" data-conexion={connectionStatus}>
       {/* LA CABECERA: de qué reunión se trata, cómo salir, y los dos idiomas.
           Nada más. Todo lo demás está abajo o en Ajustes. */}
       <BarraDeReunion
@@ -1302,8 +1335,16 @@ export default function ExternalMeeting() {
         modo={modoDeEscucha}
         problema={captionsProblem ?? avisoIdioma ?? avisoSilencio ?? avisoReunion}
         detalleServidor={detalleDelServidor}
+        // La app de escritorio graba el video por su cuenta: si esta pantalla
+        // no lo dijera, la persona creería que no se está grabando nada.
+        aclaracion={
+          escritorioRef.current && recorder.status === "idle"
+            ? "El video lo está grabando la app de Unify (la pantalla, con el audio del sistema): al cortar la reunión aparece solo en tu historial."
+            : null
+        }
         micDisponible={captionsSupported && !micBloqueado}
         onEncenderMicrofono={escuchaMicPedida ? null : () => void encenderMicrofono()}
+        accionServidor={botCompacto}
         nota={
           soloTuVozAhora ? (
             <AvisoSoloTuVoz
@@ -1320,6 +1361,11 @@ export default function ExternalMeeting() {
                     }
                   : null
               }
+              // La salida del servidor va también acá, salvo cuando la tarjeta
+              // de arriba ya la está ofreciendo (si no, el mismo botón dos
+              // veces). En un teléfono ES la única salida: sin esto, el aviso
+              // explicaba el problema y no daba con qué arreglarlo.
+              accionBot={modoDeEscucha === "nadie" ? null : botCompacto}
               sinAudioCompartido={
                 recorder.status === "recording" && recorder.kind === "screen" && !recorder.remoteAudioTrack
               }
@@ -1327,20 +1373,6 @@ export default function ExternalMeeting() {
                 capturaPosible && (chromeSinPista || Boolean(recorder.remoteAudioTrack && !reunionSoportada))
               }
               esMeet={draft?.mode === "companion" && draft.embed.kind === "meet"}
-            />
-          ) : null
-        }
-        accionServidor={
-          botDeSala ? (
-            <BotButton
-              compacto
-              url={botDeSala.url}
-              roomKey={botDeSala.roomKey}
-              platform={botDeSala.platform}
-              // EL IDIOMA QUE VA A ESCUCHAR EL BOT es el de la reunión, no el
-              // tuyo: el bot no oye tu micrófono, oye a los demás.
-              lang={langReunion}
-              sinParticipante={botSinParticipante}
             />
           ) : null
         }
@@ -1366,6 +1398,10 @@ export default function ExternalMeeting() {
               }
             : undefined
         }
+        // Detener, DONDE SE VE que está grabando. Antes era un iconito en la
+        // barra de abajo, lejos del cartel: quien quería parar tenía que
+        // adivinar cuál de seis botones era.
+        onStop={recording ? () => recorder.stop() : undefined}
         onDismiss={recorder.reset}
       />
 
@@ -1476,6 +1512,11 @@ export default function ExternalMeeting() {
               grabando={recording}
               onGrabar={toggleRecording}
               puedeGrabar={Boolean(draft)}
+              textoGrabar={
+                screenCaptureSupported
+                  ? "Grabar la reunión (pantalla y audio)"
+                  : "Grabar el audio por el micrófono"
+              }
               notaGrabar={
                 grabacionCedida
                   ? `En ${aparato.corto} el micrófono es de una sola cosa a la vez: mientras grabás, los subtítulos se pausan. Si querés las dos cosas, que escuche Unify desde el servidor.`
@@ -1527,7 +1568,15 @@ export default function ExternalMeeting() {
         </IconButton>
         {pipSoportado && (
           <IconButton
-            label="Una ventanita con los subtítulos que queda SIEMPRE encima de las demás apps"
+            // El nombre del botón ARRANCA con lo que se lee debajo de él: así
+            // se llama igual para quien mira, para un lector de pantalla y
+            // para una prueba. La explicación va después, no en lugar del
+            // nombre.
+            label={
+              pipAbierto
+                ? "Flotantes ✓ — la ventanita de subtítulos está abierta; tocá para cerrarla"
+                : "Subtítulos flotantes — una ventanita con los subtítulos que queda SIEMPRE encima de las demás apps"
+            }
             caption={pipAbierto ? "Flotantes ✓" : "Subtítulos flotantes"}
             active={pipAbierto}
             onClick={() => void toggleFlotantes()}
@@ -1599,10 +1648,8 @@ export default function ExternalMeeting() {
               <p className="text-sm font-semibold text-strong">Guardando la grabación…</p>
               <p className="mt-1 text-xs leading-relaxed text-ink-300">
                 {recorder.status === "processing"
-                  ? "Preparando el archivo del video…"
-                  : recorder.uploadStatus === "uploading"
-                    ? "Subiendo la grabación al historial…"
-                    : "Terminando de guardar…"}
+                  ? "Terminando de armar el archivo…"
+                  : "Mandándola a tu historial…"}
               </p>
             </div>
             <button
@@ -1613,8 +1660,8 @@ export default function ExternalMeeting() {
               Salir igual
             </button>
             <p className="text-[11px] leading-snug text-ink-400">
-              Si salís, la subida sigue sola; y si no llega, la grabación queda guardada en este
-              dispositivo y se reintenta desde el historial.
+              La grabación ya queda guardada en este dispositivo: si la subida no llega, se
+              reintenta sola la próxima vez que abras Unify.
             </p>
           </div>
         </div>

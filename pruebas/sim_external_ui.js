@@ -180,6 +180,44 @@ async function detectAndJoin(page, link, { passcode } = {}) {
         tapado.hay && tapado.encima.length === 0,
         tapado.hay ? tapado.encima.join(" | ") || "libre" : "no se encontró el botón");
     }
+    // SALIR TIENE QUE SALIR. «El botón de salir de la reunión no anda» fue un
+    // reporte real: entre seis iconitos, y con carteles flotando encima que se
+    // comían el toque, no se sabía cuál era ni si había hecho algo. Ahora está
+    // arriba a la izquierda, con la palabra escrita, y acá se comprueba lo
+    // único que importa: que al tocarlo la pantalla se cierre de verdad.
+    {
+      const p2 = await ctx.newPage();
+      await p2.addInitScript(() => { window.open = () => null; });
+      await p2.route("**fonts.g**", (r) => r.abort());
+      await detectAndJoin(p2, "https://meet.google.com/sal-irde-uni");
+      await p2.getByRole("button", { name: /Unirme acá dentro/i }).click();
+      await p2.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
+      await p2.waitForTimeout(2000);
+      const salir = p2.getByRole("button", { name: /^Salir$/ });
+      check("la pantalla tiene un botón «Salir» con todas las letras, arriba",
+        (await salir.count()) === 1);
+      await salir.first().click();
+      // Como invitada, Unify pregunta si quiere guardar la reunión en una
+      // cuenta antes de irse (es lo correcto: si no, lo grabado se pierde).
+      // Lo que se prueba acá es que el toque HAGA algo y que, contestando, se
+      // salga -- no que se vaya de una.
+      const pregunta = p2.getByText(/¿Guardar esta reunión\?/i);
+      const preguntó = await pregunta
+        .first()
+        .waitFor({ state: "visible", timeout: 5000 })
+        .then(() => true)
+        .catch(() => false);
+      check("el toque hace algo: sale, o pregunta si guardar la reunión antes de salir",
+        preguntó || !/\/externa\/reunion/.test(new URL(p2.url()).pathname), p2.url());
+      if (preguntó) await p2.getByRole("button", { name: /No, gracias/i }).click();
+      const seFue = await p2
+        .waitForURL((u) => !/\/externa\/reunion/.test(u.pathname), { timeout: 12000 })
+        .then(() => true)
+        .catch(() => false);
+      check("y al tocarlo se sale de verdad de la reunión", seFue, p2.url());
+      await p2.close();
+    }
+
     // Y LA CABECERA DE LA REUNIÓN NO QUEDA DEBAJO DE LA BARRA: el código de la
     // sala tiene que verse, no asomar por detrás («hay un label encima de otro»).
     {

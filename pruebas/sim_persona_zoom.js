@@ -170,6 +170,10 @@ const json = (obj) => ({ method: "POST", headers: { "Content-Type": "application
 
   // ═══════ 2. Ana igual quiere grabar la PANTALLA desde la barra (manual) ═══════
   console.log("\n── 2. Grabar pantalla con audio ──");
+  // Grabar vive en Ajustes: la barra de abajo quedó con lo que se usa todo el
+  // tiempo (subtítulos, flotantes, transcripción, IA).
+  await p.getByRole("button", { name: /Ajustes de esta reunión/i }).click();
+  await dormir(500);
   await p.getByRole("button", { name: /Grabar la reunión/ }).click(); // manual: graba pantalla
   let conPista = false;
   for (let i = 0; i < 20 && !conPista; i++) {

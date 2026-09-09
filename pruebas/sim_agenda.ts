@@ -200,7 +200,9 @@ const compact = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, "").
   // Y el bot que entró de verdad dejó su línea en el bridge / la sala en vivo.
   const vio = await (async () => {
     for (let i = 0; i < 40; i++) {
-      if (lineas.some((l) => l.speakerName === "Unify Notetaker" && /entró solo/.test(l.text))) return true;
+      // El bot firma como «Voces de la reunión»: oye la mezcla y no sabe
+      // quién habló (su nombre, BOT_NAME, es cómo aparece EN la reunión).
+      if (lineas.some((l) => l.speakerName === "Voces de la reunión" && /entró solo/.test(l.text))) return true;
       await sleep(500);
     }
     return false;

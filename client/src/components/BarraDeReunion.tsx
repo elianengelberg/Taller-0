@@ -58,6 +58,10 @@ export default function BarraDeReunion({
           type="button"
           onClick={onInvitar}
           className="ml-auto flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl border border-ink-600 px-3 text-sm font-semibold text-ink-100 hover:border-brand-400 hover:text-strong"
+          // El número solo no dice de qué es: el nombre accesible lo dice
+          // («2 en Unify»), que es además lo que leen un lector de pantalla y
+          // las pruebas.
+          aria-label={`${personas} en Unify — invitar a los demás a esta reunión`}
           title="Quién está en Unify, e invitar a los demás a esta reunión"
         >
           <PeopleIcon className="h-4 w-4" />

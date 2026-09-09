@@ -142,7 +142,7 @@ async function join(page, link, name = "Tester") {
         (await p.getByText(/subtítulos aparecen acá|Escuchando|Sin transcribir/i).count()) > 0 &&
           (await p.locator("#zoom-inline-passcode").count()) === 0);
       check("Zoom companion: ofrece abrir la llamada en Zoom",
-        (await p.getByRole("link", { name: /Abrir en Zoom/i }).count()) > 0);
+        (await p.getByRole("link", { name: /Abrir (la reunión )?en Zoom/i }).count()) > 0);
     }
     check("Zoom companion sin errores", bag.length === 0, bag[0] || "");
     await p.close();
@@ -159,7 +159,7 @@ async function join(page, link, name = "Tester") {
       // La sala compartida se arma con el id de la reunión, no con la URL entera.
       const key = await p.evaluate(() => localStorage.getItem("unify_external_name") !== null);
       check("Teams personal: ofrece abrir la llamada en Teams",
-        (await p.getByRole("link", { name: /Abrir en Teams/i }).count()) > 0, String(key));
+        (await p.getByRole("link", { name: /Abrir (la reunión )?en Teams/i }).count()) > 0, String(key));
     }
     check("Teams personal sin errores", bag.length === 0, bag[0] || "");
     await p.close();
@@ -175,7 +175,7 @@ async function join(page, link, name = "Tester") {
       check("Jitsi degradado: sigue habiendo pantalla de subtítulos",
         (await p.getByText(/subtítulos aparecen acá|Escuchando|Sin transcribir/i).count()) > 0);
       check("Jitsi degradado: ofrece abrirlo en Jitsi",
-        (await p.getByRole("link", { name: /Abrir en Jitsi/i }).count()) > 0);
+        (await p.getByRole("link", { name: /Abrir (la reunión )?en Jitsi/i }).count()) > 0);
     }
     check("Jitsi degradado sin errores", bag.length === 0, bag[0] || "");
     await p.close();
@@ -188,9 +188,11 @@ async function join(page, link, name = "Tester") {
     await join(a, `https://teams.live.com/meet/${id}?p=AAA`, "Ana");
     await join(b2, `https://teams.live.com/meet/${id}?p=BBB&anon=true`, "Bruno");
     await sleep(2500);
-    const aBody = (await a.locator("body").textContent()) || "";
-    check("dos parámetros distintos = la MISMA sala de Unify", /2 en Unify|2 personas|Ana|Bruno/.test(aBody),
-      aBody.match(/\d+ en Unify/)?.[0] || "no se ve el contador");
+    // El contador vive en la cabecera: se lee por su nombre accesible («2 en
+    // Unify»), no por el número suelto que se ve al lado del ícono.
+    const contador = await a.getByRole("button", { name: /\d+ en Unify/ }).first().getAttribute("aria-label").catch(() => null);
+    check("dos parámetros distintos = la MISMA sala de Unify", /^2 en Unify/.test(contador || ""),
+      contador || "no se ve el contador");
     await a.close(); await b2.close();
   }
 
@@ -203,7 +205,7 @@ async function join(page, link, name = "Tester") {
     await p.route("**/api/translate", (r) =>
       r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ translatedText: "translated line" }) }));
     await join(p, `https://meet.google.com/${code}`, "Anfitrión");
-    const lang = p.getByTitle(/Idioma en el que ves los subtítulos/i);
+    const lang = p.getByLabel("Traducir los subtítulos a");
     if (await exigir(lang, "el selector «Traducir a» está en el dock")) await lang.selectOption("en-US");
 
     const socks = [];

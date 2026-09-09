@@ -12,6 +12,7 @@ export default function AjustesDeReunion({
   grabando,
   onGrabar,
   puedeGrabar,
+  textoGrabar,
   notaGrabar,
   abrir,
 }: {
@@ -21,6 +22,12 @@ export default function AjustesDeReunion({
   grabando: boolean;
   onGrabar: () => void;
   puedeGrabar: boolean;
+  /**
+   * Cómo se llama grabar EN ESTE APARATO: en iPhone y iPad no existe capturar
+   * la pantalla, así que ofrecer «grabar la pantalla» sería ofrecer algo que
+   * no está. Lo manda la pantalla, que es la que conoce el aparato.
+   */
+  textoGrabar?: string;
   /** Por qué grabar acá tiene su costo (iPhone/iPad: se pausan los subtítulos). */
   notaGrabar?: string | null;
   /** Abrir la reunión de verdad, en su app. */
@@ -90,7 +97,7 @@ export default function AjustesDeReunion({
           }
         >
           <Boton onClick={onGrabar} peligro={grabando}>
-            {grabando ? "Detener la grabación" : "Empezar a grabar"}
+            {grabando ? "Detener grabación" : (textoGrabar ?? "Empezar a grabar")}
           </Boton>
         </Fila>
       )}

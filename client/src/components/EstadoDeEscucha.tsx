@@ -17,6 +17,7 @@ export default function EstadoDeEscucha({
   modo,
   problema,
   detalleServidor,
+  aclaracion,
   onEncenderMicrofono,
   micDisponible,
   accionServidor,
@@ -40,6 +41,12 @@ export default function EstadoDeEscucha({
    * el estado de la escucha se lee en un solo lugar.
    */
   nota?: ReactNode;
+  /**
+   * Una aclaración que la persona MERECE leer aunque todo ande bien (hoy: que
+   * el video lo está grabando la app de escritorio, no esta pantalla). Sin
+   * esto, alguien puede creer que no se está grabando nada.
+   */
+  aclaracion?: string | null;
   compacto?: boolean;
 }) {
   // La nota («por ahora sólo se oye tu voz» y su salida) no depende del
@@ -47,7 +54,16 @@ export default function EstadoDeEscucha({
   // instante, también mientras conecta -- si esperara a la conexión, el
   // consejo aparecería tarde, justo cuando la persona ya se preguntó por qué
   // no se escucha a nadie.
-  const conNota = nota ? <div className="border-b border-ink-800 bg-ink-900/60 px-4 py-2">{nota}</div> : null;
+  const conNota = (
+    <>
+      {nota && <div className="border-b border-ink-800 bg-ink-900/60 px-4 py-2">{nota}</div>}
+      {aclaracion && (
+        <Renglon tono="neutro" compacto={compacto}>
+          {aclaracion}
+        </Renglon>
+      )}
+    </>
+  );
 
   if (modo === "conectando") {
     return (
@@ -110,6 +126,7 @@ export default function EstadoDeEscucha({
         )}
         {accionServidor}
         {nota}
+        {aclaracion && <p className="text-xs leading-relaxed text-ink-400">{aclaracion}</p>}
         {onEncenderMicrofono && micDisponible && (
           <div>
             <button

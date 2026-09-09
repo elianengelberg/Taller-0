@@ -14,6 +14,12 @@ interface Props {
   selfCapture?: boolean;
   /** Pasar de sólo audio a pantalla completa: necesita un clic (gesto). */
   onAddScreen?: () => void;
+  /**
+   * Detener la grabación, DONDE SE VE que está grabando. Antes esto era un
+   * iconito en la barra de abajo, lejos del cartel que anuncia la grabación:
+   * quien quería parar tenía que adivinar cuál de seis botones era.
+   */
+  onStop?: () => void;
   onDismiss: () => void;
 }
 
@@ -26,6 +32,7 @@ export default function RecordingBanner({
   kind = "screen",
   selfCapture,
   onAddScreen,
+  onStop,
   onDismiss,
 }: Props) {
   if (status === "idle") return null;
@@ -37,9 +44,20 @@ export default function RecordingBanner({
       // vez un cartel tapando lo que la persona vino a leer (y antes,
       // comiéndose los toques del botón de abajo). Ahora ocupa su renglón.
       <div className="flex flex-col items-center gap-1.5 border-b border-ink-800 bg-ink-900/60 px-4 py-1.5">
-        <div className="flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1.5 text-xs font-semibold text-on-accent shadow-soft">
-          <RecordIcon className="h-3 w-3 animate-pulse" />
-          {kind === "audio" ? "Grabando audio" : "Grabando"}
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <span className="flex items-center gap-2 rounded-full bg-red-600/90 px-3 py-1.5 text-xs font-semibold text-on-accent shadow-soft">
+            <RecordIcon className="h-3 w-3 animate-pulse" />
+            {kind === "audio" ? "Grabando audio" : "Grabando"}
+          </span>
+          {onStop && (
+            <button
+              type="button"
+              onClick={onStop}
+              className="min-h-[32px] rounded-full border border-ink-600 px-3 py-1 text-xs font-semibold text-ink-100 hover:border-danger hover:text-danger"
+            >
+              Detener grabación
+            </button>
+          )}
         </div>
         {kind === "audio" ? (
           <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl bg-black/70 px-3 py-1.5 text-[11px] text-ink-200 shadow-soft">

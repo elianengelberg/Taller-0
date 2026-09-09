@@ -182,9 +182,15 @@ function watch(page, bag) {
       await pg.waitForTimeout(2600);
     }
     await sleep(1500);
-    const txt = (await a.locator("body").textContent()) || "";
+    // El contador está en la cabecera y se lee por su nombre accesible («2 en
+    // Unify»): al lado del ícono se ve sólo el número.
+    const cuenta = await a
+      .getByRole("button", { name: /\d+ en Unify/ })
+      .first()
+      .getAttribute("aria-label")
+      .catch(() => null);
     check("dos personas con el mismo enlace (query distinto) comparten sala",
-      /2 en Unify/.test(txt), txt.match(/\d+ en Unify/)?.[0] || "no comparten");
+      /^2 en Unify/.test(cuenta || ""), cuenta || "no comparten");
     await a.close(); await b3.close();
   }
   {

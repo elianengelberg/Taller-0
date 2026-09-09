@@ -87,19 +87,22 @@ async function joinExternal(page, link, name = "Tester") {
     }
     check(`${label}: entra sin romperse (en la reunión y con la capa conectada)`,
       page.url().includes("/externa/reunion") &&
-        /Companion activo/.test((await page.locator("body").textContent()) || ""),
+        (await page.locator("[data-conexion=connected]").count()) > 0,
       page.url());
 
     if (joined) {
       // Recorrer TODOS los paneles y controles, que es donde suele romperse.
-      for (const nombre of [/Ver la transcripción completa/i, /Asignar roles/i, /Abrir el asistente de IA/i]) {
+      // Los paneles de la barra de abajo, que es donde suele romperse. Roles
+      // ya no tiene botón propio: vive dentro de Ajustes (la barra quedó con
+      // lo que se usa todo el tiempo).
+      for (const nombre of [/Ver la transcripción completa/i, /Abrir el asistente de IA/i, /Ajustes de esta reunión/i]) {
         const b = page.getByRole("button", { name: nombre });
         if (await b.count()) { await b.first().click(); await page.waitForTimeout(500); }
       }
       // Subtítulos on/off e idioma
       const cap = page.getByRole("button", { name: /subtítulos/i });
       if (await cap.count()) { await cap.first().click(); await page.waitForTimeout(300); await cap.first().click(); }
-      const lang = page.getByTitle(/Idioma en el que ves los subtítulos/i);
+      const lang = page.getByLabel("Traducir los subtítulos a");
       if (await lang.count()) { await lang.selectOption("en-US"); await page.waitForTimeout(400); }
       // Abrir/cerrar la invitación
       const inv = page.getByTitle(/Invitar a los demás/i);
@@ -131,7 +134,7 @@ async function joinExternal(page, link, name = "Tester") {
       await page.route("**fonts.g**", (r) => r.abort());
       await page.goto(`${B}/externa?link=${encodeURIComponent(`https://meet.google.com/${meetCode()}`)}`, { waitUntil: "domcontentloaded" });
       await page.waitForTimeout(4000);
-      if (/Companion activo/.test((await page.locator("body").textContent()) || "")) conectadas++;
+      if ((await page.locator("[data-conexion=connected]").count()) > 0) conectadas++;
       connectsEnLaPrimera.push(primera ? primera.connects : -1);
       await page.close();
     }
@@ -153,10 +156,10 @@ async function joinExternal(page, link, name = "Tester") {
     const entro = await joinExternal(page, `https://meet.google.com/${code}`, "Anfitrión");
     check("entra a la reunión externa y conecta la capa de Unify",
       entro && page.url().includes("/externa/reunion") &&
-        /Companion activo/.test((await page.locator("body").textContent()) || ""),
+        (await page.locator("[data-conexion=connected]").count()) > 0,
       page.url());
-    const lang = page.getByTitle(/Idioma en el que ves los subtítulos/i);
-    if (await exigir(lang, "el selector «Traducir a» está en el dock")) await lang.selectOption("en-US");
+    const lang = page.getByLabel("Traducir los subtítulos a");
+    if (await exigir(lang, "el selector «Lo leés en» está en la cabecera")) await lang.selectOption("en-US");
 
     // Tres personas hablando desde otros dispositivos.
     const socks = [];
@@ -190,10 +193,12 @@ async function joinExternal(page, link, name = "Tester") {
     check("sobrevive a un corte de red simulado", bag.length === 0, bag.slice(0, 2).join(" | "));
 
     // ---- Salir limpio ----
-    // El botón cambió de nombre a propósito («Salir de Unify»: el teléfono
-    // rojo parecía cortar la llamada de Meet y no cortaba nada). Se acepta
-    // cualquiera de los dos: lo que se prueba es que HAYA una salida.
-    const salir = page.getByRole("button", { name: /Salir de (la reunión|Unify)/i });
+    // La salida vive arriba a la izquierda y se llama «Salir», con la palabra
+    // escrita (antes era un iconito entre otros seis y no se reconocía: «el
+    // botón de salir de la reunión no anda»). Se aceptan los nombres viejos
+    // por si algo quedó a mitad de camino: lo que se prueba es que HAYA una
+    // salida y que salga.
+    const salir = page.getByRole("button", { name: /^Salir$|Salir de (la reunión|Unify)/i });
     if (await exigir(salir, "hay un botón para salir de la reunión")) { await salir.click(); await sleep(1200); }
     // Como invitado, Unify pregunta si querés guardar la reunión en una cuenta
     // antes de salir: es lo correcto, hay que responderle.
@@ -244,8 +249,8 @@ async function joinExternal(page, link, name = "Tester") {
       body: JSON.stringify({ speaker: "Ana", text: "arrancamos con el presupuesto del trimestre", lang: "es-AR" }),
     }).catch(() => {});
     await sleep(1500);
-    const salir = page.getByRole("button", { name: /Salir de (la reunión|Unify)/i });
-    if (await exigir(salir, "la invitada tiene el botón para salir")) await salir.click();
+    const salir = page.getByRole("button", { name: /^Salir$|Salir de (la reunión|Unify)/i });
+    if (await exigir(salir, "la invitada tiene el botón para salir")) await salir.first().click();
     const guardar = page.getByRole("button", { name: /Guardar \(iniciar sesión\)/i }).first();
     await guardar.waitFor({ state: "visible", timeout: 6000 }).catch(() => {});
     if (await exigir(guardar, "al salir puede elegir «Guardar (iniciar sesión)»")) {
@@ -333,7 +338,7 @@ async function joinExternal(page, link, name = "Tester") {
     check("Zoom de otra cuenta: entra a la reunión externa igual", page.url().includes("/externa/reunion"), page.url());
     check("y pidió la firma (intentó de verdad el SDK)", firmas() >= 1, `firmas=${firmas()}`);
     check("NO pide una contraseña que la reunión no tiene", (await page.locator("#zoom-inline-passcode").count()) === 0 && (await page.getByRole("alertdialog").count()) === 0);
-    const abrir = page.getByRole("link", { name: /Abrir en Zoom/i });
+    const abrir = page.getByRole("link", { name: /Abrir (la reunión )?en Zoom/i });
     check("sigue sola con Unify al lado, con el botón para abrir la reunión en Zoom", (await abrir.count()) === 1);
     const href = (await abrir.first().getAttribute("href").catch(() => "")) || "";
     check("y el botón lleva al enlace REAL (con el número y su pwd, que Zoom sí entiende)", href.includes("89123456789") && href.includes("pwd=Q2xhdWRlUGFzcw"), href);
@@ -341,7 +346,7 @@ async function joinExternal(page, link, name = "Tester") {
     check("explica por qué (otra cuenta de Zoom) en vez de dejar un error críptico", /otra cuenta/i.test(nota) && /Zoom/.test(nota), nota.slice(0, 90));
     // Salir tiene que SALIR (con algo que guardar, pregunta; y la pregunta se ve).
     await unaFraseEnZoom();
-    await page.getByRole("button", { name: /Salir de (la reunión|Unify)/i }).click();
+    await page.getByRole("button", { name: /^Salir$|Salir de (la reunión|Unify)/i }).first().click();
     const dialogo = page.getByRole("dialog", { name: /Guardar esta reunión/i });
     await dialogo.waitFor({ state: "visible", timeout: 6000 }).catch(() => {});
     check("al salir, el aviso de guardar aparece A LA VISTA", (await dialogo.count()) === 1 && (await dialogo.isVisible().catch(() => false)));
@@ -414,7 +419,7 @@ async function joinExternal(page, link, name = "Tester") {
     await page.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
     await page.waitForTimeout(1500);
     check("con ese MISMO clic se abre la reunión en Zoom (enlace real, con pwd)", Boolean(nueva) && urlZoom.includes("zoom.us/j/89123456789") && urlZoom.includes("pwd=Q2xhdWRlUGFzcw"), urlZoom || nueva?.url() || "sin ventana");
-    check("y Unify queda al lado, en la reunión", page.url().includes("/externa/reunion") && (await page.getByRole("link", { name: /Abrir en Zoom/i }).count()) === 1, page.url());
+    check("y Unify queda al lado, en la reunión", page.url().includes("/externa/reunion") && (await page.getByRole("link", { name: /Abrir (la reunión )?en Zoom/i }).count()) === 1, page.url());
     check("sin pasar por el SDK (ni una firma pedida)", firmas === 0, `firmas=${firmas}`);
     check("sin errores de JS en el camino directo", bag.length === 0, bag.slice(0, 2).join(" | "));
     await ctxZ.close();
@@ -436,7 +441,7 @@ async function joinExternal(page, link, name = "Tester") {
     await page.getByRole("button", { name: /Unirme acá dentro/i }).click();
     await page.waitForURL(/\/externa\/reunion/, { timeout: 15000 }).catch(() => {});
     await page.waitForTimeout(2500);
-    await page.getByRole("button", { name: /Salir de (la reunión|Unify)/i }).click();
+    await page.getByRole("button", { name: /^Salir$|Salir de (la reunión|Unify)/i }).first().click();
     await page.waitForURL((u) => new URL(u).pathname === "/", { timeout: 8000 }).catch(() => {});
     check("sin nada dicho ni grabado, «Salir» no pregunta: va al inicio", new URL(page.url()).pathname === "/" && (await page.getByRole("dialog", { name: /Guardar esta reunión/i }).count()) === 0, page.url());
     check("sin errores de JS al salir de una reunión vacía", bag.length === 0, bag.slice(0, 2).join(" | "));
