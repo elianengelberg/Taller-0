@@ -329,19 +329,56 @@ export interface DetectedMeeting {
 // with. An Outlook "safelink" or a Google redirect is not a meeting link, but
 // it CONTAINS one -- without this, pasting a Teams invite straight out of
 // Outlook is simply not recognized.
+// La reunión ENVUELTA en otro enlace. Compartir un Meet desde el iPhone o el
+// iPad no copia meet.google.com: copia el enlace dinámico de Google
+// (`https://meet.app.goo.gl/?link=https://meet.google.com/abc-defg-hij&apn=…`),
+// y eso llegaba acá como "no reconocimos ese enlace" -- con la reunión
+// escrita adentro. Lo mismo hacen el correo de la empresa (Outlook Safe
+// Links), los buscadores y las redes.
+//
+// Dos pasadas: los envoltorios CONOCIDOS por el parámetro con el que cada uno
+// guarda el destino, y -- para los que todavía no conocemos -- cualquier
+// parámetro cuyo valor sea un enlace de una plataforma de reuniones conocida.
+// Esa segunda pasada es segura justamente porque exige un dominio conocido:
+// nunca sigue a un lugar cualquiera.
+const PARAMETROS_DE_ENVOLTORIO = ["url", "q", "u", "link", "deeplink", "target", "redirect", "continue", "dest", "destination"];
+
+function enlaceEnvuelto(url: URL): string | null {
+  const host = url.hostname.toLowerCase();
+  const conocido =
+    host.endsWith("safelinks.protection.outlook.com") || host.endsWith("protection.outlook.com")
+      ? url.searchParams.get("url")
+      : host === "www.google.com" || host === "google.com"
+        ? url.searchParams.get("q")
+        : host === "l.facebook.com" || host === "lm.facebook.com"
+          ? url.searchParams.get("u")
+          : host === "out.reddit.com" || host === "href.li"
+            ? url.searchParams.get("url")
+            : // Enlaces dinámicos de Firebase: los que arma «Compartir» en el
+              // iPhone/iPad y en Android (meet.app.goo.gl, *.page.link).
+              host.endsWith("app.goo.gl") || host.endsWith("page.link")
+              ? url.searchParams.get("link")
+              : null;
+  if (conocido) return conocido;
+  // El envoltorio desconocido: se acepta sólo si adentro hay una plataforma
+  // de reuniones conocida.
+  for (const clave of PARAMETROS_DE_ENVOLTORIO) {
+    const valor = url.searchParams.get(clave);
+    if (!valor) continue;
+    try {
+      const candidato = new URL(safeDecode(valor));
+      const h = candidato.hostname.toLowerCase();
+      if (KNOWN_MEETING_DOMAINS.some((d) => h === d || h.endsWith(`.${d}`))) return valor;
+    } catch {
+      /* no era una URL: seguir con el próximo parámetro */
+    }
+  }
+  return null;
+}
+
 function unwrapRedirects(url: URL): URL {
   for (let i = 0; i < 3; i++) {
-    const host = url.hostname.toLowerCase();
-    const wrapped =
-      host.endsWith("safelinks.protection.outlook.com") || host.endsWith("protection.outlook.com")
-        ? url.searchParams.get("url")
-        : host === "www.google.com" || host === "google.com"
-          ? url.searchParams.get("q")
-          : host === "l.facebook.com" || host === "lm.facebook.com"
-            ? url.searchParams.get("u")
-            : host === "out.reddit.com" || host === "href.li"
-              ? url.searchParams.get("url")
-              : null;
+    const wrapped = enlaceEnvuelto(url);
     if (!wrapped) return url;
     try {
       const next = new URL(safeDecode(wrapped));

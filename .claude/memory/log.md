@@ -468,3 +468,8 @@ pages/{Meeting,ExternalJoin,ExternalMeeting,Home}.tsx}.
   - `extension/prompt-injector.js` (overlay flotante): memoria propia por hablante + sala.
   - La extensión ya traducía con `source:"auto"` en su panel y ya defaulteaba `cfg.lang` al idioma del navegador: eso estaba bien.
 - Pruebas: `sim_idioma` 35/35 (memoria en las TRES copias: hereda por sala, no contagia otra sala, se corrige al cambiar de idioma, vence, tope); `sim_bridge`: tras una frase larga en inglés, «Okay»/«yes, exactly»/«perfect» de esa persona viajan como `en`, y quien habla español no se contagia. Extensión 4.10.7.
+
+## 2026-09-09 — «No reconocimos ese enlace»: era el envoltorio de Compartir del iPad
+- Captura real: pegó `https://meet.app.goo.gl/?link=https://meet.google.com/oof-mhix-auh&apn=…&ibi=…`. Compartir un Meet desde iPhone/iPad (y Android) no copia meet.google.com: copia el ENLACE DINÁMICO de Firebase. `unwrapRedirects` conocía Outlook Safe Links, google.com/url?q, facebook y href.li, pero no `*.app.goo.gl` / `*.page.link` (parámetro `link`).
+- `client/src/lib/meetingPlatforms.ts`: `enlaceEnvuelto(url)` con los envoltorios conocidos + `PARAMETROS_DE_ENVOLTORIO` (url, q, u, link, deeplink, target, redirect, continue, dest, destination) para los DESCONOCIDOS, aceptando sólo si el valor apunta a un `KNOWN_MEETING_DOMAINS` (así no se sigue a cualquier lado). Hasta 3 saltos, como antes.
+- `sim_plataformas`: los cuatro casos (meet.app.goo.gl crudo y codificado, Zoom por Safe Links, envoltorio desconocido con Meet adentro) y el negativo (envoltorio desconocido con un sitio cualquiera → no se sigue).

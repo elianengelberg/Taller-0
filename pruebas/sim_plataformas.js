@@ -73,6 +73,46 @@ function watch(page, bag) {
       `nombre=${body.includes(expectName)} unirse=${offers}`);
   }
 
+  // LA REUNIÓN ENVUELTA EN OTRO ENLACE. Compartir un Meet desde el iPhone o
+  // el iPad no copia meet.google.com: copia el enlace dinámico de Google
+  // (meet.app.goo.gl/?link=…), y eso salía como "no reconocimos ese enlace"
+  // con la reunión escrita adentro. Pasó de verdad. Lo mismo con el correo de
+  // la empresa (Outlook Safe Links) y con envoltorios que ni conocemos.
+  const envueltos = [
+    ["el enlace que copia «Compartir» en iPhone/iPad (meet.app.goo.gl)",
+      "https://meet.app.goo.gl/?link=https://meet.google.com/oof-mhix-auh&apn=com.google.android.apps.meetings&ibi=com.google.Meet&isi=1013231476",
+      "Google Meet", "oof-mhix-auh"],
+    ["el mismo, con el destino codificado",
+      "https://meet.app.goo.gl/?link=https%3A%2F%2Fmeet.google.com%2Foof-mhix-auh&apn=x",
+      "Google Meet", "oof-mhix-auh"],
+    ["un Zoom que pasó por el filtro de enlaces de Outlook",
+      "https://nam12.safelinks.protection.outlook.com/?url=https%3A%2F%2Fzoom.us%2Fj%2F98765432101&data=abc",
+      "Zoom", "98765432101"],
+    ["un envoltorio que no conocemos, con una reunión conocida adentro",
+      "https://redirector.miempresa.com/r?dest=https%3A%2F%2Fmeet.google.com%2Fabc-defg-hij",
+      "Google Meet", "abc-defg-hij"],
+  ];
+  for (const [label, link, nombre, id] of envueltos) {
+    await page.goto(`${B}/externa`, { waitUntil: "domcontentloaded" });
+    await page.getByLabel("Enlace de la reunión").fill(link);
+    await page.waitForTimeout(500);
+    const cuerpo = (await page.locator("body").textContent()) || "";
+    check(`${label}: se desenvuelve y se reconoce la reunión`,
+      cuerpo.includes(nombre) && cuerpo.includes(id) && !/No reconocimos/i.test(cuerpo),
+      cuerpo.slice(0, 90).replace(/\s+/g, " "));
+  }
+  // Y no se sigue a cualquier lado: un envoltorio desconocido con algo que no
+  // es una reunión NO se desenvuelve.
+  await page.goto(`${B}/externa`, { waitUntil: "domcontentloaded" });
+  await page.getByLabel("Enlace de la reunión").fill("https://redirector.miempresa.com/r?dest=https%3A%2F%2Fsitio-cualquiera.com%2Fpagina");
+  await page.waitForTimeout(500);
+  {
+    const cuerpoNeg = (await page.locator("body").textContent()) || "";
+    check("un envoltorio desconocido no lleva a cualquier lado (sólo se sigue a plataformas conocidas)",
+      /No conocemos redirector\.miempresa\.com/i.test(cuerpoNeg) && !/sitio-cualquiera/i.test(cuerpoNeg),
+      cuerpoNeg.replace(/\s+/g, " ").slice(0, 120));
+  }
+
   // Un enlace desconocido pero válido: se puede acompañar igual.
   await page.goto(`${B}/externa`, { waitUntil: "domcontentloaded" });
   await page.getByLabel("Enlace de la reunión").fill("https://videollamadas.miempresa.com/sala/ventas");
