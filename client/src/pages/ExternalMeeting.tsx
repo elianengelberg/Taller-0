@@ -350,9 +350,18 @@ export default function ExternalMeeting() {
     if (idiomaReunionElegido || !self) return; // lo eligió a mano: se respeta
     const ajenas = (meeting?.transcript ?? []).filter((l) => l.speakerId !== self.id).slice(-3);
     const distintas = ajenas.filter((l) => l.sourceLang && shortLang(l.sourceLang) !== shortLang(langReunion));
-    if (distintas.length < 2) return;
+    if (distintas.length === 0) return;
     const corto = shortLang(distintas[distintas.length - 1].sourceLang);
     if (!distintas.every((l) => shortLang(l.sourceLang) === corto)) return;
+    // DOS FRASES SEGUIDAS, O UNA SOLA PERO LARGA. Pedir siempre dos líneas se
+    // rompió solo cuando el servidor empezó a PEGAR los fragmentos seguidos de
+    // la misma persona en una sola línea: quien habla de corrido manda una
+    // línea larga y ninguna segunda, así que el oído se quedaba en el idioma
+    // equivocado toda la reunión (justo el «me hablaban en inglés y no me
+    // funcionaba»). Una línea de ocho palabras o más en otro idioma es al
+    // menos tanta evidencia como dos cortas.
+    const palabras = distintas.reduce((n, l) => n + l.text.trim().split(/\s+/).filter(Boolean).length, 0);
+    if (distintas.length < 2 && palabras < 8) return;
     setIdiomaReunionAuto(codigoCompletoDe(corto));
     setAvisoIdiomaAjeno(`Los demás hablan en ${etiquetaDeIdioma(corto)}: ahora los escucho en ${etiquetaDeIdioma(corto)} (podés cambiarlo en «Se habla»).`);
   }, [meeting?.transcript, idiomaReunionElegido, langReunion, self]);
@@ -579,8 +588,12 @@ export default function ExternalMeeting() {
     const distintas = mias.filter(
       (l) => l.sourceLang && shortLang(l.sourceLang) !== shortLang(spokenLang),
     );
-    // Dos frases seguidas en otro idioma ya no son casualidad.
-    if (distintas.length < 2) return null;
+    // Dos frases seguidas en otro idioma ya no son casualidad. O UNA SOLA
+    // pero larga: el servidor pega los fragmentos seguidos de la misma
+    // persona en una única línea, así que hablar de corrido da una línea
+    // larga y ninguna segunda -- y el aviso no aparecía nunca.
+    const palabras = distintas.reduce((n, l) => n + l.text.trim().split(/\s+/).filter(Boolean).length, 0);
+    if (distintas.length === 0 || (distintas.length < 2 && palabras < 8)) return null;
     return shortLang(distintas[distintas.length - 1].sourceLang);
   })();
   const avisoIdioma = idiomaDetectado

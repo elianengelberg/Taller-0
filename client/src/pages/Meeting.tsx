@@ -394,8 +394,12 @@ export default function Meeting() {
     const distintas = mias.filter(
       (l) => l.sourceLang && shortLang(l.sourceLang) !== shortLang(self.language ?? ""),
     );
-    // Dos frases seguidas en otro idioma ya no son casualidad.
-    if (distintas.length < 2) return null;
+    // Dos frases seguidas en otro idioma ya no son casualidad. O UNA SOLA
+    // pero larga: el servidor pega los fragmentos seguidos de la misma
+    // persona en una única línea, así que hablar de corrido da una línea
+    // larga y ninguna segunda -- y el aviso no aparecía nunca.
+    const palabras = distintas.reduce((n, l) => n + l.text.trim().split(/\s+/).filter(Boolean).length, 0);
+    if (distintas.length === 0 || (distintas.length < 2 && palabras < 8)) return null;
     return shortLang(distintas[distintas.length - 1].sourceLang);
   })();
   // El audio de la pantalla compartida (un video, una presentación con
