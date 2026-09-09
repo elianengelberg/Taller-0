@@ -512,3 +512,12 @@ Reporte con capturas (iPad, Meet, tema CLARO): flotantes = cuadradito inútil; s
 - Cliente: campo opcional en HostSetup («¿Ya tenés la reunión en otra app?») con detección en vivo (`detectMeetingPlatform`), draft `salaExterna`, y `ShareMenu` invita con LAS DOS puertas (copiar el link de la otra app; WhatsApp y correo lo suman al texto).
 - `pruebas/sim_puerta_externa.js` 8/8 (en la batería): crear con puerta, línea del puente EN VIVO en la reunión, `/session` resuelve al mismo dbId y joinCode, historial único, y una sala externa sin enlazar sigue siendo su propia reunión.
 - Trampa: `GET /api/meetings/:id` devuelve `{meeting:{...,messages}}`, no `{messages}` (la prueba fallaba por mirar el campo equivocado).
+
+## 2026-09-09 — Meet verificado de punta a punta (repeticiones, tiempo, traducción)
+- Pedido: confirmar que en Meet no se repita el texto, que los subtítulos salgan a tiempo y que se traduzcan.
+- `pruebas/sim_meet_vivo.js` (nueva, en la batería) contra el stack real: entra a la capa companion de un Meet y postea por el puente como lo hace la extensión. 9/9:
+  - lo interino aparece en **62-88 ms** (antes eran segundos);
+  - Meet reescribe la fila (`A` y después `A + B`): en pantalla `A` aparece UNA vez y queda una sola frase con las dos partes;
+  - la traducción es la lectura principal y el original queda debajo, y se le pide al servidor la traducción de lo dicho.
+- **Trampa de la prueba (no del producto)**: la traducción de mentira devolvía «EN: <texto original>», así que contar apariciones del original contaba también la traducción → parecía repetido. Ahora el doble devuelve `TRADUCCION_<n>`, sin el original adentro. Y una frase posteada enseguida se FUSIONA con la anterior (correcto): para probar una frase nueva hay que cambiar de hablante y esperar más que la ventana de fusión.
+- Verde además: sim_realext 63/63, sim_bridge 36/36, sim_voces_reunion 15/15.
