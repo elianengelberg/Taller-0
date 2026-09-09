@@ -115,7 +115,13 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
 
   // El content script vive en un mundo aislado: hay que interceptar en el
   // navegador, no pisando window.fetch de la página.
+  // Las frases PUBLICADAS. Por el mismo camino viaja lo INTERINO (lo que se
+  // está diciendo ahora mismo, para que la pantalla de Unify de al lado lo lea
+  // sin esperar): no se guarda, no se traduce y lo reemplaza la frase
+  // terminada. Va aparte, porque contarlo como frase publicada haría ver
+  // «textos repetidos» donde no se repite nada.
   const posted = [];
+  const interinos = [];
   // Lo que la barra de Unify le pide a la extensión (silenciar, cortar).
   const ordenesPendientes = [];
   // Espera activa corta: la extensión sondea las órdenes cada dos segundos.
@@ -135,7 +141,8 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
     const url = route.request().url();
     if (url.endsWith("/transcript")) {
       let cuerpo = {};
-      try { cuerpo = JSON.parse(route.request().postData() || "{}"); posted.push(cuerpo); } catch {}
+      try { cuerpo = JSON.parse(route.request().postData() || "{}"); } catch {}
+      (cuerpo.interim ? interinos : posted).push(cuerpo);
       const extra = respuestaIA ? await respuestaIA(cuerpo) : null;
       return route.fulfill({
         status: 200, contentType: "application/json",
@@ -373,6 +380,14 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
     });
     check("y la ✕ del panel lo vuelve a cerrar", cerrado === true);
   }
+
+  // LO QUE SE ESTÁ DICIENDO, MIENTRAS SE DICE. Sale por el mismo camino pero
+  // marcado `interim`: la pantalla de Unify al lado (el iPad, la otra compu)
+  // lo lee sin esperar el asentamiento de la frase ni a la IA.
+  check("mientras alguien habla, lo que va diciendo viaja al instante",
+    interinos.length >= 3, `interinos=${interinos.length}`);
+  check("y va marcado como interino, no como frase publicada",
+    interinos.every((p) => p.interim === true) && posted.every((p) => !p.interim));
 
   const speakers = [...new Set(posted.map((p) => p.speaker))];
   check("transcribe a TODOS los participantes", speakers.length === 3, speakers.join(" | "));
