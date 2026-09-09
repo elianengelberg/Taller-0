@@ -118,7 +118,7 @@ export default function FolderShareDialog({
                         abriendo su historial a quien haya escrito ese email
                         primero, no necesariamente a su dueño. */}
                     {!r.emailVerified && (
-                      <p className="mt-0.5 text-xs text-amber-400">
+                      <p className="mt-0.5 text-xs text-warn">
                         Esta cuenta todavía no confirmó su email
                       </p>
                     )}
@@ -126,7 +126,7 @@ export default function FolderShareDialog({
                   <button
                     type="button"
                     onClick={() => remove(r.userId)}
-                    className="shrink-0 text-xs font-medium text-red-400 hover:text-danger"
+                    className="shrink-0 text-xs font-medium text-danger hover:text-danger"
                   >
                     Quitar
                   </button>

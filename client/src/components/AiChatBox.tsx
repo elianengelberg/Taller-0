@@ -61,7 +61,7 @@ export default function AiChatBox({ title, description, placeholder, emptyHint, 
               {item.loading ? (
                 <p className="mt-1 text-sm text-ink-400">Pensando…</p>
               ) : item.error ? (
-                <p className="mt-1 text-sm text-red-400">{item.error}</p>
+                <p className="mt-1 text-sm text-danger">{item.error}</p>
               ) : (
                 <div className="mt-2">
                   <MarkdownText text={item.answer ?? ""} />

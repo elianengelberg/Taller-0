@@ -101,7 +101,7 @@ export default function ReportarIA({
         className="mt-1 w-full rounded-lg border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-strong outline-none focus:border-brand-500"
         placeholder="Ej: dice que aprobamos el presupuesto y nadie dijo eso"
       />
-      {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
+      {error && <p className="mt-1 text-xs text-danger">{error}</p>}
       <div className="mt-2 flex items-center gap-3">
         <button
           type="submit"

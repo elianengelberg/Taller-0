@@ -416,7 +416,7 @@ function FolderButton({
                       item.onClick();
                     }}
                     className={`block w-full px-3 py-2 text-left text-sm hover:bg-ink-700 ${
-                      item.danger ? "text-red-400" : "text-ink-100"
+                      item.danger ? "text-danger" : "text-ink-100"
                     }`}
                   >
                     {item.label}
@@ -514,7 +514,7 @@ function MeetingCard({
                               onDelete(m.id);
                             }
                           }}
-                          className="block w-full px-3 py-2 text-left text-sm text-red-400 hover:bg-ink-700"
+                          className="block w-full px-3 py-2 text-left text-sm text-danger hover:bg-ink-700"
                         >
                           Eliminar
                         </button>

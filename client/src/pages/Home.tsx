@@ -269,12 +269,12 @@ export default function Home() {
                     afuera, y ya estás usando la app). */}
                 {!enAppDeEscritorio() && <Button onClick={() => navigate("/instalar")}>Instalar Unify</Button>}
                 {enLaApp && estadoApp === "ultima" && (
-                  <span className="text-xs font-semibold text-red-400">
+                  <span className="text-xs font-semibold text-danger">
                     Ya lo instalaste — estás en la última versión.
                   </span>
                 )}
                 {enLaApp && estadoApp === "vieja" && (
-                  <span className="text-xs font-semibold text-red-400">
+                  <span className="text-xs font-semibold text-danger">
                     Ya lo instalaste, pero hay una versión más nueva: entrá y tocá «Buscar
                     actualización».
                   </span>

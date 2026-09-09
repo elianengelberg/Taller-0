@@ -164,7 +164,7 @@ export default function ParticipantsPanel({
                       </span>
                     )}
                     {participant.handRaised && (
-                      <HandIcon className="h-4 w-4 shrink-0 animate-bounce text-amber-400" />
+                      <HandIcon className="h-4 w-4 shrink-0 animate-bounce text-warn" />
                     )}
                   </p>
                   <RoleBadge role={role} size="sm" />
@@ -205,7 +205,7 @@ export default function ParticipantsPanel({
                             type="button"
                             onClick={() => run(a.action, participant.id)}
                             className={`block w-full px-3 py-2 text-left text-sm transition-colors duration-150 hover:bg-ink-700 ${
-                              a.danger ? "text-red-500 dark:text-red-400" : "text-ink-100"
+                              a.danger ? "text-danger" : "text-ink-100"
                             }`}
                           >
                             {a.label}

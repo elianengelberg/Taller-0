@@ -326,6 +326,46 @@ const json = (b, extra = {}) => ({
     await page.evaluate(() => document.querySelector("video").pause());
   }
 
+  // ── VOLVER A LEER LA REUNIÓN EN TU IDIOMA ──
+  // En vivo los subtítulos salían traducidos, pero la reunión GUARDADA se leía
+  // sólo como se habló: quien siguió una reunión en inglés leyendo en
+  // castellano abría su historial y no entendía nada de lo que había seguido
+  // perfecto el día anterior.
+  {
+    await ctx.route("**/api/translate", async (route) => {
+      let texto = "";
+      try { texto = JSON.parse(route.request().postData() || "{}").text || ""; } catch {}
+      return route.fulfill({
+        status: 200, contentType: "application/json",
+        body: JSON.stringify({ translatedText: `EN(${texto.slice(0, 22)})` }),
+      });
+    });
+    const selector = page.locator("select").filter({ hasText: "Original (como se dijo)" }).first();
+    check("la transcripción guardada tiene dónde elegir en qué idioma leerla",
+      (await selector.count()) === 1);
+    await selector.selectOption("en");
+    await page.waitForTimeout(1800);
+    const activa = await page.locator("li", { hasText: "lámina azul" }).first().innerText();
+    check("al elegir un idioma, la reunión guardada se lee traducida",
+      /EN\(la lámina azul/.test(activa), activa.replace(/\n/g, " | ").slice(0, 90));
+    check("y lo que se dijo de verdad sigue ahí abajo, de apoyo",
+      /lámina azul muestra la curva/.test(activa), activa.replace(/\n/g, " | ").slice(0, 90));
+    // El original sigue siendo el que está pegado al video: se toca una
+    // palabra suya y el video salta a ese instante, traducción o no.
+    const palabra = page.locator("p", { hasText: "lámina azul muestra" }).locator("span", { hasText: "curva" }).first();
+    await palabra.click();
+    await page.waitForTimeout(600);
+    const t = await page.evaluate(() => document.querySelector("video").currentTime);
+    check("con la traducción puesta, tocar una palabra del original sigue llevando a su instante",
+      t > 2.6 && t < 3.8, `currentTime=${t.toFixed(2)}`);
+    await selector.selectOption("original");
+    await page.waitForTimeout(500);
+    const sinTraducir = await page.locator("li", { hasText: "lámina azul" }).first().innerText();
+    check("y volviendo a «original» se lee como se dijo, sin traducción encima",
+      !/EN\(/.test(sinTraducir), sinTraducir.replace(/\n/g, " | ").slice(0, 70));
+    await ctx.unroute("**/api/translate");
+  }
+
   // ── La IA del detalle MIRA el video: los fotogramas salen del reproductor ──
   {
     llamadas.length = 0;

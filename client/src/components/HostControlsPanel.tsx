@@ -52,7 +52,7 @@ export default function HostControlsPanel({
                   <button
                     type="button"
                     onClick={() => run("reject", w.id)}
-                    className="rounded-lg border border-ink-600 px-2.5 py-1 text-xs font-medium text-ink-300 hover:border-red-400 hover:text-red-400"
+                    className="rounded-lg border border-ink-600 px-2.5 py-1 text-xs font-medium text-ink-300 hover:border-danger hover:text-danger"
                   >
                     Rechazar
                   </button>
@@ -128,7 +128,7 @@ export default function HostControlsPanel({
         {isHost &&
           (confirmEnd ? (
             <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-3">
-              <p className="text-sm text-red-500 dark:text-danger">
+              <p className="text-sm text-danger">
                 ¿Terminar la reunión para todos? No se puede deshacer.
               </p>
               <div className="mt-2 flex gap-2">

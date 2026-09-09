@@ -50,7 +50,7 @@ export default function IconButton({
         // botón es LO que le dice a alguien no técnico qué hace cada círculo.
         <span
           className={`text-xs font-semibold leading-none ${
-            danger ? "text-red-400" : active ? "text-brand-300" : "text-ink-200"
+            danger ? "text-danger" : active ? "text-brand-300" : "text-ink-200"
           }`}
         >
           {caption}

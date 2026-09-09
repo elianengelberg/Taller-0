@@ -214,7 +214,7 @@ export default function AccountSettingsModal({ onClose }: { onClose: () => void 
             {photoStatus && (
               <p
                 className={`mt-1.5 text-xs ${
-                  photoStatus.kind === "ok" ? "text-emerald-400" : "text-red-400"
+                  photoStatus.kind === "ok" ? "text-ok" : "text-danger"
                 }`}
               >
                 {photoStatus.text}
@@ -246,14 +246,14 @@ export default function AccountSettingsModal({ onClose }: { onClose: () => void 
             <p className="flex flex-wrap items-center gap-1.5 text-xs text-ink-500">
               {user.email}
               {user.emailVerified && (
-                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 font-medium text-emerald-400">
+                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 font-medium text-ok">
                   Confirmado
                 </span>
               )}
             </p>
           )}
           {nameStatus && (
-            <p className={`text-xs ${nameStatus.kind === "ok" ? "text-emerald-400" : "text-red-400"}`}>
+            <p className={`text-xs ${nameStatus.kind === "ok" ? "text-ok" : "text-danger"}`}>
               {nameStatus.text}
             </p>
           )}
@@ -333,7 +333,7 @@ export default function AccountSettingsModal({ onClose }: { onClose: () => void 
               />
             </div>
             {passwordStatus && (
-              <p className={`text-xs ${passwordStatus.kind === "ok" ? "text-emerald-400" : "text-red-400"}`}>
+              <p className={`text-xs ${passwordStatus.kind === "ok" ? "text-ok" : "text-danger"}`}>
                 {passwordStatus.text}
               </p>
             )}
@@ -366,7 +366,7 @@ export default function AccountSettingsModal({ onClose }: { onClose: () => void 
           {sessionsStatus && (
             <p
               className={`mt-2 text-xs ${
-                sessionsStatus.kind === "ok" ? "text-emerald-400" : "text-red-400"
+                sessionsStatus.kind === "ok" ? "text-ok" : "text-danger"
               }`}
             >
               {sessionsStatus.text}

@@ -109,10 +109,20 @@ export default function LiveCaption({ lines = [], localInterim, remoteInterim, r
     .sort((a, b) => a.lastSeen - b.lastSeen) // oldest on top, newest at the bottom
     .map((v) => v.entry);
 
-  // Lo que otra persona está diciendo AHORA, sólo mientras no haya una
-  // burbuja suya ya en pantalla (si la frase terminó, manda la terminada).
+  // Lo que otra persona está diciendo AHORA. Antes se escondía apenas hubiera
+  // una burbuja suya en pantalla -- y como la burbuja de la frase anterior se
+  // queda unos segundos, a quien hablaba de corrido no se le leía NUNCA lo que
+  // estaba diciendo: justo para eso está. Ahora sólo se calla cuando lo
+  // interino es un pedazo de la frase que ya terminó (la misma frase llegando
+  // tarde); si es otra cosa, es lo que se está diciendo y se muestra debajo.
+  const suelto = (t: string) => t.toLowerCase().replace(/\s+/g, " ").trim();
+  const suyaEnPantalla = remoteInterim
+    ? active.find((e) => e.speakerName === remoteInterim.speaker)
+    : undefined;
   const ajeno =
-    remoteInterim && !active.some((e) => e.speakerName === remoteInterim.speaker) ? remoteInterim : null;
+    remoteInterim && !(suyaEnPantalla && suelto(suyaEnPantalla.text).includes(suelto(remoteInterim.text)))
+      ? remoteInterim
+      : null;
 
   if (active.length === 0 && !localInterim && !ajeno) return null;
 

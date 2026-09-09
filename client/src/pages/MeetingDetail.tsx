@@ -18,6 +18,8 @@ import {
   MeetingHistoryMessage,
   moveMeetingToFolderApi,
 } from "../lib/api";
+import { ORIGINAL_LANG, useLineTranslations } from "../hooks/useLineTranslations";
+import { LANGUAGES } from "../lib/languages";
 import { isExternalMeeting, meetingSourceLabel } from "../lib/meetingPlatforms";
 import { groupConsecutive } from "../lib/transcriptGroups";
 import { analizarReunion } from "../lib/meetingAnalytics";
@@ -170,6 +172,58 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
   // (ver server/src/storage.ts), que es lo único que distingue una de otra
   // desde acá.
   const audioOnlyRecording = /\.(m4a|weba)(\?|$)/i.test(meeting.recordingUrl ?? "");
+
+  // LEER DESPUÉS LO QUE SE ESCUCHÓ EN OTRO IDIOMA. En vivo los subtítulos
+  // salían traducidos, pero al volver a la reunión guardada todo estaba en el
+  // idioma en que se habló: quien siguió una reunión en inglés leyendo en
+  // castellano abría su propio historial y no entendía nada. Acá se elige el
+  // idioma de lectura; arranca en «original» a propósito, para no mandar a
+  // traducir una reunión entera cada vez que se abre.
+  const [idiomaLectura, setIdiomaLectura] = useState(ORIGINAL_LANG);
+  const lineasTraducibles = useMemo(
+    () =>
+      meeting.messages.map((m) => ({
+        id: String(m.id),
+        text: m.text,
+        sourceLang: m.sourceLang ?? "",
+        speakerName: m.senderName,
+      })),
+    [meeting.messages]
+  );
+  const { getTranslation, translationFailed } = useLineTranslations(lineasTraducibles, idiomaLectura);
+  // La traducción de una línea guardada, o null si se lee en el original (o
+  // si ya estaba en ese idioma: repetirla abajo sólo ensucia).
+  const traducirLinea = useCallback(
+    (m: { id: number; text: string }) => {
+      if (idiomaLectura === ORIGINAL_LANG) return null;
+      const t = getTranslation({ id: String(m.id), text: m.text });
+      return t && t !== m.text ? t : null;
+    },
+    [idiomaLectura, getTranslation]
+  );
+  const selectorIdioma = (
+    <label className="flex items-center gap-1.5 text-xs font-normal text-ink-400">
+      Leer en
+      <select
+        value={idiomaLectura}
+        onChange={(e) => setIdiomaLectura(e.target.value)}
+        className="rounded-lg border border-ink-700 bg-ink-800 px-2 py-1 text-xs text-ink-100"
+      >
+        <option value={ORIGINAL_LANG}>Original (como se dijo)</option>
+        {LANGUAGES.map((lang) => (
+          <option key={lang.code} value={lang.code}>
+            {lang.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  const avisoTraduccion =
+    idiomaLectura !== ORIGINAL_LANG && translationFailed ? (
+      <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-snug text-warn">
+        No estamos pudiendo traducir en este momento, así que ves el texto tal como se dijo.
+      </p>
+    ) : null;
 
   // Fotogramas para la IA, capturados UNA vez y reusados entre preguntas.
   const framesRef = useRef<AiVideoFrame[] | null>(null);
@@ -330,10 +384,14 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
             </div>
 
             <div className={`${cardClass} mt-4`}>
-              <h2 className="text-lg font-semibold text-strong">Transcripción</h2>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold text-strong">Transcripción</h2>
+                {meeting.messages.length > 0 && selectorIdioma}
+              </div>
               <p className="mt-1 text-xs leading-relaxed text-ink-400">
                 Dale play: se resalta lo que se va diciendo. Tocá una frase para saltar ahí.
               </p>
+              {avisoTraduccion}
               {meeting.messages.length === 0 ? (
                 <p className="mt-3 text-sm text-ink-400">No se guardó nada en esta reunión.</p>
               ) : (
@@ -343,6 +401,7 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
                     baseMs={baseMs}
                     videoRef={videoRef}
                     onSeek={seekTo}
+                    traducirLinea={traducirLinea}
                   />
                 </div>
               )}
@@ -371,9 +430,11 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
             Con grabación NO se repite: ya vive sincronizada junto al video. */}
         {!meeting.recordingUrl && (
         <div className={`${cardClass} mt-6`}>
-          <h2 className="mb-3 flex items-center justify-between gap-2 text-lg font-semibold text-strong">
+          <h2 className="mb-3 flex flex-wrap items-center justify-between gap-2 text-lg font-semibold text-strong">
             Transcripción y chat
+            {meeting.messages.length > 0 && selectorIdioma}
           </h2>
+          {avisoTraduccion}
           {meeting.messages.length === 0 ? (
             <p className="text-sm text-ink-400">No se guardó nada en esta reunión.</p>
           ) : (
@@ -408,7 +469,22 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
                         })}
                       </span>
                     </div>
-                    <p className="mt-1.5 text-sm leading-relaxed text-ink-100">
+                    {/* La traducción arriba y grande; lo que se dijo, debajo
+                        y chico. Cada línea guardada se traduce por su cuenta
+                        (así se aprovecha lo ya traducido), y el párrafo se
+                        arma pegando las traducciones en el mismo orden. */}
+                    {group.some((g) => traducirLinea(g)) && (
+                      <p className="mt-1.5 text-sm font-medium leading-relaxed text-ink-100">
+                        {group.map((g) => traducirLinea(g) ?? g.text).join(" ")}
+                      </p>
+                    )}
+                    <p
+                      className={
+                        group.some((g) => traducirLinea(g))
+                          ? "mt-1 text-xs italic leading-relaxed text-ink-400"
+                          : "mt-1.5 text-sm leading-relaxed text-ink-100"
+                      }
+                    >
                       {group.map((g) => g.text).join(" ")}
                     </p>
                   </li>
@@ -513,12 +589,14 @@ const TranscriptLineItem = memo(function TranscriptLineItem({
   active,
   wordIdx,
   onSeek,
+  traduccion,
   liRef,
 }: {
   entry: SyncEntry;
   active: boolean;
   wordIdx: number;
   onSeek: (offsetSec: number) => void;
+  traduccion: string | null;
   liRef?: React.Ref<HTMLLIElement>;
 }) {
   return (
@@ -549,10 +627,26 @@ const TranscriptLineItem = memo(function TranscriptLineItem({
           </span>
         )}
       </div>
+      {/* Con traducción, ESA es la lectura principal (a eso vino quien la
+          pidió) y lo que se dijo queda debajo, más chico -- pero sigue siendo
+          lo clicable: es el original el que está pegado al video, palabra por
+          palabra. */}
+      {traduccion && (
+        <p
+          onClick={() => onSeek(entry.offset)}
+          className="mt-1.5 cursor-pointer text-sm font-medium leading-relaxed text-ink-100"
+        >
+          {traduccion}
+        </p>
+      )}
       <p
         onClick={() => onSeek(entry.offset)}
         title={entry.kind === "transcript" ? "Tocá una palabra para saltar a ese instante" : undefined}
-        className="mt-1.5 cursor-pointer text-sm leading-relaxed text-ink-100"
+        className={
+          traduccion
+            ? "mt-1 cursor-pointer text-xs italic leading-relaxed text-ink-400"
+            : "mt-1.5 cursor-pointer text-sm leading-relaxed text-ink-100"
+        }
       >
         {entry.kind === "transcript"
           ? highlightWords(entry.text, active ? wordIdx : -1, (w, n) => onSeek(wordTime(entry, w, n)))
@@ -669,11 +763,13 @@ function SyncedTranscript({
   baseMs,
   videoRef,
   onSeek,
+  traducirLinea,
 }: {
   messages: MeetingHistoryMessage[];
   baseMs: number;
   videoRef: React.RefObject<HTMLVideoElement>;
   onSeek: (offsetSec: number) => void;
+  traducirLinea: (m: { id: number; text: string }) => string | null;
 }) {
   const entries = useMemo<SyncEntry[]>(() => armarEntradas(messages, baseMs), [messages, baseMs]);
   const voice = useMemo(() => entries.filter((e) => e.kind === "transcript"), [entries]);
@@ -695,6 +791,7 @@ function SyncedTranscript({
             active={isActive}
             wordIdx={isActive ? active.wordIdx : -1}
             onSeek={onSeek}
+            traduccion={traducirLinea(e)}
             liRef={isActive ? activeLiRef : undefined}
           />
         );

@@ -1078,9 +1078,9 @@ export default function ExternalMeeting() {
     });
     if (captionsOn && interimCaption) {
       frases.push({ quien: draft?.name || "Vos", texto: interimCaption, interina: true });
-    } else if (interinoAjeno) {
+    } else if (interinoUtil) {
       // Lo que se está diciendo en la reunión, mientras se dice.
-      frases.push({ quien: interinoAjeno.speaker, texto: interinoAjeno.text, interina: true });
+      frases.push({ quien: interinoUtil.speaker, texto: interinoUtil.text, interina: true });
     }
     return frases;
   }
@@ -1148,6 +1148,16 @@ export default function ExternalMeeting() {
     text: l.text,
     translated: getTranslation(l),
   }));
+  // Lo que se está diciendo AHORA en la reunión de afuera. Si resulta ser un
+  // pedazo de una frase que YA está en pantalla (el interino llegó tarde,
+  // después de la frase terminada), no se repite: sería leer dos veces lo
+  // mismo durante varios segundos.
+  const interinoUtil = (() => {
+    if (!interinoAjeno) return null;
+    const suelto = (t: string) => t.toLowerCase().replace(/\s+/g, " ").trim();
+    const suya = [...stageLines].reverse().find((l) => l.speakerName === interinoAjeno.speaker);
+    return suya && suelto(suya.text).includes(suelto(interinoAjeno.text)) ? null : interinoAjeno;
+  })();
   const targetLabel =
     targetLangChoice === ORIGINAL_LANG
       ? null
@@ -1279,9 +1289,9 @@ export default function ExternalMeeting() {
                   lines={stageLines}
                   roleFor={roleFor}
                   avatarFor={avatarFor}
-                  interim={(captionsOn ? interimCaption : null) ?? interinoAjeno?.text ?? null}
+                  interim={(captionsOn ? interimCaption : null) ?? interinoUtil?.text ?? null}
                   interimSpeaker={
-                    captionsOn && interimCaption ? draft.name || "Vos" : (interinoAjeno?.speaker ?? "La reunión")
+                    captionsOn && interimCaption ? draft.name || "Vos" : (interinoUtil?.speaker ?? "La reunión")
                   }
                   interimAvatarUrl={user?.avatarUrl ?? null}
                   targetLabel={targetLabel}

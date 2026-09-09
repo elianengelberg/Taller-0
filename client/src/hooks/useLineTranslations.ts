@@ -52,12 +52,29 @@ export function useLineTranslations(lines: TranslatableLine[], targetLang: strin
   // y creía que la traducción estaba rota sin ninguna explicación. Ahora el
   // estado sale del hook para poder decirlo.
   const [failed, setFailed] = useState(false);
+  // Cuántas traducciones se piden A LA VEZ. En una reunión en vivo las líneas
+  // llegan de a una y esto no se nota, pero una reunión GUARDADA son
+  // trescientas líneas de golpe: pedirlas todas juntas es una avalancha que
+  // el servidor corta por su propio límite y la mitad queda sin traducir.
+  // Salen de a tandas: cuando una vuelve, arranca la siguiente.
+  const A_LA_VEZ = 6;
+  // Se mueve cada vez que una traducción vuelve (con o sin suerte) para que
+  // el efecto se vuelva a correr y salga la tanda siguiente.
+  const [vuelta, setVuelta] = useState(0);
 
   useEffect(() => {
     if (targetLang === ORIGINAL_LANG) return;
     let cancelled = false;
+    let enVuelo = inFlightRef.current.size;
 
-    lines.forEach((line, i) => {
+    // DE LA ÚLTIMA HACIA ATRÁS. Con el cupo de arriba, el orden importa: lo
+    // que se está leyendo AHORA es el final de la lista. Yendo de la primera
+    // a la última, una reunión larga que recién se manda a traducir dejaría
+    // el subtítulo del momento para el final -- justo al revés de lo que hace
+    // falta. Las de arriba llegan igual, en las tandas siguientes.
+    const enOrdenDeLectura = lines.map((line, i) => ({ line, i })).reverse();
+
+    enOrdenDeLectura.forEach(({ line, i }) => {
       // El largo del texto viaja en la clave: el servidor FUSIONA fragmentos
       // seguidos en una misma línea (misma id, texto que crece), y una
       // traducción hecha para el texto corto no vale para el largo. Con la
@@ -96,32 +113,40 @@ export function useLineTranslations(lines: TranslatableLine[], targetLang: strin
         return;
       }
 
+      // Esta tanda ya está llena: el resto sale cuando vuelva alguna.
+      if (enVuelo >= A_LA_VEZ) return;
+      enVuelo++;
       inFlightRef.current.add(key);
       // Las líneas anteriores viajan de contexto: "no lo veo" se traduce
       // distinto según de qué venían hablando.
       const contexto = lines
-        .slice(0, Math.max(0, lines.indexOf(line)))
+        .slice(0, Math.max(0, i))
         .slice(-3)
         .map((l) => `${l.speakerName ?? ""}: ${l.text}`.slice(0, 240));
       translate(line.text, fuente, targetLang, contexto)
         .then((translated) => {
           anotarUltima(translated);
-          if (!cancelled) setTranslations((prev) => ({ ...prev, [key]: translated }));
-        })
-        .then(() => {
+          // Sin mirar `cancelled`: la clave lleva el id Y la huella del texto,
+          // así que esta traducción es de ESTA frase y vale igual aunque
+          // mientras tanto haya entrado otra línea (que es lo normal en una
+          // reunión). Antes se descartaba y había que volver a pedirla.
+          setTranslations((prev) => (key in prev ? prev : { ...prev, [key]: translated }));
           if (!cancelled) setFailed(false);
         })
         .catch(() => {
           if (!cancelled) setFailed(true);
         })
-        .finally(() => inFlightRef.current.delete(key));
+        .finally(() => {
+          inFlightRef.current.delete(key);
+          setVuelta((v) => v + 1);
+        });
     });
 
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetLang, lines]);
+  }, [targetLang, lines, vuelta]);
 
   function getTranslation(line: { id: string; text: string }): string | undefined {
     if (targetLang === ORIGINAL_LANG) return undefined;
