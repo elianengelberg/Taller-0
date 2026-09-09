@@ -40,6 +40,7 @@ export function createMeeting(): Meeting {
     bannedNames: new Set(),
     authedUsers: new Map(),
     endedByHost: false,
+    salaExterna: null,
   };
   meetings.set(meeting.id, meeting);
   return meeting;
@@ -73,9 +74,49 @@ export function reviveMeeting(joinCode: string, dbId: string, roles: Role[]): Me
     bannedNames: new Set(),
     authedUsers: new Map(),
     endedByHost: false,
+    salaExterna: null,
   };
   meetings.set(meeting.id, meeting);
   return meeting;
+}
+
+// --- La misma reunión, también en otra app ---------------------------------
+// El anfitrión pega el enlace de su Zoom/Meet/Teams al crear la reunión: la
+// clave de esa sala externa queda apuntando a ESTA reunión, así que todo lo
+// que llegue por el puente (la extensión en la pestaña, o el bot) entra acá
+// en vez de abrir una reunión aparte. Una sola transcripción y un solo
+// historial, sin importar por qué puerta entró cada uno.
+const puentesExternos = new Map<string, string>();
+
+export function enlazarSalaExterna(joinCode: string, externalKey: string): boolean {
+  const clave = String(externalKey || "").toUpperCase();
+  const codigo = String(joinCode || "").toUpperCase();
+  if (!clave || !codigo) return false;
+  // Esa sala ya es una reunión en curso por sí misma (alguien la abrió como
+  // externa): no se la roba a mitad de camino.
+  if (meetings.has(clave)) return false;
+  const reunion = meetings.get(codigo);
+  if (!reunion) return false;
+  puentesExternos.set(clave, codigo);
+  return true;
+}
+
+export function reunionDeSalaExterna(externalKey: string): Meeting | undefined {
+  const codigo = puentesExternos.get(String(externalKey || "").toUpperCase());
+  if (!codigo) return undefined;
+  const reunion = meetings.get(codigo);
+  // La reunión se terminó y se limpió: el puente ya no lleva a ningún lado.
+  if (!reunion) {
+    puentesExternos.delete(String(externalKey || "").toUpperCase());
+    return undefined;
+  }
+  return reunion;
+}
+
+function olvidarPuentesDe(joinCode: string): void {
+  for (const [clave, codigo] of puentesExternos) {
+    if (codigo === joinCode) puentesExternos.delete(clave);
+  }
 }
 
 export function getMeeting(meetingId: string): Meeting | undefined {
@@ -115,6 +156,7 @@ export function getOrCreateCompanionMeeting(externalKey: string): {
     bannedNames: new Set(),
     authedUsers: new Map(),
     endedByHost: false,
+    salaExterna: null,
   };
   meetings.set(id, meeting);
   return { meeting, created: true };
@@ -161,6 +203,7 @@ export function scheduleMeetingCleanupIfEmpty(meetingId: string): void {
       try {
         alFinalizarReunion?.(current.dbId, current.transcript.slice());
       } catch { /* el resumen jamás puede voltear la limpieza */ }
+      olvidarPuentesDe(meetingId);
       meetings.delete(meetingId);
     }
   }, CLEANUP_GRACE_MS);

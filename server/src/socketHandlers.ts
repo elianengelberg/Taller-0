@@ -7,6 +7,7 @@ import { crearMemoriaDeIdioma, detectarIdioma } from "./idioma";
 // reconocimiento -- el idioma de quien escucha -- y por lo tanto sin traducir.
 const memoriaIdioma = crearMemoriaDeIdioma();
 import { verifyToken } from "./auth";
+import { claveDeSalaValida } from "./salas";
 import * as db from "./db";
 import {
   addChatMessage,
@@ -22,6 +23,7 @@ import {
   removeParticipant,
   reviveMeeting,
   scheduleMeetingCleanupIfEmpty,
+  enlazarSalaExterna,
 } from "./meetingStore";
 import { anthropicEnabled } from "./anthropicClient";
 import { buscarEco, esHablanteGenerico, filaDeLinea, recordarFilaDeLinea } from "./eco";
@@ -198,7 +200,19 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
 
   socket.on(
     "create-meeting",
-    async (payload: { hostName: string; hostLanguage: string; roles: string[]; token?: string }, ack) => {
+    async (
+      payload: {
+        hostName: string;
+        hostLanguage: string;
+        roles: string[];
+        token?: string;
+        // La MISMA reunión, también en otra app: el anfitrión pegó el enlace
+        // de su Zoom/Meet/Teams al crearla, y la web ya lo reconoció (clave
+        // de sala, enlace y nombre de la plataforma).
+        salaExterna?: { clave?: unknown; enlace?: unknown; etiqueta?: unknown } | null;
+      },
+      ack
+    ) => {
       try {
         const hostName = String(payload?.hostName ?? "").slice(0, MAX_NAME_LENGTH).trim();
         const hostLanguage = String(payload?.hostLanguage ?? "es-AR");
@@ -218,6 +232,19 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
             addRole(meeting, name.slice(0, MAX_ROLE_NAME_LENGTH));
           }
         }
+        // La otra puerta de esta misma reunión. La clave se valida con el
+        // mismo criterio que el puente (plataforma conocida + cola sana): sin
+        // eso, cualquiera podría apuntar una reunión a una sala inventada.
+        const claveExterna = claveDeSalaValida(String(payload?.salaExterna?.clave ?? ""));
+        const enlaceExterno = String(payload?.salaExterna?.enlace ?? "").trim().slice(0, 2000);
+        if (claveExterna && /^https?:\/\//.test(enlaceExterno) && enlazarSalaExterna(meeting.id, claveExterna)) {
+          meeting.salaExterna = {
+            clave: claveExterna,
+            enlace: enlaceExterno,
+            etiqueta: String(payload?.salaExterna?.etiqueta ?? "").trim().slice(0, 40) || "la otra app",
+          };
+        }
+
         addParticipant(meeting, socket.id, hostName, hostLanguage, true, ownerId, await avatarForUser(ownerId));
 
         currentMeetingId = meeting.id;

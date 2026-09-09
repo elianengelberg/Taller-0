@@ -129,6 +129,15 @@ export interface Meeting {
   authedUsers: Map<string, string>;
   // True once a host explicitly ended the meeting for everyone.
   endedByHost: boolean;
+  /**
+   * LA MISMA REUNIÓN, TAMBIÉN EN OTRA APP. El anfitrión creó la reunión en
+   * Unify y pegó el enlace de su Zoom, Meet, Teams o Jitsi: quien prefiera su
+   * app entra por ahí y quien quiera entra por Unify, y las dos puertas dan a
+   * la MISMA sala -- una sola transcripción, una traducción, una IA y un solo
+   * historial. Lo que se dice del lado de afuera llega por el puente (la
+   * extensión o el bot), que usa `clave` como sala.
+   */
+  salaExterna: { clave: string; enlace: string; etiqueta: string } | null;
 }
 
 export interface MeetingSnapshot {
@@ -141,6 +150,8 @@ export interface MeetingSnapshot {
   transcript: TranscriptLine[];
   settings: MeetingSettings;
   presenterId: string | null;
+  /** La otra puerta de esta misma reunión (Zoom, Meet, Teams…), si la hay. */
+  salaExterna: { clave: string; enlace: string; etiqueta: string } | null;
 }
 
 export function toSnapshot(meeting: Meeting): MeetingSnapshot {
@@ -154,5 +165,6 @@ export function toSnapshot(meeting: Meeting): MeetingSnapshot {
     transcript: meeting.transcript,
     settings: meeting.settings,
     presenterId: meeting.presenterId,
+    salaExterna: meeting.salaExterna,
   };
 }

@@ -5,6 +5,7 @@ import { crearMemoriaDeIdioma, detectarIdioma } from "./idioma";
 // se resuelven las frases demasiado cortas para detectarles el idioma.
 const memoriaIdioma = crearMemoriaDeIdioma();
 import { configurarRtms, escucharSinBot, estadoRtms, manejarWebhookZoom, reunionPorNumero, rtmsEnabled } from "./rtms";
+import { BRIDGE_PLATFORMS, claveDeSalaValida } from "./salas";
 import express, { NextFunction, Request, Response } from "express";
 import { createServer } from "http";
 import { spawn } from "child_process";
@@ -99,7 +100,7 @@ import {
   microsoftEnabled,
   refreshAccessToken,
 } from "./microsoftAuth";
-import { addNamedTranscriptLine, getOrCreateCompanionMeeting, isLiveParticipant, onMeetingFinalized } from "./meetingStore";
+import { addNamedTranscriptLine, getOrCreateCompanionMeeting, isLiveParticipant, onMeetingFinalized, reunionDeSalaExterna } from "./meetingStore";
 import { anthropicEnabled } from "./anthropicClient";
 import { buscarEco, esHablanteGenerico, filaDeLinea, recordarFilaDeLinea } from "./eco";
 import { cleanTranscriptFragment, translateFragmentToAll } from "./transcriptCleanup";
@@ -1806,19 +1807,6 @@ const MEET_CODE_RE = /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/;
 //
 // La lista es cerrada a propósito: este endpoint crea reuniones y registros en
 // la base sin sesión, así que un prefijo libre sería una canilla de basura.
-const BRIDGE_PLATFORMS = new Set([
-  "google-meet", "zoom", "teams", "jitsi", "webex", "whereby", "element",
-  "chime", "goto", "bluejeans", "ringcentral", "dialpad", "livestorm", "zoho",
-  "skype", "discord", "slack", "whatsapp", "gather", "generica",
-  // Cualquier web: la clave que la web y la extensión derivan de un enlace
-  // que no reconocen por nombre (origen + path). Ver externalFallbackKey.
-  "externa",
-  // La reunión detectada por la APP DE WINDOWS (la app de Zoom o de Teams,
-  // no una web): la barra companion y el grabador silencioso comparten esta
-  // sala. La cola dice cuál app fue ("zoom-...", "teams-...").
-  "escritorio",
-]);
-
 // Cómo se titula la reunión en el historial ("Reunión de Zoom", etc.).
 const BRIDGE_LABELS: Record<string, string> = {
   "google-meet": "Google Meet", zoom: "Zoom", teams: "Microsoft Teams",
@@ -1852,27 +1840,8 @@ function bridgeLabelFor(roomKey: string): string {
   return BRIDGE_LABELS[platform] ?? "Reunión externa";
 }
 
-/**
- * Normaliza el id que llega por la URL a una clave de sala, o null si no es
- * válido. Un código de Meet pelado ("abc-defg-hij") sigue andando tal cual --
- * es lo que manda la extensión v3 instalada -- y se mapea a la misma clave
- * "google-meet:código" de siempre, así que nadie pierde su sala.
- */
-function bridgeRoomKey(raw: string): string | null {
-  const value = String(raw ?? "").trim().toLowerCase().slice(0, 240);
-  if (MEET_CODE_RE.test(value)) return `google-meet:${value}`;
-  const sep = value.indexOf(":");
-  if (sep <= 0) return null;
-  const platform = value.slice(0, sep);
-  const tail = value.slice(sep + 1);
-  if (!BRIDGE_PLATFORMS.has(platform)) return null;
-  // El resto de la clave sale de hosts, paths y ids de reunión: letras,
-  // números y la puntuación que esos formatos usan de verdad (Teams mete
-  // "19:meeting_...@thread.v2", Jitsi "dominio/sala"). Nada de espacios ni
-  // caracteres de control.
-  if (!/^[a-z0-9][a-z0-9\-._~:/@%+=]{0,200}$/.test(tail)) return null;
-  return `${platform}:${tail}`;
-}
+// La validación vive en ./salas (socketHandlers también la necesita).
+const bridgeRoomKey = claveDeSalaValida;
 
 const meetBridgeLimiters = new Map<string, { windowStart: number; count: number }>();
 
@@ -2387,6 +2356,12 @@ configurarRtms({
 });
 
 function companionForRoomKey(roomKey: string) {
+  // LA MISMA REUNIÓN POR DOS PUERTAS. Si el anfitrión creó su reunión en
+  // Unify y pegó el enlace de su Zoom/Meet/Teams, esta sala externa apunta a
+  // esa reunión: lo que llega por el puente entra ahí (una sola
+  // transcripción, un solo historial) en vez de abrir una reunión aparte.
+  const enlazada = reunionDeSalaExterna(roomKey);
+  if (enlazada) return enlazada;
   const { meeting, created } = getOrCreateCompanionMeeting(roomKey);
   if (created) {
     void createMeetingRecord({

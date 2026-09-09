@@ -142,6 +142,20 @@ mensajes) sin activar R2 (grabaciones), la IA, ni el correo, por ejemplo.
   correo explica que el acceso es por el botón de Google (y que la contraseña de Google se
   recupera en Google).
 
+## Una reunión, dos puertas (Unify + Zoom/Meet/Teams)
+
+Un cliente de Zoom no se puede conectar a una sala de Unify: sólo habla con los servidores
+de Zoom. Así que la unión se hace al revés, y funciona igual de bien: al **crear** la
+reunión, el anfitrión pega el enlace de su Zoom, Meet, Teams o Jitsi. Esa sala externa
+queda apuntando a la reunión de Unify (`enlazarSalaExterna` en `server/src/meetingStore.ts`,
+y `companionForRoomKey` la consulta primero), así que **todo lo que llega por el puente**
+--- la extensión en la pestaña, o el bot --- entra en esa misma reunión: una sola
+transcripción, una traducción, una IA, un historial.
+
+Quien quiera entra por Unify (video adentro) y quien prefiera su app entra por el enlace de
+siempre. El menú de invitar comparte **las dos puertas** y lo dice: es la misma reunión.
+`pruebas/sim_puerta_externa.js` lo prueba de punta a punta contra el stack real.
+
 ## Zoom sin bot (Realtime Media Streams)
 
 Zoom puede transmitir una reunión **directo al servidor de Unify**, sin que entre ningún

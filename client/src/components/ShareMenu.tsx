@@ -4,17 +4,27 @@ import { CopyIcon, LinkIcon, MailIcon, ShareIcon, WhatsAppIcon } from "./icons";
 
 interface ShareMenuProps {
   meetingCode: string;
+  /**
+   * LA OTRA PUERTA de esta misma reunión: el anfitrión pegó al crearla el
+   * enlace de su Zoom, Meet o Teams. Se invita con las DOS, porque el punto
+   * es que cada uno entre desde donde quiera y todo caiga en la misma sala.
+   */
+  salaExterna?: { clave: string; enlace: string; etiqueta: string } | null;
 }
 
 const menuItemClass =
   "flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-ink-200 hover:bg-ink-700";
 
-export default function ShareMenu({ meetingCode }: ShareMenuProps) {
+export default function ShareMenu({ meetingCode, salaExterna = null }: ShareMenuProps) {
   const [open, setOpen] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const joinUrl = meetingJoinUrl(meetingCode);
+  const invitacionConLasDos = (texto: string) =>
+    salaExterna
+      ? `${texto}\n\n¿Preferís ${salaExterna.etiqueta}? Entrá por acá y es la misma reunión: ${salaExterna.enlace}`
+      : texto;
   const inviteText = `Te invito a una videollamada en Unify. Unite acá: ${joinUrl}\n\n(o entrá a ${window.location.origin} con el código ${meetingCode})`;
 
   // Closes on an outside click/tap or Escape -- the app's first popover-style
@@ -68,6 +78,12 @@ export default function ShareMenu({ meetingCode }: ShareMenuProps) {
           <div className="border-b border-ink-700 px-3 py-2">
             <p className="text-xs font-medium text-ink-400">Invitar a la reunión</p>
             <p className="mt-0.5 truncate text-xs text-ink-500">{joinUrl}</p>
+            {salaExterna && (
+              <p className="mt-1 text-[11px] leading-snug text-brand-300">
+                También se puede entrar desde {salaExterna.etiqueta}: es la misma reunión, con la
+                misma transcripción e historial.
+              </p>
+            )}
           </div>
           <button type="button" className={menuItemClass} onClick={() => copy(joinUrl, "¡Link copiado!")}>
             <LinkIcon className="h-4 w-4 shrink-0" />
@@ -81,8 +97,18 @@ export default function ShareMenu({ meetingCode }: ShareMenuProps) {
             <CopyIcon className="h-4 w-4 shrink-0" />
             Copiar código ({meetingCode})
           </button>
+          {salaExterna && (
+            <button
+              type="button"
+              className={menuItemClass}
+              onClick={() => copy(salaExterna.enlace, `¡Link de ${salaExterna.etiqueta} copiado!`)}
+            >
+              <LinkIcon className="h-4 w-4 shrink-0" />
+              Copiar el link de {salaExterna.etiqueta}
+            </button>
+          )}
           <a
-            href={`https://wa.me/?text=${encodeURIComponent(inviteText)}`}
+            href={`https://wa.me/?text=${encodeURIComponent(invitacionConLasDos(inviteText))}`}
             target="_blank"
             rel="noopener noreferrer"
             className={menuItemClass}
@@ -92,7 +118,7 @@ export default function ShareMenu({ meetingCode }: ShareMenuProps) {
             Enviar por WhatsApp
           </a>
           <a
-            href={`mailto:?subject=${encodeURIComponent("Invitación a una reunión en Unify")}&body=${encodeURIComponent(inviteText)}`}
+            href={`mailto:?subject=${encodeURIComponent("Invitación a una reunión en Unify")}&body=${encodeURIComponent(invitacionConLasDos(inviteText))}`}
             className={menuItemClass}
             onClick={() => setOpen(false)}
           >

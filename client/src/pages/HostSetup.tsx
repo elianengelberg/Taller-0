@@ -5,6 +5,7 @@ import Logo from "../components/Logo";
 import { useAuth } from "../context/AuthContext";
 import { useMeeting } from "../context/MeetingContext";
 import { roleColorStyle } from "../lib/roleColors";
+import { detectMeetingPlatform, sanitizeMeetingInput } from "../lib/meetingPlatforms";
 import { LANGUAGES, idiomaDelDispositivo, recordarIdioma } from "../lib/languages";
 import { cardClass, inputClass, labelClass, nameInputProps, sentenceInputProps } from "../lib/ui";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
@@ -26,6 +27,18 @@ export default function HostSetup() {
   const [language, setLanguage] = useState(idiomaDelDispositivo);
   const [roleNames, setRoleNames] = useState<string[]>([]);
   const [roleInput, setRoleInput] = useState("");
+  // LA OTRA PUERTA. Quien organiza la reunión ya suele tener su Zoom, su Meet
+  // o su Teams, y no todos quieren entrar por una app nueva. Si pega ese
+  // enlace acá, las dos puertas dan a la MISMA reunión: una sola
+  // transcripción, una traducción, una IA y un solo historial.
+  const [enlaceExterno, setEnlaceExterno] = useState("");
+  const externa = (() => {
+    const limpio = sanitizeMeetingInput(enlaceExterno);
+    if (!limpio) return null;
+    const d = detectMeetingPlatform(limpio);
+    if (!d || !d.roomKey || !d.url) return null;
+    return { clave: d.roomKey, enlace: d.url, etiqueta: d.info?.label ?? "la otra app" };
+  })();
 
   function addRole() {
     const value = roleInput.trim();
@@ -52,7 +65,7 @@ export default function HostSetup() {
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!name.trim()) return;
-    startHostDraft({ name, language, roleNames });
+    startHostDraft({ name, language, roleNames, salaExterna: externa });
     navigate("/reunion");
   }
 
@@ -107,6 +120,40 @@ export default function HostSetup() {
               <p className="mt-1.5 text-xs text-ink-400">
                 Se usa para traducir automáticamente el chat a tu idioma cuando alguien active
                 esa opción.
+              </p>
+            </div>
+
+            <div>
+              <label className={labelClass} htmlFor="enlace-externo">
+                ¿Ya tenés la reunión en otra app? (opcional)
+              </label>
+              <input
+                id="enlace-externo"
+                className={inputClass}
+                placeholder="Pegá el enlace de tu Zoom, Meet, Teams o Jitsi"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                value={enlaceExterno}
+                onChange={(e) => setEnlaceExterno(e.target.value)}
+                maxLength={2000}
+              />
+              <p className="mt-1.5 text-xs leading-relaxed text-ink-400">
+                {externa ? (
+                  <span className="text-brand-300">
+                    Reconocimos <span className="font-semibold">{externa.etiqueta}</span>. Los que
+                    prefieran esa app entran por ahí y los demás por Unify: es la{" "}
+                    <span className="font-semibold">misma reunión</span>, con una sola
+                    transcripción, traducción, IA e historial.
+                  </span>
+                ) : enlaceExterno.trim() ? (
+                  <span className="text-warn">
+                    No reconocimos ese enlace como una reunión. Podés crearla igual y compartir el
+                    código de Unify.
+                  </span>
+                ) : (
+                  "Quien no quiera instalar ni abrir nada nuevo entra desde su app de siempre, y todo cae en la misma reunión."
+                )}
               </p>
             </div>
 

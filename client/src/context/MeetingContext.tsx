@@ -168,7 +168,17 @@ interface MeetingContextValue {
   self: Participant | null;
   isHost: boolean;
   hostParticipant: Participant | null;
-  startHostDraft: (info: { name: string; language: string; roleNames: string[] }) => void;
+  startHostDraft: (info: {
+    name: string;
+    language: string;
+    roleNames: string[];
+    /**
+     * La MISMA reunión, también en otra app: el anfitrión pegó el enlace de
+     * su Zoom, Meet o Teams al crearla. Quien prefiera su app entra por ahí y
+     * quien quiera entra por Unify; las dos puertas dan a la misma sala.
+     */
+    salaExterna?: { clave: string; enlace: string; etiqueta: string } | null;
+  }) => void;
   startJoinDraft: (info: { name: string; language: string; meetingCode: string }) => void;
   startCompanionDraft: (info: {
     name: string;
@@ -526,7 +536,12 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const startHostDraft = useCallback(
-    (info: { name: string; language: string; roleNames: string[] }) => {
+    (info: {
+      name: string;
+      language: string;
+      roleNames: string[];
+      salaExterna?: { clave: string; enlace: string; etiqueta: string } | null;
+    }) => {
       setDraft({ mode: "host", ...info });
     },
     []
@@ -595,7 +610,13 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
         "create-meeting",
         // token (if logged in) ties this meeting to the account so it shows up
         // in that person's private history.
-        { hostName: draft.name, hostLanguage: draft.language, roles: draft.roleNames, token: getAuthToken() },
+        {
+          hostName: draft.name,
+          hostLanguage: draft.language,
+          roles: draft.roleNames,
+          token: getAuthToken(),
+          salaExterna: draft.salaExterna ?? null,
+        },
         onResult("No se pudo crear la reunión.")
       );
     } else if (draft.mode === "companion") {

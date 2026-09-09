@@ -35,6 +35,8 @@ function Divider() {
 
 interface ControlBarProps {
   meetingCode: string;
+  /** La otra puerta de esta misma reunión (Zoom, Meet, Teams…), si la hay. */
+  salaExterna?: { clave: string; enlace: string; etiqueta: string } | null;
   muted: boolean;
   cameraOff: boolean;
   onToggleMic: () => void;
@@ -71,6 +73,7 @@ interface ControlBarProps {
 
 export default function ControlBar({
   meetingCode,
+  salaExterna = null,
   muted,
   cameraOff,
   onToggleMic,
@@ -126,7 +129,7 @@ export default function ControlBar({
           code (its own row on desktop, at the far right) so it's never
           competing for space with the icon grid below. */}
       <div className="flex items-center justify-between gap-3">
-        <ShareMenu meetingCode={meetingCode} />
+        <ShareMenu meetingCode={meetingCode} salaExterna={salaExterna} />
         <div className="sm:hidden">{leaveButton}</div>
       </div>
 

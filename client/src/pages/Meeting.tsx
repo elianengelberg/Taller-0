@@ -805,6 +805,7 @@ export default function Meeting() {
 
       <ControlBar
         meetingCode={meeting.id}
+        salaExterna={meeting.salaExterna ?? null}
         muted={media.muted}
         cameraOff={media.cameraOff}
         onToggleMic={media.toggleMic}
