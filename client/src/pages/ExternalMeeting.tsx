@@ -233,6 +233,7 @@ export default function ExternalMeeting() {
     // Lo que otro está diciendo ahora mismo (bot / extensión), sin esperar a
     // que termine la frase.
     interinoAjeno,
+    sendInterim,
   } = useMeeting();
 
   const [activePanel, setActivePanel] = useState<PanelKey>(null);
@@ -470,7 +471,12 @@ export default function ExternalMeeting() {
     key: micAttempt,
     lang: spokenLang,
     active: connectionStatus === "connected" && !micTomadoPorGrabacion,
-    onInterim: (text) => setInterimCaption(text),
+    onInterim: (text) => {
+      setInterimCaption(text);
+      // Y a la sala: si hay más gente con Unify abierto en esta reunión
+      // externa, leen lo que estás diciendo mientras lo decís.
+      sendInterim(text);
+    },
     onResult: (alternatives) => {
       setInterimCaption(null);
       sendTranscriptLine(alternatives, spokenLang);
@@ -648,6 +654,13 @@ export default function ExternalMeeting() {
   // modo es el altavoz (la pantalla lo explica) y avisar "actualizá Chrome"
   // sólo confundía. El aviso corre únicamente donde la captura es posible.
   const capturaPosible = typeof navigator.mediaDevices?.getDisplayMedia === "function";
+  // ¿Se está oyendo SÓLO tu voz? (Ninguna frase de otra persona y sin la
+  // pista de la reunión.) Lo usan el aviso del escenario y la nota de
+  // grabación, que si no decían lo mismo apilado.
+  const soloTuVozAhora =
+    !(meeting?.transcript ?? []).some((l) => l.speakerId !== self?.id) &&
+    !(recorder.remoteAudioTrack && reunionSoportada);
+
   const avisoReunion =
     recorder.status === "recording" && recorder.kind === "screen" && !recorder.remoteAudioTrack
       ? "La grabación no trae el audio de la reunión, así que los demás no salen en los subtítulos: paren y vuelvan a grabar tildando «Compartir audio» al elegir la pestaña o pantalla."
@@ -1305,10 +1318,7 @@ export default function ExternalMeeting() {
                   // (Antes de que la sala confirme quién sos, la transcripción
                   // está vacía: el aviso sale desde el primer instante, sin
                   // esperar al socket.)
-                  soloTuVoz={
-                    !(meeting?.transcript ?? []).some((l) => l.speakerId !== self?.id) &&
-                    !(recorder.remoteAudioTrack && reunionSoportada)
-                  }
+                  soloTuVoz={soloTuVozAhora}
                   sinAudioCompartido={
                     recorder.status === "recording" && recorder.kind === "screen" && !recorder.remoteAudioTrack
                   }
@@ -1338,10 +1348,14 @@ export default function ExternalMeeting() {
                       />
                     ) : null
                   }
+                  // La nota del micrófono de iPhone/iPad se apaga cuando el
+                  // aviso de «sólo se oye tu voz» ya lo explica (decían lo
+                  // mismo, apilado). La de la app de escritorio NO: es la
+                  // única señal de que se está grabando.
                   notaGrabacion={
                     escritorioRef.current && recorder.status === "idle"
                       ? "El video lo está grabando la app de Unify (la pantalla, con el audio del sistema): al cortar la reunión aparece solo en tu historial. Esta barra pone los subtítulos, la traducción y la IA."
-                      : grabacionCedida && recorder.status === "idle"
+                      : grabacionCedida && recorder.status === "idle" && !soloTuVozAhora
                         ? `En ${aparato.corto} el micrófono es de una sola cosa a la vez, así que la grabación automática está en pausa para que anden los subtítulos. Si querés que quede el video y la transcripción completa en el historial, mandá el bot: graba desde el servidor y no usa este micrófono. También podés tocar «Grabar» abajo para guardar el audio (mientras dure, los subtítulos se pausan).`
                         : null
                   }

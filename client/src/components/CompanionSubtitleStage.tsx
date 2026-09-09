@@ -285,10 +285,11 @@ export default function CompanionSubtitleStage({
         </div>
       )}
 
-      {/* Con el aviso de «sólo se oye tu voz» a la vista, esta nota decía lo
-          mismo con otras palabras: dos párrafos largos, uno arriba del otro,
-          para el mismo problema. Se muestra sólo cuando el aviso no está. */}
-      {notaGrabacion && !soloTuVoz && (
+      {/* La nota de grabación se muestra siempre que exista: quien la manda
+          decide (la página apaga la del micrófono cuando el aviso de «sólo se
+          oye tu voz» ya lo explica, pero la de «lo está grabando la app de
+          Unify» tiene que verse igual: nadie puede creer que no se graba). */}
+      {notaGrabacion && (
         <div className="border-b border-ink-700 bg-ink-800/60 px-4 py-2 text-xs leading-snug text-ink-200">
           {notaGrabacion}
         </div>

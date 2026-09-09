@@ -218,6 +218,8 @@ interface MeetingContextValue {
    * aparezca MIENTRAS se habla y no varios segundos después.
    */
   interinoAjeno: { speaker: string; text: string } | null;
+  /** Manda lo que estás diciendo ahora mismo, para que los demás lo lean ya. */
+  sendInterim: (text: string) => void;
   // Live state of the linked external Google Meet (companion sessions with
   // the Unify extension installed); null until the first report arrives.
   meetState: MeetBridgeState | null;
@@ -691,6 +693,19 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     [emitOrQueue]
   );
 
+  // Lo que estás diciendo AHORA, para que los demás lo lean mientras hablás
+  // (no cuando terminás la frase). No se guarda ni se traduce: lo reemplaza
+  // la línea de siempre. Con freno, que llega varias veces por segundo.
+  const ultimoInterimRef = useRef(0);
+  const sendInterim = useCallback((text: string) => {
+    const t = String(text ?? "").trim();
+    if (!t || !joinedRef.current) return;
+    const ahora = Date.now();
+    if (ahora - ultimoInterimRef.current < 400) return;
+    ultimoInterimRef.current = ahora;
+    socketRef.current.emit("transcript-interim", { text: t.slice(0, 300) });
+  }, []);
+
   // Estos cuatro guardan el último valor además de emitirlo: al reconectar, el
   // servidor recrea al participante con los valores de fábrica y flushOutbox lo
   // vuelve a poner como estaba. Sin esto, quien se caía silenciado volvía y
@@ -782,6 +797,7 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     assignRole,
     addRole,
     sendTranscriptLine,
+    sendInterim,
     setMediaState,
     setSharingScreen,
     setHandRaised,

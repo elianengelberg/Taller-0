@@ -21,6 +21,12 @@ interface Props {
   // bottom before it even finishes -- always more current than any finalized
   // line, and never sent anywhere until it finalizes.
   localInterim?: { speakerName: string; text: string; avatarUrl?: string | null } | null;
+  /**
+   * Lo que OTRA persona está diciendo ahora mismo. Antes su frase aparecía
+   * recién al terminarla (más la corrección de la IA): varios segundos entre
+   * lo que se oye y lo que se lee.
+   */
+  remoteInterim?: { speaker: string; text: string } | null;
   // Devuelve el rol de quien habla (etiqueta + color) para mostrarlo junto al
   // nombre. Opcional: en una reunión propia los roles ya viajan en la línea.
   roleFor?: (speakerName: string) => { label: string; color: string } | null;
@@ -35,7 +41,7 @@ interface Props {
 // into the still-visible line instead of looking like it vanished.
 const HOLD_MS = 6000;
 
-export default function LiveCaption({ lines = [], localInterim, roleFor, avatarFor }: Props) {
+export default function LiveCaption({ lines = [], localInterim, remoteInterim, roleFor, avatarFor }: Props) {
   // Per-speaker visible captions, each with its own "last changed" time so
   // they expire independently. Kept in a ref (not state) because the pruning
   // timer and the incoming-lines effect both mutate it; a tick counter drives
@@ -103,7 +109,12 @@ export default function LiveCaption({ lines = [], localInterim, roleFor, avatarF
     .sort((a, b) => a.lastSeen - b.lastSeen) // oldest on top, newest at the bottom
     .map((v) => v.entry);
 
-  if (active.length === 0 && !localInterim) return null;
+  // Lo que otra persona está diciendo AHORA, sólo mientras no haya una
+  // burbuja suya ya en pantalla (si la frase terminó, manda la terminada).
+  const ajeno =
+    remoteInterim && !active.some((e) => e.speakerName === remoteInterim.speaker) ? remoteInterim : null;
+
+  if (active.length === 0 && !localInterim && !ajeno) return null;
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex flex-col items-center gap-1.5 px-4">
@@ -117,6 +128,15 @@ export default function LiveCaption({ lines = [], localInterim, roleFor, avatarF
           translatedText={entry.translatedText}
         />
       ))}
+      {ajeno && (
+        <CaptionBubble
+          key="__interim-ajeno"
+          speakerName={ajeno.speaker}
+          avatarUrl={avatarFor?.(ajeno.speaker, ajeno.speaker) ?? null}
+          role={roleFor?.(ajeno.speaker) ?? null}
+          text={ajeno.text}
+        />
+      )}
       {localInterim && (
         <CaptionBubble
           key="__interim"

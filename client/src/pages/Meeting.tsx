@@ -89,6 +89,9 @@ export default function Meeting() {
     setHandRaised,
     setSelfLanguage,
     sendTranscriptLine,
+    // Lo que estás diciendo ahora (para los demás) y lo que dice otro ahora.
+    sendInterim,
+    interinoAjeno,
     leaveMeeting,
   } = useMeeting();
 
@@ -366,7 +369,11 @@ export default function Meeting() {
     key: micAttempt,
     lang: self?.language ?? "es-AR",
     active: !media.muted && connectionStatus === "connected",
-    onInterim: (text) => setInterimCaption(text),
+    onInterim: (text) => {
+      setInterimCaption(text);
+      // Y a la sala: los demás leen lo que estás diciendo mientras lo decís.
+      sendInterim(text);
+    },
     onResult: (alternatives) => {
       setInterimCaption(null);
       sendTranscriptLine(alternatives, self?.language ?? "es-AR");
@@ -780,6 +787,9 @@ export default function Meeting() {
           <LiveCaption
             lines={captionLines}
             avatarFor={avatarFor}
+            // Lo que está diciendo OTRA persona ahora mismo (llega por la
+            // sala); lo propio manda, porque ya está en pantalla.
+            remoteInterim={interinoAjeno}
             localInterim={
               captionsOn && interimCaption
                 ? {

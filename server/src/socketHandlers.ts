@@ -198,6 +198,32 @@ export function registerSocketHandlers(io: Server, socket: Socket): void {
   // its own separate, easy-to-miss caption.
   let recentUtterance: { lineId: string; dbMessageId: number | null; finalizedAt: number } | null = null;
 
+  // LO QUE SE ESTÁ DICIENDO AHORA, también entre nosotros. En una reunión de
+  // Unify cada quien veía SU propia frase en curso, pero la de los demás
+  // recién aparecía cuando la persona hacía una pausa y la IA la corregía:
+  // varios segundos de diferencia entre lo que se oye y lo que se lee. Esto
+  // reparte lo interino a la sala y se olvida: no se guarda, no se traduce y
+  // lo reemplaza la frase terminada de siempre.
+  let ultimoInterinoEnviado = 0;
+  socket.on("transcript-interim", (payload: { text?: unknown }) => {
+    const meeting = currentMeetingId ? getMeeting(currentMeetingId) : undefined;
+    const yo = meeting?.participants.get(socket.id);
+    if (!meeting || !yo) return;
+    const texto = String(payload?.text ?? "").trim().slice(0, 300);
+    if (!texto) return;
+    // Freno por persona: llega varias veces por segundo mientras se habla.
+    const ahora = Date.now();
+    if (ahora - ultimoInterinoEnviado < 300) return;
+    ultimoInterinoEnviado = ahora;
+    // El nombre lo pone el SERVIDOR (el del participante), nunca el cliente.
+    socket.to(roomName(meeting.id)).emit("transcript-interim", {
+      speaker: yo.name,
+      text: texto,
+      lang: yo.language ?? "",
+      at: ahora,
+    });
+  });
+
   socket.on(
     "create-meeting",
     async (

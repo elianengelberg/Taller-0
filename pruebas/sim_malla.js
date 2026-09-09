@@ -201,6 +201,45 @@ async function remoteVideos(page) {
   check("el expulsado llega al inicio", new URL(d.url()).pathname === "/", d.url());
   check("y ve POR QUÉ salió (el aviso de la expulsión)", /te quitó de la reunión/i.test(cuerpoD), cuerpoD.slice(0, 160).replace(/\s+/g, " "));
   check("sin errores de JS en Carla y Diego", bagC.length === 0 && bagD.length === 0, (bagC[0] || bagD[0] || ""));
+
+  // LO QUE SE ESTÁ DICIENDO, entre nosotros. En una reunión de Unify cada uno
+  // veía SU frase en curso, pero la de los demás recién aparecía al terminar
+  // la frase y pasar por la IA: varios segundos entre lo que se oye y lo que
+  // se lee. Ahora lo interino se reparte a la sala (sin guardarse).
+  {
+    const uno = sio(API, { transports: ["websocket"], forceNew: true, reconnection: false });
+    const dos = sio(API, { transports: ["websocket"], forceNew: true, reconnection: false });
+    const creada3 = await new Promise((res) =>
+      uno.timeout(8000).emit("create-meeting", { hostName: "Marina", hostLanguage: "es-AR", roles: [] }, (_e, r) => res(r)));
+    const codigo3 = creada3?.meeting?.id;
+    check("se crea una reunión para probar lo interino", Boolean(codigo3), JSON.stringify(creada3).slice(0, 80));
+    await new Promise((res) =>
+      dos.timeout(8000).emit("join-meeting", { meetingId: codigo3, name: "Tomás", language: "es-AR" }, (_e, r) => res(r)));
+    const recibidos = [];
+    dos.on("transcript-interim", (p) => recibidos.push(p));
+    const propios = [];
+    uno.on("transcript-interim", (p) => propios.push(p));
+    const t0 = Date.now();
+    uno.emit("transcript-interim", { text: "estoy diciendo esto en este preciso momento" });
+    let llego = 0;
+    for (let i = 0; i < 40 && !llego; i++) {
+      if (recibidos.length) llego = Date.now() - t0;
+      else await sleep(50);
+    }
+    check("lo que dice una persona llega a la otra al instante (menos de un segundo)",
+      llego > 0 && llego < 1000, llego ? `${llego} ms` : "no llegó");
+    check("con SU nombre, puesto por el servidor (no por el cliente)",
+      recibidos[0]?.speaker === "Marina" && /preciso momento/.test(recibidos[0]?.text || ""),
+      JSON.stringify(recibidos[0]));
+    check("y no le vuelve a quien lo dijo (ya lo tiene en pantalla)", propios.length === 0, `propios=${propios.length}`);
+    // No se guarda: es lo que se está diciendo, no lo que se dijo.
+    const det = await fetch(`${API}/api/meetings/${creada3.meeting.dbId}`).catch(() => null);
+    check("y no queda en la transcripción (no es una frase, es lo que va saliendo)",
+      !det || det.status === 401 || det.status === 404 || !/preciso momento/.test(await det.text().catch(() => "")),
+      "");
+    uno.close();
+    dos.close();
+  }
   anfitriona.disconnect();
 
   await browser.close();
