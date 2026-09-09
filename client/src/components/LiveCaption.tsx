@@ -166,8 +166,10 @@ function CaptionBubble({
       {/* When translated, keep the original visible underneath (muted) so
           people can follow both what was said and its translation. */}
       {showingTranslation && (
-        <p className="mt-1 flex items-center justify-center gap-1.5 text-xs leading-snug text-on-accent/60">
-          <GlobeIcon className="h-3 w-3 shrink-0 text-brand-300/80" />
+        // El original, de apoyo: chico y apagado. La traducción, arriba, es
+        // la que se lee.
+        <p className="mt-1 flex items-center justify-center gap-1.5 text-[11px] leading-snug text-on-accent/55">
+          <GlobeIcon className="h-2.5 w-2.5 shrink-0 text-brand-300/70" />
           <span className="italic">{text}</span>
         </p>
       )}

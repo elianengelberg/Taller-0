@@ -126,6 +126,25 @@ const decir = (texto, extra = {}) =>
       pedidosTraduccion.some((t) => /presupuesto/.test(t)), pedidosTraduccion.join(" | ").slice(0, 120));
   }
 
+  console.log("\n── 4. La traducción manda; el original va chico ──");
+  {
+    // Quien elige un idioma viene a leer ESE idioma: la traducción tiene que
+    // ser la lectura principal y el original, apoyo. Se mide el tamaño REAL
+    // de la letra en pantalla, no la clase.
+    const trad = p.getByText(/^TRADUCCION_\d+$/).first();
+    const orig = p.getByText(/cerramos el presupuesto el jueves/).first();
+    const tamTrad = await trad.evaluate((n) => parseFloat(getComputedStyle(n).fontSize)).catch(() => 0);
+    const tamOrig = await orig.evaluate((n) => parseFloat(getComputedStyle(n).fontSize)).catch(() => 0);
+    check("la traducción se lee mucho más grande que el original",
+      tamTrad >= tamOrig * 1.5, `traducción=${tamTrad}px original=${tamOrig}px`);
+    const posTrad = await trad.boundingBox();
+    const posOrig = await orig.boundingBox();
+    check("y va ARRIBA (el original queda debajo, de apoyo)",
+      Boolean(posTrad && posOrig) && posTrad.y < posOrig.y, `${posTrad?.y} < ${posOrig?.y}`);
+    const cursiva = await orig.evaluate((n) => getComputedStyle(n).fontStyle).catch(() => "");
+    check("el original se distingue como apoyo (en cursiva y apagado)", cursiva === "italic", cursiva);
+  }
+
   check("sin errores de JavaScript en toda la reunión", errs.length === 0, errs[0] || "");
   await browser.close();
   const ok = results.filter(Boolean).length;

@@ -152,12 +152,15 @@ export default function TranscriptPanel({
                 </div>
 
                 {translated ? (
+                  // QUIEN PIDIÓ UNA TRADUCCIÓN VIENE A LEER LA TRADUCCIÓN:
+                  // ella es la lectura principal (más grande y con todo el
+                  // contraste) y el original queda de apoyo, chico y apagado.
                   <>
-                    <p className="mt-1.5 flex items-start gap-1.5 text-sm leading-relaxed text-ink-100">
+                    <p className="mt-1.5 flex items-start gap-1.5 text-base font-medium leading-relaxed text-strong">
                       <GlobeIcon className="mt-1 h-3.5 w-3.5 shrink-0 text-brand-300" />
                       <span>{translated}</span>
                     </p>
-                    <p className="mt-1 pl-5 text-xs leading-relaxed text-ink-500">{originalText}</p>
+                    <p className="mt-1 pl-5 text-[11px] italic leading-relaxed text-ink-500">{originalText}</p>
                   </>
                 ) : (
                   <p className="mt-1.5 text-sm leading-relaxed text-ink-100">

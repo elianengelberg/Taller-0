@@ -521,3 +521,10 @@ Reporte con capturas (iPad, Meet, tema CLARO): flotantes = cuadradito inútil; s
   - la traducción es la lectura principal y el original queda debajo, y se le pide al servidor la traducción de lo dicho.
 - **Trampa de la prueba (no del producto)**: la traducción de mentira devolvía «EN: <texto original>», así que contar apariciones del original contaba también la traducción → parecía repetido. Ahora el doble devuelve `TRADUCCION_<n>`, sin el original adentro. Y una frase posteada enseguida se FUSIONA con la anterior (correcto): para probar una frase nueva hay que cambiar de hablante y esperar más que la ventana de fusión.
 - Verde además: sim_realext 63/63, sim_bridge 36/36, sim_voces_reunion 15/15.
+
+## 2026-09-09 — La traducción es la lectura principal en TODAS las superficies
+- Pedido: «que el original se vea en chiquito y dale protagonismo a la traducción». En la extensión estaba AL REVÉS: panel `.entry .text` 14 px (original) vs `.entry .tr` 12,4 px (traducción); subtítulo `.subs .orig` 20 px vs `.subs .tr` 18 px; overlay flotante `.dijo` 15 px vs `.trad` 14 px.
+- Ahora, cuando hay traducción distinta del original: la traducción va ARRIBA, más grande y con contraste pleno, y el original abajo, chico, en cursiva y apagado. Se marca con una clase (`.entry.traducida`, `.subs.traducido`, `.linea.traducida`) y el orden lo pone `order` en flex, así que sin traducción no cambia nada.
+  - extension/shadow.css (panel y subtítulo), extension/content.js (clase `traducida` en la tarjeta), extension/prompt-injector.js (overlay: `.cuerpo` flex + clase en la fila).
+  - Web: `TranscriptPanel` (traducción text-base font-medium text-strong; original text-[11px] cursiva ink-500), `LiveCaption` (original text-[11px] al 55 %), `CompanionSubtitleStage` (traducción font-medium; original text-xs/sm ink-500), `flotantes.ts` (ventanita `.original` .55em; canvas 22/18 px contra 44/32 de la traducción).
+- `sim_meet_vivo` 12/12: mide el TAMAÑO REAL en pantalla (traducción 24 px vs original 14 px), que la traducción va arriba y que el original está en cursiva. Extensión 4.10.8.

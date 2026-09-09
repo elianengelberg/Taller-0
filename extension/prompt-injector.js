@@ -287,6 +287,9 @@
       font-weight: 700; display: flex; align-items: center; justify-content: center; }
     .quien { font-size: 12px; color: #5b6b8f; }
     .dijo { font-size: 15px; line-height: 1.4; color: #101c40; overflow-wrap: anywhere; }
+    /* Con traducción a la vista, ELLA es la que se lee: el original queda de
+       apoyo, chico y apagado (quien pidió traducción viene a leer eso). */
+    .linea.traducida .dijo { font-size: 12.5px; color: #5b6b8f; font-style: italic; order: 2; }
     .vacio { font-size: 13px; color: #7d8bae; }
     .sel { margin-top: 8px; width: 100%; background: #ffffff;
       color: #1c2a4f; border: 1px solid #cfdcf5;
@@ -295,6 +298,9 @@
     .sel:hover { border-color: #2563EB; }
     .trad { font-size: 14px; line-height: 1.4; color: #1d4ed8; margin-top: 1px;
       overflow-wrap: anywhere; }
+    .linea.traducida .trad { font-size: 17px; font-weight: 600; color: #101c40; order: 1; margin-top: 0; }
+    .linea.traducida .cuerpo { display: flex; flex-direction: column; }
+    .linea.traducida .quien { order: 0; }
     .interina { font-size: 14px; line-height: 1.4; color: #7d8bae; font-style: italic;
       overflow-wrap: anywhere; margin-top: 4px; }
     .aviso { margin-top: 8px; font-size: 12px; color: #b91c1c; }
@@ -1305,6 +1311,7 @@
           foto.textContent = (linea.speakerName ?? "?").trim().charAt(0).toUpperCase() || "?";
         }
         const cuerpo = document.createElement("div");
+        cuerpo.className = "cuerpo";
         const quien = document.createElement("div");
         quien.className = "quien";
         quien.textContent = linea.speakerName ?? "Participante";
@@ -1320,6 +1327,9 @@
           t.className = "trad";
           t.textContent = trad;
           cuerpo.appendChild(t);
+          // La fila marcada: el CSS pone la traducción arriba y grande, y el
+          // original abajo, chico.
+          row.classList.add("traducida");
         }
         row.append(foto, cuerpo);
         subs.appendChild(row);

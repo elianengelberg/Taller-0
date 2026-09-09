@@ -54,7 +54,7 @@ export function estiloFlotantes(): string {
     .fila.ultima { font-size: 1.22rem; opacity: 1; }
     .fila.interina { font-style: italic; opacity: .8; }
     .quien { color: #8fb4ff; font-weight: 700; margin-right: .3em; }
-    .original { display: block; font-size: .68em; font-style: italic; color: #b9c4dc; margin-top: .05em; }
+    .original { display: block; font-size: .55em; font-style: italic; color: #97a5c2; margin-top: .1em; }
     .cursor { display: inline-block; width: .12em; height: .95em; margin-left: .15em; vertical-align: -.1em; background: #8fb4ff; animation: latir 1s infinite; }
     @keyframes latir { 50% { opacity: 0; } }
     .espera { font-size: 1rem; line-height: 1.35; color: #9fb3d8; }
@@ -160,7 +160,9 @@ export function pintarFlotantesEnCanvas(canvas: HTMLCanvasElement, frases: Frase
     const f = orden[i];
     const ultima = i === 0;
     const tam = Math.round((ultima ? 44 : 32) * escala);
-    const tamOrig = Math.round(26 * escala);
+    // El original es apoyo: bien más chico que la traducción, que es lo que
+    // se vino a leer (era 26 contra 44, ahora la mitad).
+    const tamOrig = Math.round((ultima ? 22 : 18) * escala);
     const tamQuien = Math.round((ultima ? 26 : 22) * escala);
     // Se dibuja de abajo hacia arriba: primero el original (que va debajo).
     if (f.original && f.original !== f.texto) {

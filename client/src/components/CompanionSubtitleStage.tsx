@@ -389,14 +389,15 @@ export default function CompanionSubtitleStage({
                   {/* Cuando hay traducción, ESA es la lectura principal (a eso
                       vino el usuario) y el original queda debajo, más chico. */}
                   <p
-                    className={`leading-snug text-strong ${
+                    className={`leading-snug text-strong ${line.translated ? "font-medium" : ""} ${
                       compacto ? "text-2xl sm:text-3xl" : "text-xl sm:text-2xl"
                     }`}
                   >
                     {line.translated || line.text}
                   </p>
+                  {/* El original, de apoyo: la mitad de grande y apagado. */}
                   {line.translated && line.translated !== line.text && (
-                    <p className="mt-1 text-sm italic leading-snug text-ink-400">{line.text}</p>
+                    <p className="mt-1 text-xs italic leading-snug text-ink-500 sm:text-sm">{line.text}</p>
                   )}
                 </div>
               );

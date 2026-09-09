@@ -919,8 +919,11 @@
         .map((l) => {
           const r = roleOf(state.roles[l.speaker] ?? "");
           const badge = r.id ? `<span class="role" style="--role:${r.color}">${esc(r.label)}</span>` : "";
+          // Con traducción, la tarjeta se marca: el CSS pone la traducción
+          // arriba y grande, y el original abajo, chico (quien pidió una
+          // traducción viene a leer la traducción).
           const tr = l.translated ? `<div class="tr">${esc(l.translated)}</div>` : "";
-          return `<div class="entry">
+          return `<div class="entry${l.translated ? " traducida" : ""}">
             <div class="meta">${badge}<span class="name">${esc(l.speaker)}</span><span class="time">${hhmm(l.at)}</span></div>
             <div class="text">${esc(l.text)}</div>${tr}
           </div>`;
