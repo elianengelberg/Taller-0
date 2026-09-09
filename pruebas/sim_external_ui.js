@@ -153,6 +153,36 @@ async function detectAndJoin(page, link, { passcode } = {}) {
       abiertos.some((u) => u.includes("meet.google.com/abc-defg-hij")), JSON.stringify(abiertos));
     check("y la capa Unify deja un botón GRANDE para volver a abrirla",
       (await p.getByRole("link", { name: /Abrir la reunión de Meet/i }).count()) > 0);
+    // AL ACHICAR LA PANTALLA, LOS SUBTÍTULOS SON LO PRINCIPAL. En Split View
+    // (o una ventana angosta al lado de Meet) la cabecera, el botón grande y
+    // los consejos empujaban lo que se está diciendo fuera de la vista.
+    {
+      const codigoChico = "abc-defg-hij";
+      const frase = "esto se tiene que leer aunque la ventana sea chica";
+      await fetch(`http://localhost:4001/api/meet-bridge/${encodeURIComponent(`google-meet:${codigoChico}`)}/transcript`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ speaker: "Bruno", text: frase, lang: "es-AR" }),
+      }).catch(() => {});
+      await p.waitForTimeout(1200);
+      const texto = p.getByText(frase);
+      // Ventana chica: lo que se dijo tiene que estar A LA VISTA, sin scroll.
+      await p.setViewportSize({ width: 420, height: 560 });
+      await p.waitForTimeout(700);
+      const caja = await texto.first().boundingBox().catch(() => null);
+      const alto = await p.evaluate(() => window.innerHeight);
+      check("con la ventana achicada, lo que se está diciendo se ve sin bajar la pantalla",
+        Boolean(caja) && caja.y >= 0 && caja.y + caja.height <= alto,
+        caja ? `y=${Math.round(caja.y)} alto=${Math.round(caja.height)} ventana=${alto}` : "no se encontró la frase");
+      check("y el botón grande de abrir Meet se corre (el espacio es para el texto)",
+        (await p.getByRole("link", { name: /Abrir la reunión de Meet/i }).count()) === 0);
+      const tam = caja ? await texto.first().evaluate((n) => parseFloat(getComputedStyle(n).fontSize)) : 0;
+      check("con la letra más grande que en la pantalla completa", tam >= 24, `${tam}px`);
+      // Y al agrandar de nuevo, todo vuelve.
+      await p.setViewportSize({ width: 1200, height: 800 });
+      await p.waitForTimeout(700);
+      check("al agrandarla, la pantalla vuelve a estar completa",
+        (await p.getByRole("link", { name: /Abrir la reunión de Meet/i }).count()) > 0);
+    }
     await p.close();
   }
   {

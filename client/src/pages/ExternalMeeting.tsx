@@ -43,6 +43,7 @@ import {
   usePermisoDeMicrofono,
 } from "../hooks/usePermisoDeMicrofono";
 import { askMeetingAI, fetchPlatformConfig, ordenarEnLaReunion, type PlatformConfig } from "../lib/api";
+import { usePantallaChica } from "../lib/pantalla";
 import { LANGUAGES, codigoCompletoDe, etiquetaDeIdioma, shortLang } from "../lib/languages";
 import { recentCaptionEntries } from "../lib/captionLines";
 import {
@@ -95,6 +96,7 @@ function CompanionEmbedPane({
   onLeave,
   onDegrade,
   subtitleStage,
+  compacto = false,
 }: {
   embed: CompanionEmbed;
   displayName: string;
@@ -107,6 +109,8 @@ function CompanionEmbedPane({
    */
   onDegrade: (label: string, joinLink: string, nota?: string, abrirYa?: boolean) => void;
   subtitleStage?: ReactNode;
+  /** La pantalla quedó chica: los subtítulos mandan (ver lib/pantalla). */
+  compacto?: boolean;
 }) {
   switch (embed.kind) {
     case "jitsi": {
@@ -154,6 +158,7 @@ function CompanionEmbedPane({
     case "meet":
       return (
         <MeetCompanionPane
+          compacto={compacto}
           meetLink={embed.meetLink}
           meetCode={embed.meetCode}
           subtitleStage={subtitleStage}
@@ -230,6 +235,9 @@ export default function ExternalMeeting() {
   } = useMeeting();
 
   const [activePanel, setActivePanel] = useState<PanelKey>(null);
+  // La pantalla achicada (Split View, una ventana angosta): los subtítulos
+  // pasan al frente y todo lo demás se corre.
+  const compacto = usePantallaChica();
   // LOS BOTONES QUE DE VERDAD TOCAN LA REUNIÓN. La llamada vive en Meet, no
   // acá: silenciar y cortar sólo se pueden hacer si la extensión está en esa
   // pestaña (ella aprieta los botones de Meet). Si no está, no se muestran:
@@ -1138,7 +1146,11 @@ export default function ExternalMeeting() {
       {/* Barra mínima: identidad y de qué reunión se trata. El estado, el idioma
           y la invitación viven en el dock flotante sobre el video (ver el
           diseño), no acá. */}
-      <header className="flex items-center justify-between gap-2 border-b border-ink-800 bg-ink-900/95 px-4 py-2.5 shadow-soft backdrop-blur-md sm:px-6">
+      <header
+        className={`flex items-center justify-between gap-2 border-b border-ink-800 bg-ink-900/95 px-4 shadow-soft backdrop-blur-md sm:px-6 ${
+          compacto ? "py-1" : "py-2.5"
+        }`}
+      >
         <div className="flex min-w-0 items-center gap-3">
           {/* SIEMPRE tiene que haber un Volver a la vista (regla de la casa):
               el Salir del dock de abajo no alcanza si no se lo reconoce. Pasa
@@ -1156,7 +1168,7 @@ export default function ExternalMeeting() {
         </div>
       </header>
 
-      {showRecHint && (
+      {showRecHint && !compacto && (
         <div className="flex items-center justify-center gap-3 border-b border-brand-500/30 bg-brand-500/10 px-4 py-2 text-xs text-brand-300">
           <span>
             Listo para grabar: tocá <span className="font-semibold">Grabar</span> y elegí la
@@ -1185,6 +1197,7 @@ export default function ExternalMeeting() {
             </div>
           ) : (
             <CompanionEmbedPane
+              compacto={compacto}
               embed={degraded ?? draft.embed}
               displayName={draft.name}
               onLeave={handleLeave}
@@ -1250,6 +1263,7 @@ export default function ExternalMeeting() {
                     capturaPosible && (chromeSinPista || Boolean(recorder.remoteAudioTrack && !reunionSoportada))
                   }
                   esMeet={draft?.mode === "companion" && draft.embed.kind === "meet"}
+                  compacto={compacto}
                   accionBot={
                     botDeSala ? (
                       <BotButton

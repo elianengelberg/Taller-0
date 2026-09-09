@@ -78,6 +78,13 @@ interface Props {
   navegadorSinPista?: boolean;
   /** Es un Google Meet: la extensión de Chrome lee sus subtítulos con nombres. */
   esMeet?: boolean;
+  /**
+   * La pantalla quedó chica (Split View en el iPad, una ventana angosta al
+   * lado de la reunión): los subtítulos pasan a ser lo único importante. Se
+   * agranda el texto y se van los consejos, que empujaban lo que se está
+   * diciendo fuera de la vista.
+   */
+  compacto?: boolean;
   /** Cuántas personas hay en la capa de Unify. */
   participantCount: number;
 }
@@ -194,6 +201,7 @@ export default function CompanionSubtitleStage({
   sinAudioCompartido = false,
   navegadorSinPista = false,
   esMeet = false,
+  compacto = false,
   participantCount,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -329,7 +337,7 @@ export default function CompanionSubtitleStage({
                 con su traducción.
               </p>
             )}
-            {!soloTuVoz && (
+            {!soloTuVoz && !compacto && (
               <p className="max-w-sm rounded-xl border border-dashed border-ink-600 px-3 py-2 text-xs leading-relaxed text-ink-400">
                 {verLosDos}
               </p>
@@ -380,7 +388,11 @@ export default function CompanionSubtitleStage({
                   </p>
                   {/* Cuando hay traducción, ESA es la lectura principal (a eso
                       vino el usuario) y el original queda debajo, más chico. */}
-                  <p className="text-xl leading-snug text-strong sm:text-2xl">
+                  <p
+                    className={`leading-snug text-strong ${
+                      compacto ? "text-2xl sm:text-3xl" : "text-xl sm:text-2xl"
+                    }`}
+                  >
                     {line.translated || line.text}
                   </p>
                   {line.translated && line.translated !== line.text && (
@@ -396,7 +408,11 @@ export default function CompanionSubtitleStage({
                   <Avatar name={interimSpeaker || "Vos"} src={interimAvatarUrl} size={22} />
                   {interimSpeaker || "Vos"}
                 </p>
-                <p className="text-xl leading-snug text-ink-300 sm:text-2xl">
+                <p
+                  className={`leading-snug text-ink-300 ${
+                    compacto ? "text-2xl sm:text-3xl" : "text-xl sm:text-2xl"
+                  }`}
+                >
                   {interim}
                   <span className="ml-1 inline-block h-5 w-0.5 animate-pulse bg-brand-400 align-middle" />
                 </p>

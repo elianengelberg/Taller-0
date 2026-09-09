@@ -13,10 +13,18 @@ export default function MeetCompanionPane({
   meetLink,
   meetCode,
   subtitleStage,
+  compacto = false,
 }: {
   meetLink: string;
   meetCode: string;
   subtitleStage?: React.ReactNode;
+  /**
+   * La pantalla quedó chica (Split View en el iPad, una ventana angosta al
+   * lado de Meet). Entonces lo único que importa son los SUBTÍTULOS: la
+   * cabecera se reduce a una línea y el botón grande y los consejos se van,
+   * porque empujaban el texto fuera de la vista.
+   */
+  compacto?: boolean;
 }) {
   const { meetState } = useMeeting();
   // Freshness ticker so "extensión conectada" turns stale if reports stop.
@@ -32,10 +40,16 @@ export default function MeetCompanionPane({
     <div className="flex h-full min-h-0 flex-col">
       {/* Cabecera compacta: la reunión vive en Meet, así que acá alcanza con
           poder abrirla y ver el estado. El espacio es para los subtítulos. */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-ink-800 px-4 py-3">
+      <div
+        className={`flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-ink-800 px-4 ${
+          compacto ? "py-1.5" : "py-3"
+        }`}
+      >
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-brand-300">Google Meet</p>
-          <p className="truncate font-mono text-sm text-strong">{meetCode}</p>
+          {!compacto && (
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-brand-300">Google Meet</p>
+          )}
+          <p className={`truncate font-mono text-strong ${compacto ? "text-xs" : "text-sm"}`}>{meetCode}</p>
         </div>
         {/* La apertura pasa por abrirVentanaReunion: si la app se lleva el
             enlace (iPad/celular), la pestaña huérfana se cierra sola. */}
@@ -51,7 +65,7 @@ export default function MeetCompanionPane({
         >
           Abrir en Meet
         </a>
-        {fresh && meetState ? (
+        {compacto ? null : fresh && meetState ? (
           <span className="flex w-full items-center gap-1.5 text-[11px] text-accent-green">
             <span className="h-1.5 w-1.5 rounded-full bg-accent-green" />
             Extensión conectada
@@ -70,7 +84,7 @@ export default function MeetCompanionPane({
       {/* Sin la extensión conectada (el celular, siempre), lo más importante
           de la pantalla es ENTRAR a la reunión de verdad: botón grande, no el
           enlacecito de la esquina. En el teléfono abre la app de Meet. */}
-      {!fresh && (
+      {!fresh && !compacto && (
         <div className="px-4 pt-3">
           <a
             href={meetLink}
