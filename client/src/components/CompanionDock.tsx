@@ -191,6 +191,12 @@ export default function CompanionDock({
           <button
             type="button"
             onClick={onFlotantes}
+            // Sin aria-label a propósito: el nombre del botón es SU TEXTO
+            // («Subtítulos flotantes» / «Flotantes ✓»), que además cambia con
+            // el estado. Un aria-label fijo lo taparía y el botón pasaría a
+            // llamarse distinto de lo que se lee. Por eso el texto no se
+            // esconde nunca, ni en pantalla chica: sin él quedaba un ícono sin
+            // nombre para nadie.
             title="Una ventanita con los subtítulos que queda SIEMPRE encima: ideal cuando comparten pantalla o la reunión está en otra app"
             className={`flex items-center gap-2 whitespace-nowrap rounded-full border text-sm font-semibold transition-colors ${
               compacto ? "min-h-[32px] px-2.5 py-1" : "min-h-[40px] px-4 py-1.5"
@@ -204,7 +210,7 @@ export default function CompanionDock({
               <rect x="1.5" y="3.5" width="17" height="13" rx="2" stroke="currentColor" strokeWidth="1.6" />
               <rect x="9.5" y="9.5" width="7" height="5" rx="1.2" fill="currentColor" />
             </svg>
-            {compacto ? null : flotantesActivo ? "Flotantes ✓" : "Subtítulos flotantes"}
+            {flotantesActivo ? "Flotantes ✓" : "Subtítulos flotantes"}
           </button>
         )}
 

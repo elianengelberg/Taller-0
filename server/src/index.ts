@@ -2555,13 +2555,6 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
     return nueva;
   };
 
-  // PRIMERO SE MUESTRA, DESPUÉS SE CORRIGE. La IA tarda de medio segundo a
-  // varios, y antes la frase no aparecía en la web ni en el overlay hasta
-  // que volviera: eso era "se traba". Ahora sale al instante con la lectura
-  // cruda, marcada provisional, y el parche corregido llega sobre la MISMA
-  // id. (El panel de la extensión ya la mostraba al instante por su cuenta y
-  // adopta la corrección con la respuesta de acá, como siempre.) Sin IA
-  // configurada no hay nada que esperar: se emite una sola vez.
   // LAS DOS LLAMADAS A LA IA, JUNTAS. Corregir la frase y traducirla son dos
   // viajes a Claude de un segundo largo cada uno, y estaban en fila: la
   // traducción -- que es lo que la persona LEE, porque manda sobre el
@@ -2584,6 +2577,13 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
       ? translateFragmentToAll(candidatas, recentContext, destinosAdelantados, lang).catch(() => ({}))
       : null;
 
+  // PRIMERO SE MUESTRA, DESPUÉS SE CORRIGE. La IA tarda de medio segundo a
+  // varios, y antes la frase no aparecía en la web ni en el overlay hasta
+  // que volviera: eso era "se traba". Ahora sale al instante con la lectura
+  // cruda, marcada provisional, y el parche corregido llega sobre la MISMA
+  // id. (El panel de la extensión ya la mostraba al instante por su cuenta y
+  // adopta la corrección con la respuesta de acá, como siempre.) Sin IA
+  // configurada no hay nada que esperar: se emite una sola vez.
   const provisional = anthropicEnabled;
   let line: ReturnType<typeof addNamedTranscriptLine> | null = null;
   let posicionCruda = -1;
