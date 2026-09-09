@@ -14,7 +14,7 @@ export default function ToastViewport() {
           role="status"
           className={`pop-enter pointer-events-auto flex max-w-md items-center gap-3 rounded-xl border px-4 py-3 text-sm shadow-soft backdrop-blur-md ${
             toast.kind === "warning"
-              ? "border-amber-500/40 bg-ink-800/95 text-amber-600 dark:text-amber-300"
+              ? "border-amber-500/40 bg-ink-800/95 text-amber-600 dark:text-warn"
               : "border-ink-600 bg-ink-800/95 text-strong"
           }`}
         >

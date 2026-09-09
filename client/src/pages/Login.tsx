@@ -138,8 +138,8 @@ export default function Login() {
               <div
                 className={`rounded-xl border px-4 py-2.5 text-sm ${
                   needsVerification
-                    ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
-                    : "border-red-500/40 bg-red-500/10 text-red-300"
+                    ? "border-amber-500/40 bg-amber-500/10 text-warn"
+                    : "border-red-500/40 bg-red-500/10 text-danger"
                 }`}
               >
                 <p>{error}</p>
@@ -148,11 +148,11 @@ export default function Login() {
                     <button
                       type="button"
                       onClick={handleResend}
-                      className="mt-2 font-semibold underline underline-offset-2 hover:text-amber-100"
+                      className="mt-2 font-semibold underline underline-offset-2 hover:text-warn"
                     >
                       Volver a enviarme el enlace
                     </button>
-                    {resent && <p className="mt-2 text-xs text-amber-200/80">{resent}</p>}
+                    {resent && <p className="mt-2 text-xs text-warn/80">{resent}</p>}
                   </>
                 )}
               </div>

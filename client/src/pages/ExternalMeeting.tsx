@@ -220,6 +220,9 @@ export default function ExternalMeeting() {
     sendTranscriptLine,
     setSelfLanguage,
     leaveMeeting,
+    // Lo que otro está diciendo ahora mismo (bot / extensión), sin esperar a
+    // que termine la frase.
+    interinoAjeno,
   } = useMeeting();
 
   const [activePanel, setActivePanel] = useState<PanelKey>(null);
@@ -927,10 +930,16 @@ export default function ExternalMeeting() {
       // Vista previa VISIBLE en la esquina: el toque siempre produce algo a
       // la vista (antes, si el PiP fallaba, el botón "no hacía nada"). En
       // iOS además un video oculto directamente no puede entrar a PiP.
+      // Grande y legible. Era un cuadradito de 176 px en la esquina: cuando
+      // el navegador no deja flotar de verdad (Safari en iPad), eso es lo
+      // único que queda, y así no se lee nada. Ahora ocupa el ancho de la
+      // pantalla, arriba del dock, con el mismo tamaño de letra que se lee
+      // de lejos.
       video.style.cssText =
-        "position:fixed;right:12px;bottom:88px;width:176px;height:59px;border-radius:12px;" +
-        "border:1px solid #dbe7fb;box-shadow:0 8px 24px rgba(15,23,42,.18);background:#fff;" +
-        "object-fit:cover;pointer-events:none;z-index:60";
+        "position:fixed;left:50%;transform:translateX(-50%);bottom:88px;" +
+        "width:min(94vw,640px);aspect-ratio:3/1;border-radius:16px;" +
+        "border:1px solid #dbe7fb;box-shadow:0 10px 30px rgba(15,23,42,.22);background:#0b1020;" +
+        "object-fit:contain;pointer-events:none;z-index:60";
       document.body.appendChild(video);
       await video.play();
     } catch {
@@ -977,7 +986,7 @@ export default function ExternalMeeting() {
       }
     } catch {
       avisarFlotantes(
-        "La ventanita flotante no abrió en este navegador: te dejamos los subtítulos en la esquina de esta pantalla.",
+        "Este navegador no deja poner los subtítulos encima de otras apps. Te los dejamos grandes acá abajo: en el iPad podés abrir Meet en Split View al lado, o dejar Meet en su ventanita flotante y Unify de fondo.",
       );
     }
   }
@@ -1002,6 +1011,9 @@ export default function ExternalMeeting() {
     });
     if (captionsOn && interimCaption) {
       frases.push({ quien: draft?.name || "Vos", texto: interimCaption, interina: true });
+    } else if (interinoAjeno) {
+      // Lo que se está diciendo en la reunión, mientras se dice.
+      frases.push({ quien: interinoAjeno.speaker, texto: interinoAjeno.text, interina: true });
     }
     return frases;
   }
@@ -1171,8 +1183,10 @@ export default function ExternalMeeting() {
                   lines={stageLines}
                   roleFor={roleFor}
                   avatarFor={avatarFor}
-                  interim={captionsOn ? interimCaption : null}
-                  interimSpeaker={draft.name || "Vos"}
+                  interim={(captionsOn ? interimCaption : null) ?? interinoAjeno?.text ?? null}
+                  interimSpeaker={
+                    captionsOn && interimCaption ? draft.name || "Vos" : (interinoAjeno?.speaker ?? "La reunión")
+                  }
                   interimAvatarUrl={user?.avatarUrl ?? null}
                   targetLabel={targetLabel}
                   translationFailed={translationFailed}
@@ -1227,6 +1241,10 @@ export default function ExternalMeeting() {
                         platform={botDeSala.platform}
                         lang={spokenLang}
                         sinParticipante={botSinParticipante}
+                        // En iPhone y iPad el bot es la ÚNICA forma de oír a
+                        // los demás: se manda solo en cuanto se entra, sin
+                        // que haya que buscar el botón (se puede apagar).
+                        automatico={unSoloMicrofono}
                         titulo={`¿${aparato.corto} no escucha la reunión?`}
                         descripcion={
                           botSinParticipante
@@ -1264,7 +1282,7 @@ export default function ExternalMeeting() {
             onIdiomaReunionChange={elegirIdiomaReunion}
           />
           {flotantesAviso && (
-            <div className="fixed right-4 top-28 z-40 max-w-[260px] rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-snug text-amber-200 shadow-lg backdrop-blur">
+            <div className="fixed right-4 top-28 z-40 max-w-[260px] rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-snug text-warn shadow-lg backdrop-blur">
               {flotantesAviso}
             </div>
           )}

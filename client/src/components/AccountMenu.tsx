@@ -81,7 +81,7 @@ export default function AccountMenu() {
               </button>
               <button
                 type="button"
-                className={`${menuItemClass} text-red-300 hover:bg-red-500/10`}
+                className={`${menuItemClass} text-danger hover:bg-red-500/10`}
                 onClick={() => {
                   setOpen(false);
                   logout();

@@ -113,7 +113,7 @@ function AvisoSoloTuVoz({
       aria-label="Por ahora sólo se oye tu voz"
       className="w-full max-w-md rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-left"
     >
-      <p className="text-sm font-semibold text-amber-200">Por ahora sólo se oye tu voz</p>
+      <p className="text-sm font-semibold text-warn">Por ahora sólo se oye tu voz</p>
       {aparato.esCompu ? (
         <>
           <p className="mt-1 text-xs leading-relaxed text-ink-300">
@@ -155,9 +155,11 @@ function AvisoSoloTuVoz({
       ) : (
         <p className="mt-1 text-xs leading-relaxed text-ink-300">
           En {aparato.corto}, con la reunión en este mismo aparato, el sistema sólo le deja oír tu voz
-          (lo que sale por su propio parlante lo cancela). Si la reunión suena en <b>otro</b> aparato al
-          lado (una compu, una tele), el micrófono la capta. Para que se transcriba y traduzca a todos
-          desde acá, mandá el bot: entra a la reunión y escucha desde el servidor.
+          (lo que sale por su propio parlante lo cancela), y el micrófono es de <b>una sola cosa a la
+          vez</b>: por eso la grabación automática queda en pausa mientras andan los subtítulos. Si la
+          reunión suena en <b>otro</b> aparato al lado (una compu, una tele), el micrófono la capta.
+          Para que se transcriba, se traduzca y se grabe a todos desde acá, el bot entra por vos y
+          escucha desde el servidor.
         </p>
       )}
       {accionBot}
@@ -252,7 +254,7 @@ export default function CompanionSubtitleStage({
       </div>
 
       {problem && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs leading-snug text-amber-200">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs leading-snug text-warn">
           <span className="min-w-0 flex-1">{problem}</span>
           {accionExtra && (
             <button
@@ -267,7 +269,7 @@ export default function CompanionSubtitleStage({
             <button
               type="button"
               onClick={onRetry}
-              className="min-h-[36px] shrink-0 rounded-lg border border-amber-400/50 px-3.5 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-500/20"
+              className="min-h-[36px] shrink-0 rounded-lg border border-amber-400/50 px-3.5 py-1.5 text-xs font-semibold text-warn hover:bg-amber-500/20"
             >
               Reintentar
             </button>
@@ -275,14 +277,17 @@ export default function CompanionSubtitleStage({
         </div>
       )}
 
-      {notaGrabacion && (
+      {/* Con el aviso de «sólo se oye tu voz» a la vista, esta nota decía lo
+          mismo con otras palabras: dos párrafos largos, uno arriba del otro,
+          para el mismo problema. Se muestra sólo cuando el aviso no está. */}
+      {notaGrabacion && !soloTuVoz && (
         <div className="border-b border-ink-700 bg-ink-800/60 px-4 py-2 text-xs leading-snug text-ink-200">
           {notaGrabacion}
         </div>
       )}
 
       {translationFailed && targetLabel && (
-        <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs leading-snug text-amber-200">
+        <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs leading-snug text-warn">
           No estamos pudiendo traducir en este momento, así que ves el texto original. Si sigue
           igual, puede faltar configurar la traducción en el servidor.
         </div>
@@ -295,10 +300,12 @@ export default function CompanionSubtitleStage({
             <p className="text-base font-medium text-ink-200">Los subtítulos aparecen acá</p>
             {/* Discreción primero: nadie en la reunión ve a Unify. Escucha por
                 el micrófono de este aparato, sin entrar a la llamada. */}
-            <p className="max-w-sm text-sm leading-relaxed text-ink-400">
-              Nadie en la reunión ve a Unify: escucha por el micrófono de este aparato y te
-              subtitula acá, con su traducción.
-            </p>
+            {!soloTuVoz && (
+              <p className="max-w-sm text-sm leading-relaxed text-ink-400">
+                Nadie en la reunión ve a Unify: escucha por el micrófono de este aparato y te
+                subtitula acá, con su traducción.
+              </p>
+            )}
             {/* En el teléfono, la instrucción del altavoz ES el modo de uso
                 (no un consejo al pie): primero y en la caja destacada. */}
             {/* La instrucción, para el aparato que la está leyendo: en un
@@ -322,9 +329,11 @@ export default function CompanionSubtitleStage({
                 con su traducción.
               </p>
             )}
-            <p className="max-w-sm rounded-xl border border-dashed border-ink-600 px-3 py-2 text-xs leading-relaxed text-ink-400">
-              {verLosDos}
-            </p>
+            {!soloTuVoz && (
+              <p className="max-w-sm rounded-xl border border-dashed border-ink-600 px-3 py-2 text-xs leading-relaxed text-ink-400">
+                {verLosDos}
+              </p>
+            )}
             {/* LA OREJA GRANDE. El micrófono escucha lo que llega al aire;
                 compartir la pantalla con el audio del sistema escucha a la
                 reunión ENTERA, directo del parlante digital -- y de paso el

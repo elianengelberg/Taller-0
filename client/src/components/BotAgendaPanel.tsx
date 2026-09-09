@@ -128,8 +128,8 @@ export default function BotAgendaPanel() {
               probando
                 ? "border-ink-600 bg-ink-900/60 text-ink-300"
                 : prueba?.ok
-                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
-                  : "border-amber-500/40 bg-amber-500/10 text-amber-200"
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-ok"
+                  : "border-amber-500/40 bg-amber-500/10 text-warn"
             }`}
           >
             {probando ? (

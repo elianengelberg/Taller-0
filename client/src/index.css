@@ -28,6 +28,17 @@
   --brand-100: 147 197 253;
   --brand-200: 165 214 255;
   --brand-300: 125 200 255; /* accent text on dark #7DC8FF */
+
+  /* AVISOS. Antes cada aviso usaba amber-200/emerald-300 de Tailwind, que
+     son colores CLAROS pensados para fondo oscuro: en el tema claro quedaban
+     amarillo sobre amarillo, ilegibles (reporte real con captura). Ahora el
+     color del texto cambia con el tema, como el resto. */
+  --warn-text: 253 230 138;   /* #FDE68A sobre fondo oscuro */
+  --warn-bg: 245 158 11;      /* ámbar base, se usa con opacidad */
+  --ok-text: 110 231 183;     /* #6EE7B7 */
+  --ok-bg: 16 185 129;
+  --danger-text: 252 165 165; /* #FCA5A5 */
+  --danger-bg: 239 68 68;
   --shadow-soft: 0 1px 2px rgb(2 6 23 / 0.4), 0 10px 30px -12px rgb(2 6 23 / 0.55);
   --shadow-top: 0 -10px 30px -14px rgb(2 6 23 / 0.6);
 }
@@ -53,6 +64,14 @@
   --brand-100: 219 234 254;
   --brand-200: 29 78 216;
   --brand-300: 29 78 216;  /* accent text on light: Primary Blue #1D4ED8 */
+
+  /* Los mismos avisos, oscuros para leerse sobre fondo claro. */
+  --warn-text: 146 64 14;     /* #92400E */
+  --warn-bg: 245 158 11;
+  --ok-text: 6 95 70;         /* #065F46 */
+  --ok-bg: 16 185 129;
+  --danger-text: 153 27 27;   /* #991B1B */
+  --danger-bg: 239 68 68;
   --shadow-soft: 0 1px 2px rgb(37 99 235 / 0.06), 0 12px 32px -14px rgb(37 99 235 / 0.16);
   --shadow-top: 0 -10px 30px -18px rgb(37 99 235 / 0.14);
 }

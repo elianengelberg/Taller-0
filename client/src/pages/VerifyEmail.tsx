@@ -215,12 +215,12 @@ export default function VerifyEmail() {
               {error && (
                 <p
                   role="alert"
-                  className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm text-red-300"
+                  className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm text-danger"
                 >
                   {error}
                 </p>
               )}
-              {reenviado && <p className="mt-4 text-sm text-emerald-300">{reenviado}</p>}
+              {reenviado && <p className="mt-4 text-sm text-ok">{reenviado}</p>}
 
               <p className="mt-5 text-sm text-ink-400">
                 ¿No te llegó?{" "}
@@ -262,7 +262,7 @@ export default function VerifyEmail() {
           {state === "error" && (
             <>
               <h1 className="text-2xl font-bold text-strong">No pudimos confirmar el email</h1>
-              <p className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm text-red-300">
+              <p className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm text-danger">
                 {error}
               </p>
               <p className="mt-3 text-sm leading-relaxed text-ink-300">

@@ -740,7 +740,7 @@ export default function Meeting() {
             </div>
           )}
           {watchingTranscription && idiomaDetectado && self && (
-            <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-200">
+            <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-sm text-warn">
               <span className="min-w-0 flex-1">
                 Unify te está escuchando en {etiquetaDeIdioma(self.language ?? "es-AR")}, pero hablás en{" "}
                 {etiquetaDeIdioma(idiomaDetectado)} — por eso las palabras salen mal.

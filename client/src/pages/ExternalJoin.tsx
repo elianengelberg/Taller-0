@@ -514,7 +514,7 @@ function DetectionResult({
     if (impersonates) {
       return (
         <div className="mt-5 rounded-xl border border-red-500/40 bg-red-500/10 p-4">
-          <p className="text-sm font-semibold text-red-200">Cuidado con este enlace</p>
+          <p className="text-sm font-semibold text-danger">Cuidado con este enlace</p>
           <p className="mt-1.5 text-xs leading-relaxed text-red-100/90">
             El enlace dice <span className="font-mono text-red-50">{host}</span>, que{" "}
             <span className="font-semibold">no es</span> {impersonates} aunque se le parezca. Los

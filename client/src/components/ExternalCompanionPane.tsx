@@ -37,7 +37,7 @@ export default function ExternalCompanionPane({
           Abrir en {label}
         </a>
         {nota && (
-          <p role="note" className="w-full text-xs leading-relaxed text-amber-200/90">
+          <p role="note" className="w-full text-xs leading-relaxed text-warn/90">
             {nota}
           </p>
         )}

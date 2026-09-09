@@ -207,12 +207,12 @@ export default function History() {
         {(pendientes > 0 || rescate === "listo") && (
           <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
             {rescate === "listo" ? (
-              <p className="text-emerald-300">
+              <p className="text-ok">
                 ✓ Grabación subida: ya está en su reunión, acá abajo.
               </p>
             ) : (
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-amber-200">
+                <p className="text-warn">
                   {pendientes === 1
                     ? "Tenés una grabación en este dispositivo que no terminó de subirse."
                     : `Tenés ${pendientes} grabaciones en este dispositivo que no terminaron de subirse.`}
@@ -222,7 +222,7 @@ export default function History() {
                   type="button"
                   onClick={() => void rescatarPendientes()}
                   disabled={rescate === "subiendo"}
-                  className="rounded-full bg-amber-500/20 px-4 py-1.5 text-xs font-semibold text-amber-100 ring-1 ring-amber-400/50 hover:bg-amber-500/30 disabled:opacity-60"
+                  className="rounded-full bg-amber-500/20 px-4 py-1.5 text-xs font-semibold text-warn ring-1 ring-amber-400/50 hover:bg-amber-500/30 disabled:opacity-60"
                 >
                   {rescate === "subiendo" ? "Subiendo…" : "Subir ahora"}
                 </button>

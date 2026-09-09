@@ -283,7 +283,7 @@ export default function Instalar() {
                 : "Buscar actualización ahora"}
           </button>
           {buscandoUpdate === "al-dia" && (
-            <span className="text-xs font-medium text-emerald-300">✓ Estás en la última versión</span>
+            <span className="text-xs font-medium text-ok">✓ Estás en la última versión</span>
           )}
           {buscandoUpdate === "sin-sw" && (
             <span className="text-xs text-ink-400">
@@ -294,7 +294,7 @@ export default function Instalar() {
               deja activar la versión nueva desde la página: la única salida
               es cerrar del todo y volver a abrir, y hay que decirlo. */}
           {buscandoUpdate === "trabada" && (
-            <span role="status" className="text-xs leading-relaxed text-amber-200">
+            <span role="status" className="text-xs leading-relaxed text-warn">
               La versión nueva ya está bajada, pero este navegador no la activa desde acá. Cerrá
               Unify del todo (en iPhone o iPad: deslizá la app hacia arriba en el selector de apps)
               y volvé a abrirla: se aplica sola.
@@ -393,11 +393,11 @@ export default function Instalar() {
           >
             {extVersion ? (
               <>
-                <p className="text-sm font-semibold text-emerald-300">
+                <p className="text-sm font-semibold text-ok">
                   ✓ La extensión está instalada en este navegador (versión {extVersion})
                 </p>
                 {extVieja ? (
-                  <p className="mt-1 text-sm leading-relaxed text-amber-300">
+                  <p className="mt-1 text-sm leading-relaxed text-warn">
                     Hay una versión nueva ({ultimaVersion}). Si la instalaste desde la Chrome Web
                     Store se actualiza sola; si la cargaste por ZIP, bajá el ZIP de abajo de nuevo y
                     recargala en <span className="font-mono">chrome://extensions</span>.
@@ -411,7 +411,7 @@ export default function Instalar() {
               </>
             ) : (
               <>
-                <p className="text-sm font-semibold text-amber-300">
+                <p className="text-sm font-semibold text-warn">
                   ⚠ La extensión NO está instalada en este navegador
                 </p>
                 <p className="mt-1 text-sm leading-relaxed text-ink-200">
@@ -897,7 +897,7 @@ export default function Instalar() {
           {/* Afuera del condicional a propósito: al aceptar la instalación el
               botón desaparece (el navegador ya no ofrece instalar) y este
               mensaje tiene que sobrevivirlo. */}
-          {estado && !instalada && <p className="mt-3 text-sm text-emerald-300">{estado}</p>}
+          {estado && !instalada && <p className="mt-3 text-sm text-ok">{estado}</p>}
         </section>
         )}
 

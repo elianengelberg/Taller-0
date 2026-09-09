@@ -202,6 +202,12 @@ interface MeetingContextValue {
   leaveMeeting: () => void;
   // People held in the waiting room (host/co-host view only).
   waitingList: WaitingAttendee[];
+  /**
+   * Lo que OTRO está diciendo ahora mismo (el bot, o la extensión), antes de
+   * que la frase termine. Llega por su propio camino para que el subtítulo
+   * aparezca MIENTRAS se habla y no varios segundos después.
+   */
+  interinoAjeno: { speaker: string; text: string } | null;
   // Live state of the linked external Google Meet (companion sessions with
   // the Unify extension installed); null until the first report arrives.
   meetState: MeetBridgeState | null;
@@ -234,6 +240,8 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
   const [selfId, setSelfId] = useState<string | null>(null);
   const [meeting, dispatch] = useReducer(meetingReducer, null);
   const [waitingList, setWaitingList] = useState<WaitingAttendee[]>([]);
+  const [interinoAjeno, setInterinoAjeno] = useState<{ speaker: string; text: string } | null>(null);
+  const interinoTimer = useRef<number | null>(null);
   const [meetState, setMeetState] = useState<MeetBridgeState | null>(null);
   const socketRef = useRef(getSocket());
 
@@ -383,6 +391,19 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     });
     socket.on("transcript-line", ({ line }: { line: TranscriptLine }) => {
       dispatch({ type: "TRANSCRIPT_LINE", line });
+      // La frase terminada ocupa el lugar de lo que se venía escuchando.
+      setInterinoAjeno(null);
+      if (interinoTimer.current) window.clearTimeout(interinoTimer.current);
+    });
+    // Lo que se está diciendo AHORA MISMO (bot / extensión). No se guarda ni
+    // se traduce: se muestra y lo reemplaza la frase final. Si deja de
+    // llegar, se borra solo: un interino colgado sería una mentira fija.
+    socket.on("transcript-interim", ({ speaker, text }: { speaker: string; text: string }) => {
+      const limpio = String(text ?? "").trim();
+      if (!limpio) return;
+      setInterinoAjeno({ speaker: String(speaker || "Participante"), text: limpio });
+      if (interinoTimer.current) window.clearTimeout(interinoTimer.current);
+      interinoTimer.current = window.setTimeout(() => setInterinoAjeno(null), 6000);
     });
     socket.on(
       "transcript-line-translations",
@@ -742,6 +763,7 @@ export function MeetingProvider({ children }: { children: ReactNode }) {
     waitingList,
     meetState,
     moderate,
+    interinoAjeno,
   };
 
   return <MeetingContext.Provider value={value}>{children}</MeetingContext.Provider>;

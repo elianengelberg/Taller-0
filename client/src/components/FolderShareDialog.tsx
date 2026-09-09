@@ -126,7 +126,7 @@ export default function FolderShareDialog({
                   <button
                     type="button"
                     onClick={() => remove(r.userId)}
-                    className="shrink-0 text-xs font-medium text-red-400 hover:text-red-300"
+                    className="shrink-0 text-xs font-medium text-red-400 hover:text-danger"
                   >
                     Quitar
                   </button>

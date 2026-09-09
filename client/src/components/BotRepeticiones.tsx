@@ -177,7 +177,7 @@ export default function BotRepeticiones({ botEnabled }: { botEnabled: boolean })
             </p>
           </div>
           {error && (
-            <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+            <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-warn">
               {error}
             </p>
           )}

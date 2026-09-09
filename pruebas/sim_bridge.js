@@ -238,6 +238,40 @@ const post = (p, b, token) => fetch(API + p, { method: "POST",
       deCaro?.sourceLang !== "en", String(deCaro?.sourceLang));
   }
 
+  // LO QUE SE ESTÁ DICIENDO AHORA MISMO. El bot juntaba lo oído y recién
+  // mandaba la frase tras dos segundos de silencio; con la IA encima, el
+  // subtítulo aparecía cuatro o cinco segundos después de hablar (medido por
+  // el usuario, y era cierto). Ahora lo interino viaja por su propio camino:
+  // llega al instante, no se guarda, y la frase final lo reemplaza.
+  {
+    const interinos = [];
+    s.on("transcript-interim", (p) => interinos.push(p));
+    const antesLineas = live.length;
+    const t0 = Date.now();
+    await post(`/api/meet-bridge/${code}/transcript`, { speaker: "Unify Notetaker", text: "estamos viendo el", lang: "es-AR", interim: true });
+    let espera = 0;
+    while (interinos.length === 0 && espera < 3000) { await sleep(50); espera += 50; }
+    check("lo que se está diciendo llega al instante (menos de un segundo)",
+      interinos.length === 1 && Date.now() - t0 < 1000, `${interinos.length} en ${Date.now() - t0} ms`);
+    check("y trae quién habla y el texto en curso",
+      interinos[0]?.speaker === "Unify Notetaker" && interinos[0]?.text === "estamos viendo el",
+      JSON.stringify(interinos[0]));
+    await sleep(300);
+    check("un interino NO se guarda como línea de la transcripción", live.length === antesLineas,
+      `líneas=${live.length - antesLineas}`);
+    const detInt = await fetch(`${API}/api/meetings/${dbId}`, { headers: { Authorization: `Bearer ${token}` } });
+    const cuerpoInt = detInt.ok ? await detInt.json() : { messages: [] };
+    check("ni en el historial",
+      !(cuerpoInt.messages ?? []).some((m) => m.text === "estamos viendo el"),
+      String((cuerpoInt.messages ?? []).length));
+    // Y la frase final sí entra, como siempre.
+    await post(`/api/meet-bridge/${code}/transcript`, { speaker: "Unify Notetaker", text: "estamos viendo el informe del trimestre", lang: "es-AR" });
+    await sleep(800);
+    check("la frase terminada sí queda en la transcripción",
+      live.slice(antesLineas).some((l) => /informe del trimestre/.test(l.text)),
+      live.slice(antesLineas).map((l) => l.text.slice(0, 40)).join(" | "));
+  }
+
   s.disconnect();
   const failed = results.filter((r) => !r).length;
   console.log(`\n${results.length - failed}/${results.length} OK`);

@@ -38,11 +38,11 @@ export default function EmailVerificationNotice({ className = "" }: { className?
 
   return (
     <div
-      className={`rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200 ${className}`}
+      className={`rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-warn ${className}`}
     >
       <p className="font-medium">Te falta confirmar tu email</p>
-      <p className="mt-1 leading-relaxed text-amber-200/80">
-        Mandamos un enlace a <span className="font-medium text-amber-100">{user.email}</span>.
+      <p className="mt-1 leading-relaxed text-warn/80">
+        Mandamos un enlace a <span className="font-medium text-warn">{user.email}</span>.
         Confirmarlo es lo que te deja recuperar la cuenta si te olvidás la contraseña, y lo que
         prueba que esa dirección es tuya y de nadie más.
       </p>
@@ -50,11 +50,11 @@ export default function EmailVerificationNotice({ className = "" }: { className?
         type="button"
         onClick={handleSend}
         disabled={sending}
-        className="mt-2 font-semibold underline underline-offset-2 hover:text-amber-100 disabled:opacity-60"
+        className="mt-2 font-semibold underline underline-offset-2 hover:text-warn disabled:opacity-60"
       >
         {sending ? "Enviando…" : "Enviarme el enlace de nuevo"}
       </button>
-      {status && <p className="mt-2 text-xs text-amber-200/80">{status}</p>}
+      {status && <p className="mt-2 text-xs text-warn/80">{status}</p>}
     </div>
   );
 }

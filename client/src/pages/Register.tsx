@@ -130,7 +130,7 @@ export default function Register() {
             </div>
 
             {error && (
-              <p className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm text-red-300">
+              <p className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm text-danger">
                 {error}
               </p>
             )}

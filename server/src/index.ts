@@ -2370,6 +2370,25 @@ app.post("/api/meet-bridge/:meetId/transcript", bridgeLimit, async (req, res) =>
   const speaker = String(req.body?.speaker ?? "").slice(0, 60);
   let text = String(req.body?.text ?? "").trim().slice(0, 2000);
   const lang = String(req.body?.lang ?? "es-AR").slice(0, 16);
+
+  // LO QUE SE ESTÁ DICIENDO AHORA MISMO. El bot (y la extensión) juntan lo
+  // que oyen y recién mandan la frase cuando hay una pausa: eso, más la IA
+  // correctora, hacía que el subtítulo apareciera varios segundos después de
+  // hablar -- "tarda como cinco segundos", y era cierto. Ahora lo interino
+  // viaja al instante por su propio camino: se reparte a la sala y se
+  // olvida (no toca la base, ni la IA, ni la traducción), y cuando llega la
+  // frase final ocupa su lugar como siempre.
+  if (req.body?.interim === true) {
+    const meetingInterina = companionForRoomKey(roomKey);
+    io.to(roomFor(meetingInterina.id)).emit("transcript-interim", {
+      speaker: speaker || "Participante",
+      text,
+      lang,
+      at: Date.now(),
+    });
+    res.json({ ok: true, interim: true });
+    return;
+  }
   // Lecturas alternativas del reconocimiento, si el cliente las tiene: más
   // hipótesis para que la IA reconstruya la palabra que de verdad se dijo.
   const alts = Array.isArray(req.body?.alts)

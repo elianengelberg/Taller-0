@@ -49,7 +49,7 @@ export default function ReportarIA({
 
   if (estado === "listo") {
     return (
-      <p role="status" className={`text-xs text-emerald-300 ${className}`}>
+      <p role="status" className={`text-xs text-ok ${className}`}>
         Gracias, recibimos tu reporte. Lo revisamos y, si corresponde, corregimos.
       </p>
     );

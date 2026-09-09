@@ -24,6 +24,32 @@ interface Props {
    * sólo para quien lo pide a propósito (una reunión de otra cuenta).
    */
   sinParticipante?: boolean;
+  /**
+   * Mandarlo SOLO, sin esperar el toque. En iPhone y iPad el bot no es una
+   * opción entre otras: es la ÚNICA forma de que se transcriba a todos (el
+   * sistema no le presta el micrófono de la reunión a nadie más), y pedirle
+   * a la persona que lo encuentre y lo toque en cada reunión era dejarle a
+   * ella un trabajo que la app puede hacer. Se manda una vez por sala y se
+   * puede apagar para siempre desde el mismo cartel.
+   */
+  automatico?: boolean;
+}
+
+// «No lo mandes solo»: la decisión se recuerda en este aparato.
+const CLAVE_AUTO = "unify_bot_auto_no";
+function autoApagado(): boolean {
+  try {
+    return localStorage.getItem(CLAVE_AUTO) === "1";
+  } catch {
+    return false;
+  }
+}
+function apagarAuto(): void {
+  try {
+    localStorage.setItem(CLAVE_AUTO, "1");
+  } catch {
+    /* modo privado: vale por esta vez */
+  }
 }
 
 // Cuánto se espera a Zoom antes de sugerir qué revisar (la reunión puede no
@@ -47,6 +73,7 @@ export default function BotButton({
   titulo,
   descripcion,
   sinParticipante = false,
+  automatico = false,
 }: Props) {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -81,6 +108,9 @@ export default function BotButton({
   const [sondeoDesde, setSondeoDesde] = useState<number | null>(null);
   const atPrevioRef = useRef(0);
   const sugeridoRef = useRef(false);
+  // El envío automático: una sola vez por sala y por carga de la pantalla.
+  const autoHechoRef = useRef(false);
+  const [autoNo, setAutoNo] = useState(autoApagado);
   useEffect(() => {
     if (!sondeoDesde) return;
     let vivo = true;
@@ -199,6 +229,17 @@ export default function BotButton({
     setSondeoDesde(Date.now());
   }
 
+  // Mandarlo solo. Requiere sesión (el servidor lo exige: la reunión queda a
+  // nombre de quien lo manda) y que no lo hayan apagado en este aparato.
+  useEffect(() => {
+    if (!automatico || autoNo || autoHechoRef.current || !user || !roomKey) return;
+    autoHechoRef.current = true;
+    void mandar(false);
+    // `mandar` no cambia entre renders de forma significativa; el ref evita
+    // que un re-render mande un segundo bot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [automatico, autoNo, user, roomKey]);
+
   const etiqueta = escuchaSinBot
     ? estado?.tipo === "ok"
       ? "Unify a la escucha ✓"
@@ -241,16 +282,28 @@ export default function BotButton({
           role="status"
           className={`mt-2 rounded-lg border px-3 py-2 text-xs leading-relaxed ${
             estado.tipo === "error"
-              ? "border-red-500/40 bg-red-500/10 text-red-300"
+              ? "border-red-500/40 bg-red-500/10 text-danger"
               : estado.tipo === "aviso"
-                ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
-                : "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                ? "border-amber-500/40 bg-amber-500/10 text-warn"
+                : "border-emerald-500/40 bg-emerald-500/10 text-ok"
           }`}
         >
           {estado.texto}
         </p>
       )}
       {aviso && <p className="mt-1.5 text-[11px] leading-relaxed text-ink-400">{aviso}</p>}
+      {automatico && !autoNo && user && (
+        <button
+          type="button"
+          onClick={() => {
+            apagarAuto();
+            setAutoNo(true);
+          }}
+          className="mt-1.5 text-[11px] text-ink-400 underline decoration-ink-600 underline-offset-2 hover:text-strong"
+        >
+          Lo mandamos solo porque este aparato no puede escuchar la reunión. No lo mandes solo.
+        </button>
+      )}
       {/* La salida para una reunión que Zoom no va a transmitir (de otra
           cuenta): el bot de siempre, pedido a propósito. Aparece recién cuando
           la escucha sin participante no dio señales, no antes. */}

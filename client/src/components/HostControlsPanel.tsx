@@ -128,7 +128,7 @@ export default function HostControlsPanel({
         {isHost &&
           (confirmEnd ? (
             <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-3">
-              <p className="text-sm text-red-500 dark:text-red-300">
+              <p className="text-sm text-red-500 dark:text-danger">
                 ¿Terminar la reunión para todos? No se puede deshacer.
               </p>
               <div className="mt-2 flex gap-2">

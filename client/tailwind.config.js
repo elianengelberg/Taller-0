@@ -44,6 +44,21 @@ export default {
           900: "rgb(var(--ink-900) / <alpha-value>)",
           950: "rgb(var(--ink-950) / <alpha-value>)",
         },
+        // AVISOS, legibles en los dos temas (ver index.css). El texto se
+        // oscurece en el tema claro; el fondo y el borde son el mismo color
+        // base con opacidad, así que no hace falta invertirlos.
+        warn: {
+          DEFAULT: "rgb(var(--warn-text) / <alpha-value>)",
+          bg: "rgb(var(--warn-bg) / <alpha-value>)",
+        },
+        ok: {
+          DEFAULT: "rgb(var(--ok-text) / <alpha-value>)",
+          bg: "rgb(var(--ok-bg) / <alpha-value>)",
+        },
+        danger: {
+          DEFAULT: "rgb(var(--danger-text) / <alpha-value>)",
+          bg: "rgb(var(--danger-bg) / <alpha-value>)",
+        },
         // "Primary text" -- white in dark mode, near-navy in light mode.
         strong: "rgb(var(--fg-strong) / <alpha-value>)",
         // Text sitting on a colored/gradient background (buttons, badges,

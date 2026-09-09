@@ -97,6 +97,28 @@ const log = (...a) => console.log("[bot]", ...a);
 // Se llama desde Node (no desde la página) por dos motivos: la página real de
 // Zoom/Meet no puede hacer fetch a nuestro servidor (CORS), y así ninguna
 // credencial vive en un contexto que la reunión podría espiar.
+// LO QUE SE ESTÁ DICIENDO AHORA MISMO, sin esperar la pausa. Viaja por su
+// propio camino (interim: true): el servidor lo reparte a la sala y lo
+// olvida. Es lo que hace que el subtítulo aparezca MIENTRAS se habla en vez
+// de varios segundos después.
+let ultimoInterino = 0;
+async function postInterino(texto) {
+  const t = String(texto || "").trim();
+  if (!t) return;
+  const ahora = Date.now();
+  if (ahora - ultimoInterino < 250) return; // como máximo cuatro por segundo
+  ultimoInterino = ahora;
+  try {
+    await fetch(`${SERVER_URL}/api/meet-bridge/${encodeURIComponent(ROOM_KEY)}/transcript`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ speaker: BOT_NAME, text: t.slice(0, 300), lang: process.env.BOT_LANG || "es-AR", interim: true }),
+    });
+  } catch {
+    /* un interino perdido no importa: en un cuarto de segundo va otro */
+  }
+}
+
 async function postLinea(texto, alts = []) {
   const t = String(texto || "").trim();
   if (!t) return;
@@ -518,6 +540,10 @@ async function arrancarEscucha(page) {
   await page.exposeFunction("botEmit", async (texto, alts) => {
     await postLinea(texto, Array.isArray(alts) ? alts : []);
   });
+  // Lo que se está diciendo, mientras se dice.
+  await page.exposeFunction("botEmitInterino", async (texto) => {
+    await postInterino(texto);
+  });
   // El diagnóstico de la escucha sale por la consola del bot: es lo que
   // permite ver, en un host nuevo, exactamente en qué eslabón se corta la
   // cadena (captura de audio -> reconocimiento -> bridge).
@@ -701,7 +727,10 @@ async function arrancarEscucha(page) {
       const r = new Ctor();
       r.lang = lang;
       r.continuous = true;
-      r.interimResults = false;
+      // Lo interino no se guarda ni se corrige: se muestra al instante y lo
+      // reemplaza la frase final. Sin esto, el subtítulo llegaba recién
+      // después de la pausa de dos segundos más la IA: varios segundos tarde.
+      r.interimResults = true;
       // 5 como en la web: más candidatas para que la IA correctora elija
       // la lectura con sentido (con 3 se le escapaban palabras).
       r.maxAlternatives = 5;
@@ -725,6 +754,17 @@ async function arrancarEscucha(page) {
       };
       r.onresult = (ev) => {
         fallas = 0;
+        // Lo que se viene diciendo, ya: lo pendiente más lo interino de este
+        // evento (la última lectura en curso, que Chrome reescribe).
+        let enCurso = "";
+        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+          const res = ev.results[i];
+          if (!res.isFinal) enCurso = res[0]?.transcript || enCurso;
+        }
+        if (enCurso.trim()) {
+          const vivo = `${pendiente} ${enCurso}`.trim();
+          try { window.botEmitInterino(vivo); } catch {}
+        }
         for (let i = ev.resultIndex; i < ev.results.length; i++) {
           const res = ev.results[i];
           if (!res.isFinal) continue;
@@ -737,7 +777,9 @@ async function arrancarEscucha(page) {
           if (pendiente.length > 220) soltar();
           else {
             if (timerFrase) clearTimeout(timerFrase);
-            timerFrase = setTimeout(soltar, 2000);
+            // Antes eran dos segundos de silencio: con lo interino ya en
+            // pantalla, esperar tanto sólo demoraba la versión corregida.
+            timerFrase = setTimeout(soltar, 900);
           }
         }
       };
