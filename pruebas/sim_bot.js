@@ -177,11 +177,24 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     }).then((r) => r.json());
     const auth = { "Content-Type": "application/json", Authorization: `Bearer ${reg.token}` };
 
+    // SIN SESIÓN TAMBIÉN SE MANDA. Acá esta prueba exigía un 401: la puerta
+    // pedía cuenta y quien no la tenía no podía escuchar ni su propia
+    // reunión («no se puede transcribir ni mandar los subtítulos ni
+    // básicamente nada sin iniciar sesión, lo cual está mal»). Lo único que
+    // de verdad necesita una cuenta es GUARDAR, así que la falta de sesión
+    // ya no puede ser el motivo del rechazo.
     const sinSesion = await fetch(`${API}/api/bot/dispatch`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: URL_REUNION, roomKey: "jitsi:x/y", platform: "test" }),
     });
-    check("despachar el bot sin sesión: 401", sinSesion.status === 401, `HTTP ${sinSesion.status}`);
+    check("sin sesión, la falta de cuenta NO es el motivo del rechazo (nada de 401)",
+      sinSesion.status !== 401 && sinSesion.status !== 403, `HTTP ${sinSesion.status}`);
+    // Y si rechaza, que sea por lo que de verdad pasa en este servidor (el
+    // bot apagado), no por quién sos.
+    const motivoAnonimo = await sinSesion.json().catch(() => ({}));
+    check("y si rechaza, es por el bot apagado, no por quién sos",
+      sinSesion.ok || !/sesi[óo]n|cuenta|ingres/i.test(motivoAnonimo.error ?? ""),
+      (motivoAnonimo.error ?? "").slice(0, 60));
 
     const apagado = await fetch(`${API}/api/bot/dispatch`, {
       method: "POST", headers: auth,
