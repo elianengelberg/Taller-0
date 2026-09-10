@@ -36,6 +36,22 @@ export interface StartOptions {
    * arranca la grabación automática cuando no hay gesto disponible.
    */
   audioOnly?: boolean;
+  /**
+   * LA PERSONA APRETÓ GRABAR. Cambia dos cosas, y las dos importan:
+   *
+   *  - Si la captura vino sin sonido, se le pide el MICRÓFONO para que la
+   *    grabación no salga muda. Eso puede abrir el cartel de permisos del
+   *    navegador, y por eso NO se hace en la grabación automática: pedir
+   *    permiso por el solo hecho de abrir la pantalla es exactamente lo que
+   *    se sacó («cada vez que abro la pantalla me tira si autorizo el
+   *    micrófono»). Con el permiso YA dado no hay cartel, así que ahí se pide
+   *    igual, gesto o no.
+   *  - El aviso «esta grabación está saliendo sin sonido» se muestra sólo
+   *    cuando la persona pidió grabar: es cuando puede hacer algo al
+   *    respecto. En la automática, ese cartel se comía un renglón de
+   *    subtítulos para avisar de algo que nadie pidió.
+   */
+  porGesto?: boolean;
 }
 
 // Sólo audio: el mismo criterio que arriba (MP4 primero por iPhone/iPad).
@@ -403,7 +419,22 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
       // acá aunque el clic ya se lo haya llevado getDisplayMedia.
       let micUsado =
         micStream && micStream.getAudioTracks().some((t) => t.readyState === "live") ? micStream : null;
-      if (!micUsado) {
+      // Con el permiso ya concedido, pedir el micrófono no abre ningún
+      // cartel: se puede hacer siempre. Si no está concedido, sólo cuando la
+      // persona apretó grabar. (`permissions.query` no existe o no contesta
+      // en algunos navegadores -- iPad entre ellos --: ahí manda el gesto.)
+      let puedePedirMic = Boolean(options.porGesto);
+      if (!puedePedirMic) {
+        try {
+          const estado = await navigator.permissions?.query?.({
+            name: "microphone" as PermissionName,
+          });
+          puedePedirMic = estado?.state === "granted";
+        } catch {
+          puedePedirMic = false;
+        }
+      }
+      if (!micUsado && puedePedirMic) {
         // CON RELOJ. Si el permiso del micrófono está en "preguntar", esto
         // abre el cartel del navegador -- y mientras nadie conteste, la
         // grabación NO EMPIEZA, con la pantalla ya compartida y la barra de
@@ -435,9 +466,11 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
       }
 
       // Ni la captura ni el micrófono: el archivo va a salir mudo, y hay que
-      // decirlo ahora.
+      // decirlo ahora... si la persona pidió grabar. En la automática el aviso
+      // sobra: nadie lo pidió, y el renglón que ocupa es un renglón menos de
+      // subtítulos (en una ventana chica, el último).
       setAvisoSonido(
-        hayAudioDeLaCaptura || hayMicrofono
+        hayAudioDeLaCaptura || hayMicrofono || !options.porGesto
           ? null
           : "Esta grabación está saliendo SIN SONIDO: se compartió la pantalla sin tildar «Compartir audio» y tampoco hay micrófono. Detené, volvé a grabar y tildá la casilla de audio."
       );
@@ -497,7 +530,7 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
       // sistema sin nada adentro. Se mira el nivel REAL de la mezcla y, si a
       // los doce segundos no entró absolutamente nada, se avisa igual --
       // mientras todavía hay reunión para volver a grabar.
-      {
+      if (options.porGesto) {
         const analizador = audioContext.createAnalyser();
         analizador.fftSize = 512;
         if (destination.stream.getAudioTracks().length > 0) {

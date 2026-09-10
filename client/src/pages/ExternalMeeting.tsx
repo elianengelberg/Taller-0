@@ -687,8 +687,12 @@ export default function ExternalMeeting() {
     if (recorder.status === "recording") recorder.stop();
     else if (recorder.status === "idle" || recorder.status === "error") {
       if (screenCaptureSupported) {
-        // Grabar la pantalla no toca el micrófono: arranca derecho.
-        void recorder.start({});
+        // Grabar la pantalla no toca el micrófono: arranca derecho. `porGesto`
+        // porque esto ES un botón: si la captura viene sin audio se pide el
+        // micrófono para que la grabación no salga muda, y si tampoco hay se
+        // avisa. (La grabación automática no lleva la marca: no puede abrir
+        // el cartel de permisos por su cuenta.)
+        void recorder.start({ porGesto: true });
       } else if (unSoloMicrofono) {
         // Donde el micrófono es de uno solo, PRIMERO se lo sueltan los
         // subtítulos y recién después lo pide el grabador. Pedirlo de una
@@ -698,7 +702,7 @@ export default function ExternalMeeting() {
         recorder.reset();
         setCediendoMic(true);
       } else {
-        void recorder.start({ audioOnly: true });
+        void recorder.start({ audioOnly: true, porGesto: true });
       }
     }
   }
@@ -1409,7 +1413,7 @@ export default function ExternalMeeting() {
                   ? () => {
                       // El clic ES el gesto que getDisplayMedia exige.
                       if (recorder.status === "recording") recorder.stop();
-                      void recorder.start();
+                      void recorder.start({ porGesto: true });
                     }
                   : null
               }
@@ -1447,7 +1451,7 @@ export default function ExternalMeeting() {
           typeof navigator.mediaDevices?.getDisplayMedia === "function"
             ? () => {
                 recorder.stop();
-                void recorder.start();
+                void recorder.start({ porGesto: true });
               }
             : undefined
         }
