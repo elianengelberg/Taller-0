@@ -265,6 +265,15 @@ async function translateWithClaude(
  */
 export class SinTraduccionConfiable extends Error {}
 
+/**
+ * Los carteles con los que MyMemory avisa que ÉL falló (cuota agotada, idioma
+ * inválido, consulta vacía o demasiado larga). Viajan donde iría la
+ * traducción, así que sin reconocerlos aparecían en pantalla como si alguien
+ * los hubiera dicho.
+ */
+const ES_ERROR_DEL_PROVEEDOR =
+  /INVALID (SOURCE|TARGET) LANGUAGE|MYMEMORY WARNING|NO QUERY|QUERY LENGTH LIMIT/i;
+
 export interface RespuestaMyMemory {
   responseData?: { translatedText?: string; match?: number | string };
   responseStatus?: number | string;
@@ -347,6 +356,20 @@ async function translateWithMyMemory(text: string, from: string, to: string): Pr
   // cuota agotada) aparecía EN PANTALLA como si fuera la traducción.
   if (data.responseStatus !== undefined && Number(data.responseStatus) !== 200) {
     throw new Error(`Translation provider status ${data.responseStatus}`);
+  }
+
+  // PRIMERO: ¿está hablando el PROVEEDOR o está hablando la memoria?
+  //
+  // MyMemory contesta HTTP 200 hasta cuando falla, y sus errores vienen como
+  // TEXTO adentro de translatedText («MYMEMORY WARNING: YOU USED ALL
+  // AVAILABLE FREE TRANSLATIONS», «'AUTO' IS AN INVALID SOURCE LANGUAGE»).
+  // Eso NO es «para esta frase no hay traducción»: es el proveedor caído, y
+  // va a pasar con TODAS las frases. Tiene que subir como error para que la
+  // pantalla diga que la traducción no está funcionando, en vez de ir
+  // devolviendo el original frase por frase mientras la persona espera una
+  // traducción que no va a llegar nunca.
+  if (ES_ERROR_DEL_PROVEEDOR.test(String(data.responseData?.translatedText ?? ""))) {
+    throw new Error("Translation provider returned an error message instead of a translation");
   }
 
   const elegida = elegirDeMyMemory(data);
