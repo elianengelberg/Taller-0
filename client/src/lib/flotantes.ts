@@ -96,7 +96,10 @@ export function prepararVentanaFlotante(win: Window, titulo = "Subtítulos — U
 
 // Pinta las frases en la ventanita. Siempre por textContent: lo dicho en la
 // reunión es texto, nunca HTML.
-export function pintarFlotantesEnDocumento(doc: Document, frases: FraseFlotante[], maximo = 3): void {
+// SEIS FRASES, NO TRES. Pedido con el motivo dicho: «por si se pasa algo de
+// largo y no llega, que pueda llegar bien». Con tres, mirar la reunión dos
+// segundos ya te dejaba afuera de lo que se dijo.
+export function pintarFlotantesEnDocumento(doc: Document, frases: FraseFlotante[], maximo = 6): void {
   const cont = doc.getElementById("subs");
   if (!cont) return;
   cont.textContent = "";
@@ -155,7 +158,10 @@ export function pintarFlotantesEnCanvas(canvas: HTMLCanvasElement, frases: Frase
     return;
   }
   let y = H - 24 * escala;
-  const orden = [...frases.slice(-3)].reverse(); // de la más nueva a la más vieja
+  // Se piden seis y se dibujan las que entren: el bucle corta solo cuando se
+  // queda sin alto (y < 40), así que en una ventanita chica se ven las
+  // últimas y en una grande, las seis.
+  const orden = [...frases.slice(-6)].reverse(); // de la más nueva a la más vieja
   for (let i = 0; i < orden.length; i++) {
     const f = orden[i];
     const ultima = i === 0;

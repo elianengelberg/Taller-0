@@ -564,9 +564,31 @@ export default function ExternalMeeting() {
     setMicAttempt((n) => n + 1);
   }
 
+  // EN QUÉ IDIOMA ESCUCHA ESTE MICRÓFONO.
+  //
+  // Reporte real, con la foto en la mano: «hago que la otra persona hable en
+  // español y me tira los subtítulos en inglés diciendo cualquier cosa» --
+  // «I live in Poco electrolytes Orlando», «Electroluya Medicite». Eso es
+  // español entrando a un oído puesto en inglés.
+  //
+  // La causa es de dónde viene el audio. Este micrófono estaba clavado en TU
+  // idioma porque en el diseño sólo te oye a vos, y a los demás los oye la
+  // pista que llega con la captura de pantalla. Pero el modo que la pantalla
+  // recomienda cuando no hay captura es el ALTAVOZ: la reunión suena por los
+  // parlantes y entra por este mismo micrófono. Ahí el micrófono ES el oído
+  // de la sala, y lo que más entra es la voz de los OTROS -- justo el idioma
+  // que la persona ya declaró en «Hablan en» y que no se usaba para nada.
+  //
+  // Con una pista de la reunión aparte, esa pista ya escucha a los demás en
+  // el idioma de la sala y este micrófono vuelve a ser sólo tuyo.
+  //
+  // En «Automático», langReunion ES spokenLang: quien no toca nada no nota
+  // ningún cambio. Sólo manda cuando la persona lo eligió a mano.
+  const micEsOidoDeLaSala = !recorder.remoteAudioTrack;
+  const langMic = micEsOidoDeLaSala ? langReunion : spokenLang;
   const { supported: captionsSupported, error: captionsError } = useSpeechRecognition({
     key: micAttempt,
-    lang: spokenLang,
+    lang: langMic,
     active: connectionStatus === "connected" && !micTomadoPorGrabacion && micEncendido,
     onInterim: (text) => {
       setInterimCaption(text);
@@ -576,7 +598,10 @@ export default function ExternalMeeting() {
     },
     onResult: (alternatives) => {
       setInterimCaption(null);
-      sendTranscriptLine(alternatives, spokenLang);
+      // La frase se firma con el idioma en que SE LA ESCUCHÓ. Etiquetarla con
+      // otro es lo que hacía que además no se tradujera: el servidor veía
+      // «esto ya está en tu idioma» y la dejaba pasar tal cual.
+      sendTranscriptLine(alternatives, langMic);
     },
   });
   // Sin esto, un navegador sin reconocimiento de voz (Firefox, Safari de
@@ -644,7 +669,11 @@ export default function ExternalMeeting() {
     if (!self) return null;
     const mias = (meeting?.transcript ?? []).filter((l) => l.speakerId === self.id).slice(-4);
     const distintas = mias.filter(
-      (l) => l.sourceLang && shortLang(l.sourceLang) !== shortLang(spokenLang),
+      // Contra lo que el micrófono está escuchando DE VERDAD (langMic), no
+      // contra tu idioma de perfil: con «Hablan en» puesto a mano son cosas
+      // distintas, y comparar con la equivocada hacía saltar el aviso sin
+      // motivo -- o callarlo cuando sí hacía falta.
+      (l) => l.sourceLang && shortLang(l.sourceLang) !== shortLang(langMic),
     );
     // Dos frases seguidas en otro idioma ya no son casualidad. O UNA SOLA
     // pero larga: el servidor pega los fragmentos seguidos de la misma
@@ -655,7 +684,7 @@ export default function ExternalMeeting() {
     return shortLang(distintas[distintas.length - 1].sourceLang);
   })();
   const avisoIdioma = idiomaDetectado
-    ? `Unify te está escuchando en ${etiquetaDeIdioma(spokenLang)}, pero hablás en ${etiquetaDeIdioma(idiomaDetectado)} — por eso las palabras salen mal.`
+    ? `Unify está escuchando en ${etiquetaDeIdioma(langMic)}, pero se está hablando en ${etiquetaDeIdioma(idiomaDetectado)} — por eso las palabras salen mal.`
     : null;
 
   const { getTranslation, translationFailed } = useLineTranslations(meeting?.transcript ?? [], targetLang);

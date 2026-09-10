@@ -247,38 +247,40 @@ export default function BotButton({
           <p className="mt-1 text-xs leading-relaxed text-ink-400">{descripcionFinal}</p>
         </>
       )}
-      {/* El bot graba A TU NOMBRE (la reunión queda en tu historial): sin
-          sesión, el servidor lo rechaza -- mejor decirlo ANTES del toque que
-          fallar en silencio, que es lo que pasaba. */}
-      {!user ? (
-        <button
-          type="button"
-          onClick={() => navigate("/ingresar")}
-          className={
-            compacto
-              ? "w-full rounded-xl bg-brand-500 px-4 py-2.5 text-sm font-bold text-on-accent shadow-sm hover:bg-brand-600"
-              : "mt-2.5 w-full rounded-xl border border-brand-500/50 px-4 py-2.5 text-sm font-semibold text-brand-200 hover:bg-brand-500/10"
-          }
-        >
-          {compacto
-            ? "Iniciá sesión para que Unify escuche toda la reunión"
-            : escuchaSinBot
-              ? "Iniciá sesión para que Unify escuche"
-              : "Iniciá sesión para mandar el bot"}
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={() => void mandar(modoVisible)}
-          disabled={mandando || estado?.tipo === "ok"}
-          className={
-            compacto
-              ? "w-full rounded-xl bg-brand-500 px-4 py-2.5 text-sm font-bold text-on-accent shadow-sm hover:bg-brand-600 disabled:opacity-60"
-              : "mt-2.5 w-full rounded-xl border border-brand-500/50 px-4 py-2.5 text-sm font-semibold text-brand-200 hover:bg-brand-500/10 disabled:opacity-60"
-          }
-        >
-          {compacto ? etiquetaCompacta : etiqueta}
-        </button>
+      {/* SIN CUENTA TAMBIÉN SE MANDA. Antes acá había un «Iniciá sesión para
+          que Unify escuche toda la reunión» EN LUGAR del botón: quien no
+          tenía cuenta no podía hacer nada, ni siquiera escuchar su propia
+          reunión. Reporte real: «no se puede transcribir ni mandar los
+          subtítulos ni básicamente nada sin iniciar sesión, lo cual está
+          mal».
+          Lo único que de verdad necesita una cuenta es GUARDAR, así que eso
+          es lo único que se dice -- y se dice ANTES, no como un botón que
+          bloquea. */}
+      <button
+        type="button"
+        onClick={() => void mandar(modoVisible)}
+        disabled={mandando || estado?.tipo === "ok"}
+        className={
+          compacto
+            ? "w-full rounded-xl bg-brand-500 px-4 py-2.5 text-sm font-bold text-on-accent shadow-sm hover:bg-brand-600 disabled:opacity-60"
+            : "mt-2.5 w-full rounded-xl border border-brand-500/50 px-4 py-2.5 text-sm font-semibold text-brand-200 hover:bg-brand-500/10 disabled:opacity-60"
+        }
+      >
+        {compacto ? etiquetaCompacta : etiqueta}
+      </button>
+      {!user && (
+        <p className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-warn">
+          Sin cuenta, esta reunión <strong>no queda guardada</strong>: vas a leer los subtítulos y su
+          traducción en vivo, pero al cerrar no van a estar en ningún historial.{" "}
+          <button
+            type="button"
+            onClick={() => navigate("/ingresar")}
+            className="font-semibold underline underline-offset-2 hover:text-strong"
+          >
+            Iniciá sesión o registrate
+          </button>{" "}
+          si la querés guardar.
+        </p>
       )}
       {estado && (
         <p

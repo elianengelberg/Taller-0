@@ -359,6 +359,17 @@ const reporteLimit = rateLimit({
 // Una oficina entera manda líneas por la misma IP: el tope por IP es alto y
 // el freno fino contra inundar UNA sala es allowMeetBridge (40 cada 10 s).
 const bridgeLimit = rateLimit({ max: tope("LIMITE_BRIDGE", 2400), windowMs: 60_000 });
+// MANDAR EL BOT NO PIDE CUENTA (pedido: «que todos puedan hacer lo mismo»),
+// así que el límite es lo único que separa «alguien sin cuenta transcribe su
+// reunión» de «alguien levanta cien navegadores headless con un script».
+// Por usuario cuando hay sesión, por IP cuando no: quien tiene cuenta no
+// paga el ruido de otro detrás del mismo NAT.
+const botLimit = rateLimit({
+  max: tope("LIMITE_BOT", 12),
+  windowMs: 60 * 60_000,
+  keyBy: userOrIp,
+  message: "Se mandaron muchos oyentes desde acá. Esperá un rato y probá de nuevo.",
+});
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
@@ -2097,7 +2108,13 @@ async function despacharBot(args: {
   return { ok: true };
 }
 
-app.post("/api/bot/dispatch", requireAuth, async (req, res) => {
+// SIN CUENTA TAMBIÉN SE PUEDE. Reporte real: «no se puede transcribir ni
+// mandar los subtítulos ni básicamente nada sin iniciar sesión, lo cual está
+// mal; la idea es que todos puedan hacer lo mismo». Lo único que de verdad
+// necesita una cuenta es GUARDAR: una reunión sin dueño no aparece en el
+// historial de nadie. Así que el oyente sale igual, y la pantalla lo dice
+// antes de entrar en vez de esconder el botón detrás de un «Iniciá sesión».
+app.post("/api/bot/dispatch", botLimit, async (req, res) => {
   const url = String(req.body?.url ?? "").trim().slice(0, 2000);
   const roomKey = bridgeRoomKey(String(req.body?.roomKey ?? ""));
   const platform = String(req.body?.platform ?? "");
@@ -2119,6 +2136,12 @@ app.post("/api/bot/dispatch", requireAuth, async (req, res) => {
     res.status(400).json({ error: "La clave de sala no es válida." });
     return;
   }
+  // La sesión, si vino. Sin ella la reunión nace sin dueño: se transcribe y
+  // se lee igual, pero no se guarda en ningún historial (que es exactamente
+  // lo que el cartel de antes de entrar promete).
+  const cabecera = req.headers.authorization;
+  const claims = verifyTokenClaims(cabecera?.startsWith("Bearer ") ? cabecera.slice(7) : null);
+  const dueñoDelDespacho = claims?.userId ?? null;
   const plataformaBot = BOT_PLATFORMS.has(platform) ? platform : "jitsi";
   // El idioma viaja hasta el reconocimiento del bot; sólo formatos sanos.
   const langCrudo = String(req.body?.lang ?? "").trim();
@@ -2128,7 +2151,7 @@ app.post("/api/bot/dispatch", requireAuth, async (req, res) => {
       url,
       roomKey,
       platform: plataformaBot,
-      ownerId: (req as AuthedRequest).userId!,
+      ownerId: dueñoDelDespacho,
       lang,
       visible,
     });

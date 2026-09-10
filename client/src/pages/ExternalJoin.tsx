@@ -585,6 +585,8 @@ function DetectionResult({
         {meetingId ? <span className="text-ink-400"> · {meetingId}</span> : null}.
       </p>
 
+      <SinCuentaAviso />
+
       {canEmbed && platform === "zoom" ? (
         // ZOOM: con el enlace alcanza. La reunión se abre en la app de Zoom
         // (o en zoom.us), que entiende el enlace con su contraseña, y Unify
@@ -709,6 +711,40 @@ function DetectionResult({
           sinParticipante={platform === "zoom" && Boolean(platforms?.zoomRtms) && /^zoom:\d{9,12}$/.test(roomKey)}
         />
       )}
+    </div>
+  );
+}
+
+// EL CARTEL DE ANTES DE ENTRAR, para quien no tiene cuenta.
+//
+// Pedido con las palabras exactas: «quiero que al que no tiene cuenta le
+// mandes un cartel ANTES de unirse, diciendo que la reunión no va a estar
+// guardada porque no tiene cuenta, diciéndole que si la quiere guardar,
+// inicie sesión o se registre; después el resto debe poder hacerlo igual que
+// alguien que inició sesión».
+//
+// Antes esto no era un aviso sino un MURO: los botones de escuchar decían
+// «Iniciá sesión» en vez de funcionar. La diferencia importa -- avisar deja
+// entrar, bloquear no.
+function SinCuentaAviso() {
+  const { user, loading } = useAuth();
+  const navigate = useNavigate();
+  if (loading || user) return null;
+  return (
+    <div className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
+      <p className="text-sm font-semibold text-warn">Entrás sin cuenta: esta reunión no se va a guardar.</p>
+      <p className="mt-1 text-xs leading-relaxed text-ink-300">
+        Los subtítulos, la traducción, la transcripción en vivo y la IA funcionan igual. Lo único que
+        no vas a tener es el historial: al cerrar, la transcripción y la grabación no quedan en
+        ningún lado.
+      </p>
+      <button
+        type="button"
+        onClick={() => navigate("/ingresar")}
+        className="mt-2 w-full rounded-xl border border-amber-400/50 px-4 py-2 text-sm font-semibold text-warn hover:bg-amber-500/10"
+      >
+        Iniciá sesión o registrate para guardarla
+      </button>
     </div>
   );
 }

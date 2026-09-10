@@ -10,7 +10,9 @@ import { TranscriptLine } from "../types";
 export function recentCaptionEntries(
   transcript: TranscriptLine[],
   getTranslation: (line: { id: string; text: string }) => string | undefined,
-  maxSpeakers = 3
+  // Seis, no tres: pedido para no perderse lo que pasó de largo mientras se
+  // mira la reunión.
+  maxSpeakers = 6
 ): CaptionEntry[] {
   const seen = new Set<string>();
   const picked: TranscriptLine[] = [];

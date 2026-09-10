@@ -41,11 +41,15 @@ export default function BarraDeReunion({
         className={`flex items-center gap-2 px-3 sm:px-5 ${compacto ? "py-1" : "py-2"}`}
       >
         {/* LA SALIDA, PRIMERO Y CON SU NOMBRE. Sale de Unify; la llamada sigue
-            en su app, y eso lo dice el propio botón. */}
+            en su app, y eso lo dice el propio botón.
+            ROJO, CON LETRA BLANCA. Antes era gris sobre gris, del mismo color
+            que el resto de la barra: «no veo botón para salir», y después
+            «ahí lo vi, el tema es que no se ve». Un botón que hay que buscar
+            no está. */}
         <button
           type="button"
           onClick={onSalir}
-          className="flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl px-2.5 text-sm font-semibold text-ink-200 hover:bg-ink-800 hover:text-strong"
+          className="flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl bg-red-600 px-3 text-sm font-semibold text-white ring-1 ring-red-400/40 hover:bg-red-500"
           title="Salís de Unify. La reunión sigue abierta en su app."
         >
           <LogoutIcon className="h-4 w-4" />
