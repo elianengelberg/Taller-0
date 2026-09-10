@@ -385,11 +385,19 @@ chrome.runtime.onConnect.addListener((puerto) => {
       );
       if (!res.ok) throw new Error(String(res.status));
       puerto.postMessage({ kind: "subida-ok" });
-    } catch {
+    } catch (e) {
+      // NO TODO ES «revisá tu conexión». Un 503 acá significa que el servidor
+      // NO TIENE configurado el guardado de grabaciones: la conexión anda
+      // perfecto y reintentar no va a cambiar nada. Decir «revisá tu
+      // conexión» ahí manda a la persona a buscar un problema que no existe,
+      // mientras el video se pierde igual.
+      const cortado = String(e?.message || "") === "503";
       try {
         puerto.postMessage({
           kind: "subida-error",
-          message: "Grabamos la reunión pero no pudimos subirla. Revisá tu conexión.",
+          message: cortado
+            ? "Grabamos la reunión, pero este servidor de Unify no tiene configurado el guardado de grabaciones, así que no puede quedar en el historial."
+            : "Grabamos la reunión pero no pudimos subirla. Revisá tu conexión.",
         });
       } catch { /* la página ya no está */ }
     }

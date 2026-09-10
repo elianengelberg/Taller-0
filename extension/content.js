@@ -440,7 +440,23 @@
     '[role="navigation"], [role="banner"], [role="menu"], [role="menubar"], [role="listbox"], ' +
     '[role="log"], [role="feed"], [role="tablist"], [role="toolbar"], [role="grid"], ' +
     '[role="alert"], [role="status"], [role="tooltip"], form';
-  const enZonaQueNoEsSubtitulo = (el) => Boolean(el.closest(ZONAS_QUE_NO_SON_SUBTITULOS));
+  /**
+   * ¿Este nodo vive en una zona que NO puede ser subtítulos?
+   *
+   * Con la excepción que evita un desastre silencioso: si la región de
+   * subtítulos que YA estamos leyendo (reconocida por la etiqueta propia de
+   * Meet, que no se discute) vive adentro de esa zona, entonces la zona no es
+   * «otra cosa al lado» -- es el marco de los subtítulos. Los subtítulos en
+   * vivo son justamente el caso de uso de `role="log"` y `aria-live`, así que
+   * el día que Google los marque así, sin esta excepción la extensión
+   * descartaría TODAS las filas y se quedaría muda sin un solo error.
+   */
+  const enZonaQueNoEsSubtitulo = (el) => {
+    const zona = el.closest?.(ZONAS_QUE_NO_SON_SUBTITULOS);
+    if (!zona) return false;
+    if (caps.region && (zona === caps.region || zona.contains(caps.region))) return false;
+    return true;
+  };
 
   // Nadie DICTA una dirección web en una reunión, pero los carteles de Meet
   // están llenos de ellas: un enlace adentro es la firma de la interfaz, no

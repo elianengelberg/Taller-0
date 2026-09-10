@@ -536,6 +536,12 @@ async function probarGrabadorSilencioso(check, opciones = {}) {
           capturado.upload.subarray(0, 4).toString("hex") === "1a45dfa3");
         check("codificado en VP8 (el que no se traba en vivo)",
           capturado.upload.includes("V_VP8"), capturado.upload.includes("V_VP9") ? "V_VP9" : "V_VP8");
+        // Y CON PISTA DE AUDIO. «No se escucha el video de la grabación» fue
+        // un reporte real: un archivo mudo pesa y se ve igual que uno bueno,
+        // así que sin mirar esto la prueba pasaba con un video inservible.
+        check("y con pista de audio adentro (un video mudo no sirve para nada)",
+          capturado.upload.includes("A_OPUS") || capturado.upload.includes("A_VORBIS"),
+          "sin pista de audio en el webm");
         check("con un tamaño real (la pantalla de verdad, no un archivo vacío)",
           capturado.upload.length > 20_000, `${capturado.upload.length} bytes`);
         check("declarando su duración (para sincronizar la transcripción)",

@@ -246,6 +246,10 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
   // micrófono ya dado -- que en una reunión externa siempre está, porque los
   // subtítulos lo usan -- la reunión queda grabada sin que nadie apriete nada.
   const startAudioOnly = useCallback(async () => {
+    // Lo de la grabación anterior se suelta ACÁ, antes de abrir nada nuevo.
+    // (Su propio `onstop` ya no puede hacerlo: con el número de generación
+    // sólo toca lo suyo, y para cuando llega esto ya es «lo de otra».)
+    cleanupStreams();
     const generacion = ++generacionRef.current;
     try {
       const source =
@@ -326,6 +330,9 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
       await startAudioOnly();
       return;
     }
+    // Idem: el micrófono y la captura de la grabación anterior se cierran
+    // antes de pedir los nuevos, para no dejar viva la lucecita del navegador.
+    cleanupStreams();
     const generacion = ++generacionRef.current;
     try {
       const displayStream =
@@ -397,14 +404,27 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
       let micUsado =
         micStream && micStream.getAudioTracks().some((t) => t.readyState === "live") ? micStream : null;
       if (!micUsado) {
-        try {
-          const propio = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-          });
+        // CON RELOJ. Si el permiso del micrófono está en "preguntar", esto
+        // abre el cartel del navegador -- y mientras nadie conteste, la
+        // grabación NO EMPIEZA, con la pantalla ya compartida y la barra de
+        // "estás compartiendo" puesta. Una grabación que no arranca es peor
+        // que una sin micrófono: a los seis segundos se sigue sin él (y el
+        // vigía de silencio avisa si además la captura vino muda). Si la
+        // respuesta llega tarde, esa pista se cierra en vez de quedar viva.
+        const pedido = navigator.mediaDevices
+          .getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+          .catch(() => null);
+        const propio = await Promise.race([
+          pedido,
+          new Promise<null>((r) => setTimeout(() => r(null), 6000)),
+        ]);
+        if (propio) {
           ownAudioStreamRef.current = propio;
           micUsado = propio;
-        } catch {
-          /* sin permiso de micrófono: queda lo que haya traído la captura */
+        } else {
+          void pedido.then((tardio) => {
+            if (tardio && tardio !== ownAudioStreamRef.current) tardio.getTracks().forEach((t) => t.stop());
+          });
         }
       }
       const hayMicrofono = Boolean(micUsado && micUsado.getAudioTracks().length > 0);

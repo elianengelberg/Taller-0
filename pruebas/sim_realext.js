@@ -888,6 +888,25 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
     check("pero los subtítulos de verdad se siguen leyendo igual",
       posted.slice(desde3).some((l) => /una persona de verdad/.test(l.text || "")),
       posted.slice(desde3).map((l) => l.text).join(" | ").slice(0, 90) || "nada enviado");
+
+    // EL DÍA QUE GOOGLE MARQUE SUS SUBTÍTULOS COMO `role="log"`. Es la marca
+    // correcta para un texto que se actualiza solo, así que es perfectamente
+    // posible -- y `role="log"` está en la lista de zonas que NO son
+    // subtítulos (ahí viven el chat y los avisos). Sin la excepción que mira
+    // si la región reconocida vive adentro de esa zona, la extensión
+    // descartaría TODAS las filas y se quedaría muda sin un solo error: la
+    // peor forma de fallar, y la que ya pasó otras veces en este archivo.
+    const desde4 = posted.length;
+    await p4.evaluate(() => {
+      document.getElementById("caps")?.setAttribute("role", "log");
+      document.getElementById("caps")?.setAttribute("aria-live", "polite");
+    });
+    await p4.waitForTimeout(1200);
+    await p4.evaluate(() => window.__say("Ana García", "y esto también tiene que llegar igual"));
+    await p4.waitForTimeout(4000);
+    check("y si Meet marca sus subtítulos como «log» (texto que se actualiza), se siguen leyendo",
+      posted.slice(desde4).some((l) => /tiene que llegar igual/.test(l.text || "")),
+      posted.slice(desde4).map((l) => l.text).join(" | ").slice(0, 90) || "nada enviado");
     await p4.close();
   }
 
