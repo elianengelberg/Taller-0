@@ -252,6 +252,19 @@ async function translateWithClaude(
   throw new Error("Claude no devolvió texto traducido");
 }
 
+/**
+ * «Para ESTA frase no hay traducción confiable» -- distinto de «el proveedor
+ * está caído».
+ *
+ * La diferencia importa en pantalla. Si una palabra suelta no tiene una
+ * traducción decente, lo correcto es mostrar esa línea en su idioma y seguir;
+ * decir «la traducción no funciona» sería mentir sobre el resto de la
+ * reunión, que se traduce bien. Si en cambio el proveedor no contesta, eso SÍ
+ * hay que decirlo: la app tiene un aviso para eso y taparlo devolviendo el
+ * original dejaría a la persona esperando una traducción que no va a llegar.
+ */
+export class SinTraduccionConfiable extends Error {}
+
 export interface RespuestaMyMemory {
   responseData?: { translatedText?: string; match?: number | string };
   responseStatus?: number | string;
@@ -338,7 +351,7 @@ async function translateWithMyMemory(text: string, from: string, to: string): Pr
 
   const elegida = elegirDeMyMemory(data);
   if (!elegida) {
-    throw new Error("Translation provider returned no usable result");
+    throw new SinTraduccionConfiable("Translation provider returned no usable result");
   }
   return elegida;
 }
@@ -393,17 +406,29 @@ export async function translateText(
       translated = await translateWithClaude(trimmed, source, target, context);
     } catch (err) {
       avisarFallaClaude(err);
-      // Si el respaldo tampoco tiene nada CONFIABLE, se devuelve el original.
-      // Mostrar la frase en su idioma es honesto; mostrar la basura de una
-      // memoria de traducción pública no lo es.
-      translated = await translateWithMyMemory(trimmed, from, to).catch(() => text);
+      translated = await conRespaldo(trimmed, from, to, text);
     }
   } else {
-    translated = await translateWithMyMemory(trimmed, from, to).catch(() => text);
+    translated = await conRespaldo(trimmed, from, to, text);
   }
 
   boundedCacheSet(key, translated);
   return translated;
+}
+
+/**
+ * El respaldo gratuito, con la distinción que importa: si para ESTA frase no
+ * hay nada confiable se devuelve el original (mostrar la basura de una
+ * memoria de traducción pública sería peor que no traducir); si el proveedor
+ * falló de verdad, el error sube y la app lo dice.
+ */
+async function conRespaldo(trimmed: string, from: string, to: string, original: string): Promise<string> {
+  try {
+    return await translateWithMyMemory(trimmed, from, to);
+  } catch (err) {
+    if (err instanceof SinTraduccionConfiable) return original;
+    throw err;
+  }
 }
 
 // Un aviso por minuto alcanza: bajo una falla sostenida, loguear cada línea

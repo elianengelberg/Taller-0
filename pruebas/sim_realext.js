@@ -910,6 +910,76 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
     await p4.close();
   }
 
+  // ═══════ LOS SUBTÍTULOS QUE SE APAGAN A MITAD DE LA REUNIÓN ═══════
+  //
+  // «Me mutié y dejé que hablen los demás y no me daba sus subtítulos». Meet
+  // apaga sus subtítulos solo más seguido de lo que uno cree (al cambiar de
+  // diseño, al compartir pantalla, al reconectar), y la extensión los
+  // encendía UNA SOLA VEZ EN LA VIDA (`caps.nudged = true` y nunca más): la
+  // primera vez que se apagaban quedaban apagados el resto de la reunión, y
+  // sólo se seguía oyendo el micrófono de esta compu -- que al mutearse no
+  // oye nada. Acá se exige que insista.
+  console.log("\n── Si Meet apaga sus subtítulos, la extensión los vuelve a prender ──");
+  {
+    const p6 = await ctx.newPage();
+    p6.on("pageerror", (e) => errs.push(e.message.slice(0, 160)));
+    await p6.goto("http://localhost:4189/bcd-efgh-ijk", { waitUntil: "domcontentloaded" });
+    await p6.waitForTimeout(2500);
+
+    // Meet apaga los subtítulos: desaparece la región y el botón CC vuelve a
+    // decir «Activar». (Y sigue diciéndolo: se simula que el clic no prende
+    // nada, que es el caso en el que la extensión tiene que insistir.)
+    await p6.evaluate(() => {
+      document.getElementById("caps")?.remove();
+      const b = document.createElement("button");
+      b.id = "cc";
+      b.setAttribute("aria-label", "Activar subtítulos");
+      b.setAttribute("aria-pressed", "false");
+      window.__ccClics = 0;
+      b.addEventListener("click", () => { window.__ccClics += 1; });
+      document.body.appendChild(b);
+    });
+    await p6.waitForTimeout(4000);
+    const primero = await p6.evaluate(() => window.__ccClics);
+    check("apenas ve los subtítulos apagados, aprieta el botón CC de Meet", primero >= 1, `clics=${primero}`);
+
+    // Y si el primer intento no prendió nada, INSISTE. Es la diferencia entre
+    // «quedaste sin subtítulos toda la reunión» y «tardó doce segundos».
+    await p6.waitForTimeout(15_000);
+    const segundo = await p6.evaluate(() => window.__ccClics);
+    check("y si no prendieron, vuelve a intentarlo (no se rinde en el primer intento)",
+      segundo > primero, `clics=${segundo}`);
+
+    // Sin subtítulos de Meet se oye UNA sola voz, y eso se dice donde se ve
+    // con el panel cerrado: en la chapita de arriba.
+    const chapita = await p6.evaluate(() =>
+      document.getElementById("unify-root")?.shadowRoot?.querySelector("[data-el=statusTxt]")?.textContent || ""
+    );
+    check("y la chapita avisa que así sólo se oye tu voz", /Sólo se oye tu voz/i.test(chapita), chapita);
+
+    // Y cuando Meet los prende de verdad, se vuelven a leer.
+    await p6.evaluate(() => {
+      document.getElementById("cc")?.setAttribute("aria-label", "Desactivar subtítulos");
+      const r = document.createElement("div");
+      r.id = "caps";
+      r.setAttribute("role", "region");
+      r.setAttribute("aria-label", "Subtítulos");
+      document.body.appendChild(r);
+    });
+    await p6.waitForTimeout(3000);
+    const desde = posted.length;
+    await p6.evaluate(() => window.__say("Bruno Pérez", "ahora sí se me tiene que escuchar de nuevo"));
+    await p6.waitForTimeout(4000);
+    check("y con los subtítulos de vuelta, se transcribe de nuevo",
+      posted.slice(desde).some((l) => /escuchar de nuevo/.test(l.text || "")),
+      posted.slice(desde).map((l) => l.text).join(" | ").slice(0, 80) || "nada enviado");
+    const chapita2 = await p6.evaluate(() =>
+      document.getElementById("unify-root")?.shadowRoot?.querySelector("[data-el=statusTxt]")?.textContent || ""
+    );
+    check("y la chapita vuelve a decir que se escucha a todos", /Escuchando a todos/i.test(chapita2), chapita2);
+    await p6.close();
+  }
+
   // ═══════ GRABAR: DEL «SÍ» AL HISTORIAL ═══════
   //
   // «La grabación tampoco funciona y me tira este aviso que no sirve de nada,

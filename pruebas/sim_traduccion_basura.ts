@@ -11,7 +11,7 @@
 // no tiene forma de saber que es mentira. Acá se prueba, con respuestas del
 // proveedor tal como vienen, que la basura se descarta y que las traducciones
 // buenas siguen pasando.
-import { elegirDeMyMemory, type RespuestaMyMemory } from "../server/src/translate";
+import { elegirDeMyMemory, SinTraduccionConfiable, type RespuestaMyMemory } from "../server/src/translate";
 
 const results: boolean[] = [];
 const check = (n: string, ok: boolean, d = "") => {
@@ -107,6 +107,24 @@ console.log("\n── Los errores del proveedor no se muestran como si fueran te
   };
   check("una coincidencia floja se descarta (mejor la frase en su idioma)",
     elegirDeMyMemory(floja) === null, String(elegirDeMyMemory(floja)));
+}
+
+// ── 6. «Esta frase no tiene traducción» != «el traductor está caído» ──────
+console.log("\n── Y la app sigue pudiendo avisar cuando el traductor SÍ está caído ──");
+{
+  // Es la distinción que evita dos mentiras opuestas: decir «la traducción no
+  // funciona» porque una palabra suelta no tenía una entrada decente, o dejar
+  // a la persona esperando una traducción que nunca va a llegar porque el
+  // proveedor no contesta y nadie se lo dijo.
+  check("existe un error propio para «esta frase no tiene traducción confiable»",
+    typeof SinTraduccionConfiable === "function" &&
+    new SinTraduccionConfiable("x") instanceof Error);
+  const src = require("fs").readFileSync("/home/user/Taller-0/server/src/translate.ts", "utf8");
+  const respaldo = src.match(/async function conRespaldo[\s\S]*?\n\}/)?.[0] ?? "";
+  check("una frase sin traducción confiable devuelve el ORIGINAL (no se rompe la reunión)",
+    /instanceof SinTraduccionConfiable\) return original/.test(respaldo), respaldo.slice(0, 80));
+  check("y un fallo de verdad del proveedor SUBE, para que la app lo pueda decir",
+    /throw err/.test(respaldo), respaldo.slice(0, 80));
 }
 
 const failed = results.filter((r) => !r).length;
