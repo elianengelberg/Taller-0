@@ -22,7 +22,10 @@
 // en la pantalla, y que desaparezca solo cuando por fin hay video.
 const { execFileSync } = require("child_process");
 const { chromium } = require("/opt/node22/lib/node_modules/playwright/node_modules/playwright-core");
-const { check, resumen } = require("./lib/arnes")("sim_grabacion_ausente");
+// Sin nombre a propósito: el arnés se lo pega al final del renglón del
+// resumen, y la batería junta ese renglón con un grep anclado en "OK$" --
+// con el nombre detrás, la columna del resumen quedaba vacía.
+const { check, resumen } = require("./lib/arnes")();
 
 const API = "http://localhost:4001";
 const B = "http://localhost:4174";

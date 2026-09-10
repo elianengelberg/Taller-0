@@ -142,8 +142,13 @@ async function entrarComoCompanion(ctx, nombre, conAudio) {
     check("la ventana flotante muestra la frase de los demás con su hablante",
       /La reunión/.test(textoPip) && /cerrar el presupuesto/i.test(textoPip),
       textoPip.slice(0, 90) || "(vacía)");
-    check("y el botón queda marcado como activo",
-      (await ana.getByRole("button", { name: /Flotantes ✓/ }).count()) > 0);
+    // El interruptor nuevo no marca «activo» con un ✓ pegado al nombre: lo
+    // dice con aria-pressed (que un lector de pantalla ANUNCIA) y con la
+    // etiqueta, que pasa a contar qué hace tocarlo AHORA.
+    const flotantes = ana.getByRole("button", { name: /Subtítulos flotantes/i }).first();
+    check("y el botón queda marcado como activo (aria-pressed)",
+      (await flotantes.getAttribute("aria-pressed")) === "true",
+      String(await flotantes.getAttribute("aria-pressed")));
     // Leer de lejos: la letra escala con la ventana y tiene A− / A+ propio
     // (recordado); la última frase va destacada.
     const tamPip = () => pip.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize)).catch(() => 0);
