@@ -806,6 +806,145 @@ const PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>
     await p3.close();
   }
 
+  // ═══════ LO QUE PASÓ EN UNA PC DE VERDAD ═══════
+  //
+  // «Ni siquiera me llegué a unir a la reunión y ya me aparece esto»: en la
+  // pantalla previa de Meet, con el cartel de Google encima («¿Estás
+  // desarrollando una extensión para Meet?», con su enlace a
+  // developers.google.com), la extensión tomó ESE cartel por subtítulos, lo
+  // mandó al historial firmado como «Participante» y lo puso sobre el video.
+  console.log("\n── Antes de entrar no se transcribe NADA de la pantalla de Meet ──");
+  {
+    const ANTES = PAGE.replace(
+      '<button aria-label="Salir de la llamada" onclick="window.__colgado = true">Salir</button>',
+      '<button id="entrar">Unirme ahora</button>'
+    );
+    await ctx.route("**/hij-klmn-opq", (route) =>
+      route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: ANTES })
+    );
+    const p4 = await ctx.newPage();
+    p4.on("pageerror", (e) => errs.push(e.message.slice(0, 160)));
+    await p4.goto("http://localhost:4189/hij-klmn-opq", { waitUntil: "domcontentloaded" });
+    await p4.waitForTimeout(1500);
+
+    const desde = posted.length;
+    // El cartel de Google, tal cual: un diálogo con foto, texto que se
+    // reescribe (que es lo que lo hacía parecer subtítulos) y un enlace.
+    await p4.evaluate(async () => {
+      const d = document.createElement("div");
+      d.setAttribute("role", "dialog");
+      d.innerHTML =
+        '<div><img alt=""><span class="n">Google</span><span class="t"></span></div>' +
+        '<div><img alt=""><span class="n">Meet</span>' +
+        '<a href="https://developers.google.com/meet/add-ons">developers.google.com/meet/add-ons</a></div>';
+      document.body.appendChild(d);
+      const t = d.querySelector(".t");
+      const frase = "¿Estás desarrollando una extensión para Meet? Esta función no se admite oficialmente";
+      for (let i = 1; i <= frase.length; i += 3) {
+        t.textContent = frase.slice(0, i);
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    });
+    await p4.waitForTimeout(3500);
+
+    check("en la pantalla previa, el cartel de Meet NO entra a la transcripción",
+      posted.length === desde,
+      posted.slice(desde).map((l) => `${l.speaker}: ${l.text}`).join(" | ").slice(0, 110) || "nada enviado");
+    check("ni aparece como subtítulo sobre el video",
+      await p4.evaluate(() => {
+        const s = document.getElementById("unify-root")?.shadowRoot?.querySelector(".subs");
+        return !s || !s.classList.contains("is-on");
+      }));
+    check("y el panel ni se monta todavía (afuera no hay nada que transcribir)",
+      (await p4.locator("#unify-root").count()) === 0);
+
+    // Ya adentro de la llamada, ese mismo cartel sigue sin ser una voz.
+    await p4.evaluate(() => {
+      document.getElementById("entrar")?.remove();
+      const b = document.createElement("button");
+      b.setAttribute("aria-label", "Salir de la llamada");
+      document.body.appendChild(b);
+    });
+    await p4.waitForTimeout(2500);
+    const desde2 = posted.length;
+    await p4.evaluate(async () => {
+      const t = document.querySelector('[role="dialog"] .t');
+      const frase = "Es posible que los demás sigan viendo tu vídeo completo mientras compartís la pantalla";
+      for (let i = 1; i <= frase.length; i += 3) {
+        t.textContent = frase.slice(0, i);
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    });
+    await p4.waitForTimeout(3500);
+    check("y adentro de la llamada tampoco: un cartel de Meet nunca es alguien hablando",
+      posted.length === desde2,
+      posted.slice(desde2).map((l) => `${l.speaker}: ${l.text}`).join(" | ").slice(0, 110) || "nada enviado");
+
+    // Y los subtítulos DE VERDAD, en la misma página, sí se leen: la dureza
+    // no puede costar la función.
+    const desde3 = posted.length;
+    await p4.evaluate(() => window.__say("Ana García", "esto sí lo dijo una persona de verdad"));
+    await p4.waitForTimeout(4000);
+    check("pero los subtítulos de verdad se siguen leyendo igual",
+      posted.slice(desde3).some((l) => /una persona de verdad/.test(l.text || "")),
+      posted.slice(desde3).map((l) => l.text).join(" | ").slice(0, 90) || "nada enviado");
+    await p4.close();
+  }
+
+  // ═══════ GRABAR: DEL «SÍ» AL HISTORIAL ═══════
+  //
+  // «La grabación tampoco funciona y me tira este aviso que no sirve de nada,
+  // porque apreto ctrl + shift + U y no pasa nada»: el botón Grabar del panel
+  // intentaba capturar la pestaña, que Chrome sólo habilita si la orden viene
+  // del ícono de la barra, y el final del camino era siempre ese cartel. La
+  // idea es la contraria: decir que sí y que grabe.
+  console.log("\n── Grabar: el «Sí» del cartel alcanza ──");
+  {
+    const p5 = await ctx.newPage();
+    p5.on("pageerror", (e) => errs.push(e.message.slice(0, 160)));
+    await p5.goto("http://localhost:4189/rst-uvwx-yza", { waitUntil: "domcontentloaded" });
+    await p5.waitForTimeout(2500);
+
+    const cartel = await p5
+      .locator("#unify-aviso")
+      .evaluate((el) => el.shadowRoot?.querySelector(".caja")?.textContent?.trim() ?? "")
+      .catch(() => "");
+    check("el cartel dice, ANTES de tocar, que con «Sí» se graba y queda en el historial",
+      /grabar/i.test(cartel) && /historial/i.test(cartel), cartel.slice(0, 120));
+
+    await p5.evaluate(() =>
+      document.getElementById("unify-aviso").shadowRoot.querySelector(".si").click()
+    );
+    const grabando = await esperarQue(
+      () => p5.evaluate(() =>
+        Boolean(document.getElementById("unify-root")?.shadowRoot?.querySelector(".recbtn.is-rec"))
+      ),
+      12000
+    );
+    check("tocar «Sí» EMPIEZA A GRABAR (sin pedir ningún atajo de teclado)", grabando);
+    check("y el botón del panel lo dice",
+      /Grabando/i.test(await p5.evaluate(() =>
+        document.getElementById("unify-root")?.shadowRoot?.querySelector(".recbtn")?.textContent?.trim() ?? ""
+      )));
+    check("nunca aparece el cartel de «apretá Ctrl+Shift+U»",
+      !/Ctrl \+ Shift \+ U|⌘ \+ ⇧ \+ U/.test(await p5.evaluate(() =>
+        document.getElementById("unify-root")?.shadowRoot?.textContent ?? ""
+      )));
+
+    // Y el mismo botón la detiene: grabar sin poder parar sería peor.
+    await p5.evaluate(() =>
+      document.getElementById("unify-root").shadowRoot.querySelector(".recbtn").click()
+    );
+    const parada = await esperarQue(
+      () => p5.evaluate(() =>
+        !document.getElementById("unify-root")?.shadowRoot?.querySelector(".recbtn.is-rec")
+      ),
+      8000
+    );
+    check("y el mismo botón la detiene", parada);
+    await p5.close();
+  }
+
   // ═══════ Meet en OTRO IDIOMA (o con otra redacción) ═══════
   //
   // La detección de "estoy dentro de la llamada" miraba el botón de colgar en

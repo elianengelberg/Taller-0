@@ -435,6 +435,23 @@ async function probarCartel(check) {
   check("el cartel nombra a la app detectada (reunión de Microsoft Teams)",
     /reunión de Microsoft Teams/.test(titulo || ""), String(titulo));
   await b.close();
+
+  // EN LA CARA, HAGA LO QUE HAGA. `alwaysOnTop: true` a secas sólo gana a las
+  // ventanas normales: con la reunión en PANTALLA COMPLETA (que es como se
+  // mira una reunión) el cartel quedaba atrás y no se veía nunca. El reporte
+  // fue exactamente ese: «la idea es que me aparezca en la cara de una,
+  // haciendo cualquier cosa que esté haciendo». Esto se mira en el código
+  // porque no hay pantalla completa que simular en un contenedor.
+  const main = fs.readFileSync(path.join(DESK, "main.js"), "utf8");
+  const bloque = main.match(/function mostrarCartel[\s\S]*?\n\}/)?.[0] ?? "";
+  check("el cartel se pone al nivel más alto que hay (pasa por encima de pantalla completa)",
+    /setAlwaysOnTop\(true,\s*["']screen-saver["']\)/.test(bloque));
+  check("y se declara visible aunque otra app esté en pantalla completa",
+    /visibleOnFullScreen:\s*true/.test(bloque));
+  check("aparece al frente y con el foco (se contesta sin ir a buscarlo)",
+    /\.moveTop\(\)/.test(bloque) && /\.focus\(\)/.test(bloque));
+  check("y lo reafirma mientras está abierto (Windows se lo baja solo)",
+    /setInterval\(/.test(bloque) && /clearInterval\(/.test(main));
 }
 
 // ── 0c. EL GRABADOR SILENCIOSO, de punta a punta ───────────────────────────

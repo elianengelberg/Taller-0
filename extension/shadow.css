@@ -339,6 +339,10 @@ input, select, textarea { font-family: inherit; }
   font-weight: 600; font-size: 12.4px; padding: 8px; border-radius: 9px;
 }
 .card button:hover { filter: brightness(1.08); }
+/* La misma tarjeta, pero para una buena noticia (la grabación arrancó, o ya
+   quedó guardada en el historial): en ámbar parecía un problema. */
+.card.ok { background: rgba(52, 211, 153, 0.10); border-color: rgba(52, 211, 153, 0.34); }
+.card p:last-child { margin-bottom: 0; }
 
 /* Scrollbars discretas dentro del panel */
 .stream::-webkit-scrollbar, .chat::-webkit-scrollbar, .roles::-webkit-scrollbar { width: 8px; }

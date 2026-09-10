@@ -341,6 +341,77 @@ const post = (p, b, token) => fetch(API + p, { method: "POST",
     check("y la línea tiene las dos partes", /close the budget/.test(texto) && /numbers look fine/.test(texto), texto.slice(0, 90));
   }
 
+  // ═══ La extensión pide desde meet.google.com, no desde la web de Unify ═══
+  //
+  // Un content script corre con el origen de LA PÁGINA, así que sus pedidos
+  // salen con «Origin: https://meet.google.com» y pasan por CORS igual que
+  // los de cualquier sitio ajeno. /api/translate no estaba contemplado y el
+  // navegador bloqueaba el pedido ANTES de que saliera: elegir «Traducir:
+  // Español» adentro de Meet no hacía absolutamente nada y los subtítulos
+  // seguían en el idioma original, sin un solo error a la vista. Y el GET de
+  // la sesión sólo tenía permitido POST, así que la extensión nunca conseguía
+  // el id de la reunión y la grabación terminaba colgada de otra sala.
+  {
+    console.log("\n── La extensión llega al servidor desde adentro de Meet ──");
+    const preflight = (ruta, metodo) =>
+      fetch(API + ruta, {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://meet.google.com",
+          "Access-Control-Request-Method": metodo,
+          "Access-Control-Request-Headers": "content-type",
+        },
+      });
+
+    const t = await preflight("/api/translate", "POST");
+    const okT = t.headers.get("access-control-allow-origin");
+    check("traducir desde meet.google.com está permitido (si no, no se traduce NADA en Meet)",
+      okT === "https://meet.google.com" || okT === "*", `allow-origin=${okT || "(ninguno)"}`);
+
+    const ses = await preflight(`/api/meet-bridge/${code}/session`, "GET");
+    const metodos = ses.headers.get("access-control-allow-methods") || "";
+    check("y LEER la sesión del bridge también (es lo que ata la grabación a la reunión)",
+      /GET/i.test(metodos), `allow-methods=${metodos || "(ninguno)"}`);
+
+    // Y la puerta sigue cerrada para todo lo demás: abrir CORS de más sería
+    // dejar que cualquier sitio hable con la API del usuario.
+    const priv = await fetch(`${API}/api/meetings`, {
+      method: "OPTIONS",
+      headers: { Origin: "https://meet.google.com", "Access-Control-Request-Method": "POST" },
+    });
+    check("pero el resto de la API NO se abrió a cualquier origen",
+      !priv.headers.get("access-control-allow-origin"),
+      `allow-origin=${priv.headers.get("access-control-allow-origin") || "(ninguno)"}`);
+
+    // Con el preflight en regla, la traducción de verdad viaja y vuelve.
+    const trad = await fetch(`${API}/api/translate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: "https://meet.google.com" },
+      body: JSON.stringify({ text: "the budget is approved", source: "auto", target: "es" }),
+    });
+    check("y el pedido real de traducción no lo rechaza el origen", trad.status !== 403 && trad.status !== 404,
+      `HTTP ${trad.status}`);
+
+    // Y LA GRABACIÓN TIENE QUE CAER EN LA MISMA REUNIÓN QUE LA TRANSCRIPCIÓN.
+    // El código pelado del Meet y la clave genérica de pestaña son DOS salas
+    // distintas del bridge: grabar con la genérica dejaba el video colgado de
+    // un historial vacío al lado del que tenía el texto.
+    const sesion = (clave) =>
+      fetch(`${API}/api/meet-bridge/${encodeURIComponent(clave)}/session`).then((r) => r.json());
+    const porCodigo = await sesion(code);
+    const porClaveGenerica = await sesion(`externa:meet.google.com/${code}`);
+    check("el código del Meet y la clave genérica de pestaña son reuniones DISTINTAS",
+      Boolean(porCodigo?.dbId) && porCodigo.dbId !== porClaveGenerica?.dbId,
+      `${porCodigo?.dbId} vs ${porClaveGenerica?.dbId}`);
+
+    const bg = require("fs").readFileSync("/home/user/Taller-0/extension/background.js", "utf8");
+    const toggle = bg.match(/async function toggleForTab[\s\S]*?\n\}/)?.[0] ?? "";
+    check("y la extensión graba con el CÓDIGO del Meet, no con la clave genérica",
+      toggle.indexOf("claveDeMeet(") > -1 &&
+      toggle.indexOf("claveDeMeet(") < toggle.indexOf("claveWebDePestana("),
+      toggle.includes("claveDeMeet(") ? "el código va primero" : "no usa el código del Meet");
+  }
+
   s.disconnect();
   const failed = results.filter((r) => !r).length;
   console.log(`\n${results.length - failed}/${results.length} OK`);

@@ -215,6 +215,9 @@
   async function emit(speaker, text, alts = []) {
     const code = meetCode();
     if (!code || !text) return;
+    // Última red: venga de donde venga (subtítulos, micrófono, una región mal
+    // elegida), una dirección web es interfaz, no alguien hablando.
+    if (TIENE_ENLACE.test(text)) return;
     if (memoriaRepetidos) {
       const previo = memoriaRepetidos.previo(speaker);
       text = window.__unifyRepetidos.recortarRepetido(previo, text);
@@ -274,13 +277,23 @@
   //     sólo existen una vez adentro de la llamada. Es independiente del
   //     idioma y de cómo Google redacte sus etiquetas.
   const COLGAR_RE = /salir de la (llamada|videollamada)|abandonar la (llamada|videollamada)|leave call|hang up|sair da chamada|quitter l'appel|anruf verlassen|abbandona chiamata/i;
+  // EL BOTÓN DE COLGAR ES LA PRUEBA DE QUE LA LLAMADA EMPEZÓ: existe adentro
+  // y en ninguna otra pantalla de Meet. `botonDeColgar()` (más abajo, y
+  // hoisteada) lo encuentra por etiqueta o por su ícono «call_end», que se
+  // escribe igual en todos los idiomas.
+  const hayBotonDeColgar = () => Boolean(botonDeColgar());
   // El botón de ENTRAR: es lo que distingue la sala de espera de la llamada.
   // Hace falta porque los controles de micrófono y cámara ([data-is-muted])
   // existen en LAS DOS pantallas -- Meet muestra la vista previa antes de
   // entrar -- así que sin esto la sala de espera se confundiría con estar
   // adentro, y la extensión pediría el micrófono antes de que la persona
   // decidiera entrar.
-  const ENTRAR_RE = /unirte ahora|unirse ahora|pedir unirse|participar ahora|join now|ask to join|entrar agora|pedir para participar|rejoindre|demander à participer|jetzt teilnehmen|partecipa ora/i;
+  //
+  // La lista creció con lo que Meet dice de verdad en cada región: «Unirme
+  // ahora» (es-419) y «Solicitar unirse» faltaban, y sin ellas la vista
+  // previa se confundía con estar adentro -- que es como terminaron los
+  // carteles de Meet transcriptos antes de entrar a la reunión.
+  const ENTRAR_RE = /unir(te|se|me) ahora|pedir unirse|solicitar unirse|pedir para unirse|participar ahora|join now|ask to join|entrar agora|participar agora|pedir para participar|solicitar participação|rejoindre maintenant|demander à participer|jetzt teilnehmen|teilnahme anfragen|partecipa ora|chiedi di partecipare/i;
   const botonEntrar = () => {
     for (const b of document.querySelectorAll("button, [role='button']")) {
       const t = `${b.getAttribute("aria-label") || ""} ${b.textContent || ""}`;
@@ -292,13 +305,42 @@
   const controlesLlamada = () => document.querySelectorAll("[data-is-muted]").length >= 2;
 
   const inCall = () => {
-    for (const b of document.querySelectorAll("button[aria-label]")) {
-      if (COLGAR_RE.test(b.getAttribute("aria-label") || "")) return true;
-    }
+    if (hayBotonDeColgar()) return true;
     // Camino estructural, independiente del idioma: los controles de la
     // llamada están presentes y YA NO hay botón de entrar.
     return controlesLlamada() && !botonEntrar();
   };
+
+  /**
+   * ¿Podemos transcribir? Es MÁS ESTRICTO que `inCall()` a propósito.
+   *
+   * `inCall()` decide si se muestra la interfaz de Unify, y puede permitirse
+   * una duda: aparecer de más es un panel que sobra. Escuchar de más, no: en
+   * una reunión real la extensión llegó a transcribir los carteles de la
+   * propia pantalla de Meet («¿Estás desarrollando una extensión para
+   * Meet?», el enlace a developers.google.com) y a mandarlos al historial
+   * como si un participante los hubiera dicho, ANTES de que la persona
+   * entrara a la llamada.
+   *
+   * Así que para escuchar se exige la prueba positiva de que la llamada
+   * empezó -- el botón de colgar -- y que ya no haya botón de entrar. Sin
+   * las dos cosas no se lee un solo carácter de la pantalla.
+   *
+   * Con una salida: si algún día Meet cambia el botón de colgar y deja de
+   * reconocerse, la extensión no puede quedarse muda para siempre. Pasado un
+   * rato con los controles de la llamada puestos y sin botón de entrar a la
+   * vista, se acepta igual -- el criterio viejo, degradado a último recurso
+   * en vez de ser la regla.
+   */
+  const GRACIA_SIN_COLGAR_MS = 20_000;
+  let sinColgarDesde = 0;
+  function sePuedeTranscribir() {
+    if (botonEntrar()) { sinColgarDesde = 0; return false; }
+    if (hayBotonDeColgar()) { sinColgarDesde = 0; return true; }
+    if (!controlesLlamada()) { sinColgarDesde = 0; return false; }
+    if (!sinColgarDesde) sinColgarDesde = Date.now();
+    return Date.now() - sinColgarDesde > GRACIA_SIN_COLGAR_MS;
+  }
 
   /**
    * La sala de espera: abriste el enlace (el que te mandaron por WhatsApp) y
@@ -338,7 +380,9 @@
   // ===========================================================================
   // Motor de subtítulos de Meet (la fuente de TODAS las voces)
   // ===========================================================================
-  const caps = { region: null, entries: new Map(), observer: null, nudged: false };
+  // `nudged` es CUÁNDO se apretó por última vez el botón CC de Meet, no un
+  // "ya se apretó": ver ensureCaptionsOn.
+  const caps = { region: null, entries: new Map(), observer: null, nudged: 0 };
 
   // Cómo se llama la región (y el botón) de subtítulos según el idioma de la
   // interfaz de Meet. Antes sólo se reconocían «Subtítulos» y «Captions»: con
@@ -384,10 +428,54 @@
       }
     }
   }
+  // NADA DE ESTO ES UN SUBTÍTULO. Meet llena su pantalla de paneles, carteles
+  // y menús que también tienen "una foto y un texto que cambia": el chat, la
+  // lista de participantes, el panel de Gemini y los avisos de Google. Uno de
+  // ellos («¿Estás desarrollando una extensión para Meet?», con su enlace a
+  // developers.google.com) terminó ENTERO en la transcripción de una reunión
+  // real, firmado como «Participante», y también sobre el video. El
+  // reconocimiento por forma se queda afuera de todos ellos.
+  const ZONAS_QUE_NO_SON_SUBTITULOS =
+    '[role="dialog"], [role="alertdialog"], [aria-modal="true"], [role="complementary"], ' +
+    '[role="navigation"], [role="banner"], [role="menu"], [role="menubar"], [role="listbox"], ' +
+    '[role="log"], [role="feed"], [role="tablist"], [role="toolbar"], [role="grid"], ' +
+    '[role="alert"], [role="status"], [role="tooltip"], form';
+  const enZonaQueNoEsSubtitulo = (el) => Boolean(el.closest(ZONAS_QUE_NO_SON_SUBTITULOS));
+
+  // Nadie DICTA una dirección web en una reunión, pero los carteles de Meet
+  // están llenos de ellas: un enlace adentro es la firma de la interfaz, no
+  // de una persona hablando.
+  const TIENE_ENLACE = /https?:\/\/|www\.[a-z0-9-]+\.[a-z]{2,}/i;
+
   const esFilaDeSubtitulo = (h) =>
     h.nodeType === Node.ELEMENT_NODE &&
     Boolean(h.querySelector('img, [role="img"], svg, [data-avatar]')) &&
+    // Una fila de subtítulos es la foto de quien habla y lo que dijo: ni un
+    // botón, ni un enlace, ni un campo para escribir. Con eso adentro es
+    // otra cosa (un cartel, el chat, un menú).
+    !h.querySelector('a[href], button, [role="button"], input, textarea, [contenteditable="true"]') &&
+    !TIENE_ENLACE.test(h.textContent || "") &&
     (h.textContent || "").trim().length > 0;
+
+  /**
+   * ¿Tiene FORMA de subtítulos, o de panel lateral?
+   *
+   * Los subtítulos de Meet son unos pocos renglones anchos sobre el video. El
+   * chat y el panel de Gemini son columnas: altas y angostas, pegadas a un
+   * costado. Esa proporción los separa sin atarse a dónde Google decida poner
+   * sus subtítulos el mes que viene -- que es la clase de suposición que
+   * después deja la extensión muda sin un solo error a la vista.
+   */
+  function tieneFormaDeSubtitulos(el) {
+    let r;
+    try { r = el.getBoundingClientRect(); } catch { return false; }
+    const alto = window.innerHeight || 0;
+    const ancho = window.innerWidth || 0;
+    if (r.width < 80 || r.height < 8) return false;              // invisible o mínimo
+    if (!alto || !ancho) return true;                            // sin ventana medible, no se opina
+    return !(r.height > alto * 0.55 && r.width < ancho * 0.45);  // columna alta y angosta: panel
+  }
+
   function regionPorForma() {
     const ahora = Date.now();
     const puntos = new Map();
@@ -399,6 +487,7 @@
       const recientes = marcas.filter((t) => ahora - t < 15000).length;
       if (recientes < 6) continue;
       if (el.closest('button, [role="button"], [role="textbox"], [contenteditable], input, textarea')) continue;
+      if (enZonaQueNoEsSubtitulo(el)) continue;
       // Subir hasta el contenedor cuyos hijos son FILAS (foto + texto), como
       // las filas de subtítulos de Meet; la fila que se está escribiendo
       // tiene que ser una de ellas.
@@ -409,6 +498,7 @@
         const hijos = Array.from(padre.children);
         const filas = hijos.filter(esFilaDeSubtitulo);
         if (filas.length >= 1 && filas.length >= hijos.length * 0.6 && esFilaDeSubtitulo(fila)) {
+          if (enZonaQueNoEsSubtitulo(padre) || !tieneFormaDeSubtitulos(padre)) break;
           puntos.set(padre, (puntos.get(padre) || 0) + recientes);
           break;
         }
@@ -427,31 +517,53 @@
     subtree: true,
   });
 
+  // El reconocimiento POR FORMA es el último recurso, y es el único que puede
+  // equivocarse de contenedor: sólo entra en juego con la llamada empezada de
+  // verdad y cuando ninguno de los selectores propios de Meet dio con la
+  // región. Los otros tres son marcas de Meet: esos no se discuten.
   const findCaptionRegion = () =>
     regionPorEtiqueta() ||
     document.querySelector('div[jsname="dsyhDe"]') ||
     document.querySelector("[data-use-tweaked-caption-styles]") ||
-    regionPorForma() ||
+    (sePuedeTranscribir() ? regionPorForma() : null) ||
     null;
 
+  // El botón CC de Meet: por etiqueta, por su jsname, o por su ícono
+  // («closed_caption_off» / «closed_caption»), que es igual en todos los
+  // idiomas.
+  function botonDeSubtitulos() {
+    for (const b of document.querySelectorAll('button, [role="button"]')) {
+      if (ETIQUETA_SUBTITULOS.test(b.getAttribute("aria-label") || "")) return b;
+      const t = (b.textContent || "").trim();
+      if (t === "closed_caption" || t === "closed_caption_off" || t === "closed_caption_disabled") return b;
+    }
+    return document.querySelector('button[jsname="r8qRAd"]');
+  }
+
+  // ENCENDERLOS UNA VEZ NO ALCANZABA. Meet apaga sus subtítulos solo más de
+  // lo que uno cree: al cambiar de diseño, al compartir pantalla, al
+  // reconectar. Con un único intento («caps.nudged = true» y nunca más), la
+  // primera vez que se apagaban quedaban apagados para el resto de la
+  // reunión: la persona se muteaba, hablaban los demás y no aparecía un solo
+  // subtítulo. Ahora se reintenta cada 12 segundos mientras no haya región,
+  // que es exactamente mientras el problema exista.
+  const REINTENTO_CC_MS = 12_000;
   function ensureCaptionsOn() {
     if (findCaptionRegion()) return true;
-    const btn =
-      Array.from(document.querySelectorAll('button[aria-label], [role="button"][aria-label]')).find((b) =>
-        ETIQUETA_SUBTITULOS.test(b.getAttribute("aria-label") || "")
-      ) || document.querySelector('button[jsname="r8qRAd"]');
+    if (Date.now() - (caps.nudged || 0) < REINTENTO_CC_MS) return false;
+    const btn = botonDeSubtitulos();
     if (!btn) return false;
     const label = (btn.getAttribute("aria-label") || "").toLowerCase();
-    const isOff =
+    const apagados =
       /activar|turn on|ativar|activer|einschalten|attiva|inschakelen|włącz/.test(label) ||
-      btn.getAttribute("aria-pressed") === "false";
-    if (isOff && !caps.nudged) {
-      caps.nudged = true;
-      btn.click();
-      log("subtítulos de Meet activados");
-      return true;
-    }
-    return false;
+      btn.getAttribute("aria-pressed") === "false" ||
+      (btn.textContent || "").trim() === "closed_caption_off" ||
+      (btn.textContent || "").trim() === "closed_caption_disabled";
+    if (!apagados) return false;
+    caps.nudged = Date.now();
+    btn.click();
+    log("subtítulos de Meet activados");
+    return true;
   }
 
   // ¿Parece un nombre y no una frase? Sirve para separar el hablante del texto
@@ -491,6 +603,11 @@
   };
 
   function parseEntry(node) {
+    // Un cartel de Meet, el chat o el panel de Gemini no son voces: aunque la
+    // región elegida los tocara, de acá no sale nada.
+    if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    if (enZonaQueNoEsSubtitulo(node)) return null;
+    if (node.querySelector("a[href]")) return null;
     const leaves = [];
     node.querySelectorAll("*").forEach((el) => {
       if (el.children.length === 0) {
@@ -515,6 +632,10 @@
       body = leaves.join(" ").trim();
     }
     if (speaker && body.startsWith(speaker)) body = body.slice(speaker.length).trim();
+    // Nadie dicta una dirección web en voz alta; los carteles de Meet las
+    // traen siempre. Fue así como «https://developers.google.com/meet/…»
+    // terminó en la transcripción de una reunión real.
+    if (TIENE_ENLACE.test(body)) return null;
     return body ? { speaker, text: body } : null;
   }
 
@@ -589,8 +710,14 @@
       }
     }
     // Lo que se está diciendo AHORA: la cola de la fila, no todo el historial.
-    const enCurso = rec.text.slice(largoDelPrefijoComun(rec.emitted, rec.text)).trim() || rec.text;
-    if (enCurso !== rec.ultimoCartel) {
+    //
+    // Cuando no queda nada pendiente (la frase se acaba de emitir), el cartel
+    // NO se toca. Antes acá caía un `|| rec.text` y el subtítulo saltaba de
+    // golpe a la fila entera -- el párrafo completo de la persona sobre el
+    // video, un parpadeo, y de vuelta a la frase corta. Lo que corresponde
+    // mostrar en ese momento ya lo puso `emit()` con la línea de verdad.
+    const enCurso = rec.text.slice(largoDelPrefijoComun(rec.emitted, rec.text)).trim();
+    if (enCurso && enCurso !== rec.ultimoCartel) {
       rec.ultimoCartel = enCurso;
       ui.showSubtitle({ speaker: rec.speaker || "Participante", text: enCurso, translated: null });
       // Y a la SALA, para que la pantalla de Unify (la del iPad al lado, la
@@ -636,10 +763,31 @@
     }
   }
 
+  // Suelta la región de subtítulos y todo lo que colgaba de ella: los
+  // temporizadores pendientes incluidos. Sin esto quedaba un `finalizeEntry`
+  // en vuelo que emitía, un segundo y medio después, texto de una pantalla
+  // en la que ya no estábamos.
+  function soltarSubtitulos() {
+    caps.observer?.disconnect();
+    caps.observer = null;
+    caps.region = null;
+    for (const rec of caps.entries.values()) clearTimeout(rec.timer);
+    caps.entries.clear();
+  }
+
   function watchCaptions() {
     const region = findCaptionRegion();
     if (!region) {
-      caps.region = null;
+      // MEET RE-RENDERIZA SU ÁRBOL A CADA RATO y, en el medio, la región de
+      // subtítulos deja de encontrarse por un instante. Soltarla ahí mismo
+      // era carísimo: se apagaba el lector de Meet, arrancaba el micrófono
+      // (que sólo oye una voz), y al volver la región se apagaba el
+      // micrófono otra vez. Ese vaivén es el «cada tanto se buguean los
+      // subtítulos y desaparecen un segundo y después vuelven». Mientras el
+      // contenedor que ya estábamos leyendo siga vivo en la página, se sigue
+      // leyendo: sólo se suelta cuando de verdad se fue.
+      if (caps.region?.isConnected) return true;
+      soltarSubtitulos();
       return false;
     }
     if (region === caps.region) return true;
@@ -658,7 +806,7 @@
   // ===========================================================================
   // Respaldo por micrófono (solo TU voz) cuando Meet no da subtítulos
   // ===========================================================================
-  const mic = { rec: null, running: false };
+  const mic = { rec: null, running: false, reintento: null };
 
   function startMicFallback() {
     const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -718,10 +866,30 @@
         ui.renderMicCard();
       }
     };
+    // EL RESPALDO NO PUEDE MORIRSE EN SILENCIO. Chrome cierra la sesión de
+    // reconocimiento sola cada tanto (silencio largo, cambio de red, la
+    // reunión tomando el micrófono) y el `r.start()` de acá adentro puede
+    // fallar. Antes ese fallo se tragaba en un `catch` vacío con
+    // `mic.running` en true: para el resto de la extensión el micrófono
+    // seguía "andando" y nunca se volvía a intentar. En una reunión real eso
+    // se vio como «después probé hablar yo y ya no me daba más los
+    // subtítulos», sin un solo error a la vista. Ahora, si no arranca, se
+    // reintenta con paciencia hasta que arranque.
     r.onend = () => {
       rescatarInterino();
-      if (mic.running) {
-        try { r.start(); } catch { /* ya arrancando */ }
+      if (!mic.running || mic.rec !== r) return;
+      try {
+        r.start();
+      } catch {
+        // Puede estar arrancando ya, o haber quedado en un estado del que no
+        // se vuelve: se rearma desde cero en un segundo.
+        mic.running = false;
+        mic.rec = null;
+        state.usingMic = false;
+        clearTimeout(mic.reintento);
+        mic.reintento = setTimeout(() => {
+          if (!state.micDenied && !caps.region) startMicFallback();
+        }, 1000);
       }
     };
     try {
@@ -730,15 +898,24 @@
       mic.running = true;
       state.usingMic = true;
     } catch {
-      /* no se pudo: la tarjeta de permisos lo explica */
+      // Ni arrancó: se reintenta en un rato en vez de dejar el respaldo
+      // apagado para siempre.
+      clearTimeout(mic.reintento);
+      mic.reintento = setTimeout(() => {
+        if (!state.micDenied && !caps.region) startMicFallback();
+      }, 3000);
     }
   }
 
   function stopMicFallback() {
     mic.running = false;
     state.usingMic = false;
-    try { mic.rec?.stop(); } catch { /* noop */ }
+    clearTimeout(mic.reintento);
+    mic.reintento = null;
+    const r = mic.rec;
     mic.rec = null;
+    try { r?.stop(); } catch { /* noop */ }
+    try { r?.abort?.(); } catch { /* noop */ }
   }
 
   // Vuelve a pedir el permiso sin recargar la página.
@@ -752,6 +929,154 @@
       state.micDenied = true;
     }
     ui.renderMicCard();
+  }
+
+  // ===========================================================================
+  // GRABAR DESDE LA PROPIA PÁGINA (carril B)
+  // ===========================================================================
+  // Por qué existe esto en Meet, si ya había un carril A (tabCapture): Chrome
+  // sólo habilita tabCapture cuando la extensión fue INVOCADA desde el
+  // navegador (el ícono de la barra o el atajo). Un clic adentro de la página
+  // no cuenta -- lo define Chrome y no hay forma de rodearlo. Así que el
+  // botón «Grabar» del panel terminaba siempre en el mismo cartel: «apretá
+  // Ctrl+Shift+U». En una reunión de verdad eso fue, textual, «la grabación
+  // tampoco funciona y me tira este aviso que no sirve de nada».
+  //
+  // getDisplayMedia SÍ acepta un clic de la página. Es el mismo camino que ya
+  // usaban Zoom, Teams y Jitsi (prompt-injector.js), y termina igual: los
+  // pedazos viajan al service worker apenas existen y se suben a LA MISMA
+  // reunión del historial donde está la transcripción -- la clave de sala es
+  // el código del Meet, el mismo que usa el bridge.
+  const grabacion = { recorder: null, port: null, pidiendo: false };
+
+  function aBase64(buf) {
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    const paso = 0x8000; // de a pedacitos: apply() con un array enorme revienta
+    for (let i = 0; i < bytes.length; i += paso) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + paso));
+    }
+    return btoa(bin);
+  }
+
+  async function iniciarGrabacionAca() {
+    const code = meetCode();
+    if (!code || grabacion.recorder || grabacion.pidiendo || state.recording) return;
+    grabacion.pidiendo = true;
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        // 30 fps pedidos a mano: sin esto Chrome puede entregar la captura a
+        // 5-10 fps y el video queda a los saltos.
+        video: { frameRate: { ideal: 30 } },
+        audio: true,
+        // Acá la pestaña actual ES la reunión: se ofrece primero.
+        preferCurrentTab: true,
+        selfBrowserSurface: "include",
+        systemAudio: "include",
+      });
+    } catch {
+      grabacion.pidiendo = false;
+      ui.avisarGrabacion(
+        "Para grabar hace falta compartir esta pestaña. Tocá «Grabar» y elegí <b>esta pestaña</b> con la casilla <b>Compartir audio</b> tildada."
+      );
+      return;
+    }
+
+    try {
+      grabacion.port = chrome.runtime.connect({ name: "unify-ext-rec" });
+      grabacion.port.onDisconnect.addListener(() => {
+        grabacion.port = null;
+        if (grabacion.recorder && grabacion.recorder.state !== "inactive") {
+          grabacion.recorder.stop();
+          ui.avisarGrabacion(
+            "Se cortó el canal con la extensión y la grabación se detuvo. Lo que alcanzó a llegar se está guardando en tu historial."
+          );
+        }
+      });
+      grabacion.port.onMessage.addListener((msg) => {
+        if (msg?.kind === "subida-ok") ui.avisarGrabacion("Grabación guardada en tu historial de Unify.", true);
+        if (msg?.kind === "subida-error") ui.avisarGrabacion(msg.message || "No pudimos subir la grabación.");
+        if (msg?.kind === "cortar" && grabacion.recorder && grabacion.recorder.state !== "inactive") {
+          grabacion.recorder.stop();
+        }
+      });
+      // La clave de sala es el código del Meet: el mismo que usa el bridge
+      // para la transcripción, así el video queda colgado de ESA reunión.
+      grabacion.port.postMessage({ kind: "inicio", roomKey: code, plataforma: "meet" });
+    } catch {
+      stream.getTracks().forEach((t) => t.stop());
+      grabacion.pidiendo = false;
+      ui.avisarGrabacion("La extensión se recargó: recargá la página y probá de nuevo.");
+      return;
+    }
+
+    // VP8 antes que VP9: VP9 en vivo se come la CPU que la reunión necesita.
+    const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
+      ? "video/webm;codecs=vp8,opus"
+      : "video/webm";
+    const pistaV = stream.getVideoTracks()[0];
+    if (pistaV) pistaV.contentHint = "motion";
+    let rec;
+    try {
+      rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 3_500_000, audioBitsPerSecond: 192_000 });
+    } catch {
+      stream.getTracks().forEach((t) => t.stop());
+      try { grabacion.port?.disconnect(); } catch { /* ya no está */ }
+      grabacion.port = null;
+      grabacion.pidiendo = false;
+      ui.avisarGrabacion("Este navegador no pudo abrir el grabador de video.");
+      return;
+    }
+    grabacion.recorder = rec;
+    rec.ondataavailable = async (e) => {
+      if (!e.data || e.data.size === 0) return;
+      // Los pedazos salen de la página apenas existen: si la pestaña muere de
+      // golpe, lo ya enviado se sube igual. En base64 porque un Port
+      // serializa como JSON y un ArrayBuffer no sobrevive el viaje.
+      try {
+        grabacion.port?.postMessage({ kind: "chunk", b64: aBase64(await e.data.arrayBuffer()) });
+      } catch { /* port muerto: el background sube lo que ya tiene */ }
+    };
+    rec.onstop = () => {
+      try { grabacion.port?.postMessage({ kind: "fin" }); } catch { /* port muerto */ }
+      stream.getTracks().forEach((t) => t.stop());
+      grabacion.recorder = null;
+      ui.setRecording(false);
+    };
+    rec.onerror = () => {
+      ui.avisarGrabacion("El grabador falló a mitad de camino. Lo grabado hasta acá se está guardando en tu historial.");
+      if (rec.state !== "inactive") rec.stop();
+    };
+    // Si se corta desde la barra nativa de «dejar de compartir».
+    pistaV?.addEventListener("ended", () => {
+      if (rec.state !== "inactive") rec.stop();
+    });
+    rec.start(4000); // un pedazo cada 4 s
+    grabacion.pidiendo = false;
+    ui.setRecording(true);
+    ui.avisarGrabacion("Grabando. Al terminar queda en tu historial, junto a la transcripción.", true);
+  }
+
+  function detenerGrabacionAca() {
+    const rec = grabacion.recorder;
+    if (rec && rec.state !== "inactive") rec.stop();
+  }
+
+  const grabandoAca = () => Boolean(grabacion.recorder);
+
+  // EL «SÍ» AUTOMÁTICO NO PUEDE PEDIR LA PANTALLA: un temporizador no es un
+  // gesto y Chrome rechaza getDisplayMedia. Podríamos quedarnos esperando el
+  // próximo clic en cualquier parte de Meet, pero entonces el selector de
+  // pantalla se abriría de golpe al tocar cualquier cosa -- justo el tipo de
+  // sorpresa que no queremos. En su lugar queda UN botón, a la vista, en el
+  // panel que se acaba de abrir: un clic, y graba.
+  function ofrecerGrabar() {
+    ui.avisarGrabacion(
+      "Listo para grabar. Tocá el botón y elegí <b>esta pestaña</b> con <b>Compartir audio</b> tildado: al terminar queda en tu historial con la transcripción.",
+      false,
+      { boton: "Grabar la reunión", accion: () => void iniciarGrabacionAca() }
+    );
   }
 
   // ===========================================================================
@@ -786,7 +1111,7 @@
         <button class="fab" data-el="fab" type="button" title="Unify: transcripción, IA y grabación" aria-label="Abrir el panel de Unify">U</button>
         <div class="badge glass" part="badge">
           <span class="live"></span>
-          <span class="txt"><b>Unify</b>: <span data-el="statusTxt">Companion activo</span></span>
+          <span class="txt"><b>Unify</b>: <span data-el="statusTxt">Buscando la reunión…</span></span>
           <span class="tradlbl" aria-hidden="true">Traducir</span>
           <select class="langsel" data-el="lang" title="Traducir los subtítulos a este idioma" aria-label="Traducir los subtítulos a este idioma">
             <option value="">No traducir</option>
@@ -895,12 +1220,29 @@
       el.fab?.classList.toggle("is-active", drawerOpen);
     }
 
+    // ¿A QUIÉN ESTAMOS OYENDO? La chapita de arriba es lo único que se ve con
+    // el cajón cerrado, así que la respuesta va ahí: en una reunión real la
+    // persona se muteó, hablaron los demás, no apareció nada, y la
+    // explicación («activá los subtítulos de Meet») estaba escondida adentro
+    // de un panel que nadie tenía abierto. Y decir «Escuchando a todos» antes
+    // de encontrar los subtítulos sería mentir: por eso hay un tercer estado.
+    let oido = "buscando"; // "todos" | "solo-mic" | "buscando"
     function setStatus(kind) {
-      const badge = shadow.querySelector(".badge");
+      const badge = shadow?.querySelector(".badge");
+      if (!badge || !el.statusTxt) return;
+      const problema = kind === "offline" || (kind !== "off" && oido === "solo-mic");
       badge.classList.toggle("is-off", kind === "off");
-      badge.classList.toggle("is-warn", kind === "offline");
+      badge.classList.toggle("is-warn", problema);
       el.statusTxt.textContent =
-        kind === "off" ? "Fuera de la llamada" : kind === "offline" ? "Sin conexión" : "Companion activo";
+        kind === "off"
+          ? "Fuera de la llamada"
+          : kind === "offline"
+            ? "Sin conexión"
+            : oido === "todos"
+              ? "Escuchando a todos"
+              : oido === "solo-mic"
+                ? "Sólo se oye tu voz — activá CC en Meet"
+                : "Buscando los subtítulos de Meet…";
     }
 
     // Meet escribiendo en un idioma que no es el que se habla: se avisa una
@@ -918,6 +1260,9 @@
     }
 
     function setCaptionsReady(ok) {
+      const antes = oido;
+      oido = ok ? "todos" : state.usingMic ? "solo-mic" : "buscando";
+      if (antes !== oido) setStatus("live");
       if (idiomaAvisado) return; // no pisar el aviso que sí explica el problema
       // Las palabras las escribe MEET, no Unify: si sus subtítulos están en
       // otro idioma que el que se habla, salen frases sin sentido ("cómo
@@ -1049,50 +1394,53 @@
         : `Para usar la IA, <a href="${cfg.appBase}/ingresar" target="_blank" rel="noreferrer">iniciá sesión en Unify</a> y volvé a esta pestaña.`;
     }
 
+    // ESTE CLIC ALCANZA PARA GRABAR. Antes el botón intentaba tabCapture, que
+    // Chrome sólo habilita si la orden viene del ícono o del atajo, y el
+    // final del camino era un cartel pidiendo apretar Ctrl+Shift+U. Ahora
+    // graba acá mismo (getDisplayMedia sí acepta un clic de la página); el
+    // atajo y el ícono siguen andando por su cuenta, con la captura de
+    // pestaña, que es todavía mejor.
     async function toggleRecording() {
       const code = meetCode();
       if (!code) return;
+      if (grabandoAca()) {
+        detenerGrabacionAca();
+        return;
+      }
       if (state.recording) {
         chrome.runtime.sendMessage({ kind: "unify-record-stop" });
         setRecording(false);
         return;
       }
-      const dbId = await ensureSession();
-      chrome.runtime.sendMessage(
-        { kind: "unify-record-start", dbId, serverBase: cfg.serverBase, token: cfg.token },
-        (r) => {
-          if (r?.ok) {
-            setRecording(true);
-            el.recCard.innerHTML = "";
-          } else if (r?.needsInvoke) {
-            // Chrome no deja capturar la pestaña desde un clic dentro de la
-            // página: hace falta el atajo o el ícono de la barra. Se explica
-            // en el lugar, con la tecla a la vista.
-            showInvokeCard();
-          } else {
-            addMsg("Unify", r?.error || "No pudimos empezar a grabar.");
-          }
-        }
-      );
+      // La sesión primero: es lo que ata el video a la reunión del historial.
+      void ensureSession();
+      await iniciarGrabacionAca();
     }
 
-    function showInvokeCard() {
+    // Cómo va la grabación, dicho donde se está mirando. `bien` distingue una
+    // buena noticia (se guardó) de un problema (no se pudo subir): la buena
+    // se va sola, la mala se queda hasta que la cierren.
+    let avisoGrabTimer = null;
+    function avisarGrabacion(html, bien = false, accion = null) {
       if (!el.recCard) return;
-      const mac = /Mac/i.test(navigator.platform);
-      el.recCard.innerHTML = `
-        <div class="card">
-          <p>Para grabar, Chrome pide que la orden venga del navegador y no de la página.
-          Apretá <b>${mac ? "⌘ + ⇧ + U" : "Ctrl + Shift + U"}</b> ahora mismo — o tocá el ícono de Unify
-          en la barra y después <b>Grabar la reunión</b>.</p>
-          <button data-el="invokeOk">Entendido</button>
-        </div>`;
-      el.recCard.querySelector("[data-el=invokeOk]").addEventListener("click", () => {
-        el.recCard.innerHTML = "";
-      });
+      clearTimeout(avisoGrabTimer);
+      const boton = accion ? `<button data-el="grabAccion">${esc(accion.boton)}</button>` : "";
+      el.recCard.innerHTML = `<div class="card${bien ? " ok" : ""}"><p>${html}</p>${boton}</div>`;
+      if (accion) {
+        el.recCard.querySelector("[data-el=grabAccion]").addEventListener("click", () => {
+          el.recCard.innerHTML = "";
+          accion.accion();
+        });
+      }
+      if (bien) avisoGrabTimer = setTimeout(() => { el.recCard.innerHTML = ""; }, 8000);
     }
 
     function setRecording(on) {
       state.recording = on;
+      // La grabación puede arrancar o terminar con el panel desmontado (Meet
+      // reescribe su árbol, o todavía no entraste): el estado se guarda igual
+      // y los botones se pintan cuando haya botones.
+      if (!el.rec) return;
       el.rec.classList.toggle("is-rec", on);
       el.rec.title = on ? "Detener la grabación" : "Grabar la reunión completa";
       if (el.recTxt) el.recTxt.textContent = on ? "Grabando" : "Grabar";
@@ -1168,7 +1516,7 @@
       mount,
       unmount() { host?.remove(); host = null; shadow = null; el = {}; },
       get mounted() { return Boolean(host && document.body.contains(host)); },
-      toggleDrawer, setStatus, setCaptionsReady, setRecording, avisarIdiomaDeMeet,
+      toggleDrawer, setStatus, setCaptionsReady, setRecording, avisarIdiomaDeMeet, avisarGrabacion,
       renderStream, renderRoles, renderMicCard, showSubtitle, refrescarSubtitulo, refreshAccount,
       // El idioma puede resolverse DESPUÉS de montar la interfaz (el storage
       // es asíncrono): esto empareja el selector con cfg.lang cuando llega.
@@ -1208,11 +1556,18 @@
       null
     );
   }
+  // Por etiqueta O por su ícono. Meet dibuja el de colgar con la ligadura
+  // «call_end», que no cambia con el idioma de la interfaz: con la etiqueta
+  // sola, un Meet en portugués o japonés dejaba el botón «Salir» de Unify sin
+  // nada que apretar, y a la extensión sin forma de saber si la llamada
+  // empezó (que es lo que decide si se transcribe o no).
   function botonDeColgar() {
-    for (const b of document.querySelectorAll('button[aria-label], [role="button"][aria-label]')) {
+    let porIcono = null;
+    for (const b of document.querySelectorAll('button, [role="button"]')) {
       if (COLGAR_RE.test(b.getAttribute("aria-label") || "")) return b;
+      if (!porIcono && (b.textContent || "").trim() === "call_end") porIcono = b;
     }
-    return null;
+    return porIcono;
   }
   // Meet marca el estado con data-is-muted, a veces en el botón mismo y a
   // veces en un envoltorio: el clic tiene que ir al botón de verdad, esté
@@ -1305,6 +1660,7 @@
   let toastMostrado = null; // código de reunión donde ya se avisó
   let toastTimer = null;
   let aceptado = null;      // código donde ya dijo que sí (o venció la cuenta)
+  let quiereGrabar = null;  // dijo que sí ANTES de entrar: se le ofrece al entrar
   function avisarEnMeet(code, { enEspera = false } = {}) {
     if (toastMostrado === code) return;
     toastMostrado = code;
@@ -1331,6 +1687,7 @@
           font: 19px/1.45 system-ui, -apple-system, sans-serif;
           box-shadow: 0 24px 70px rgba(0,0,0,.55); }
         .msg { font-size: 21px; font-weight: 600; }
+        .detalle { margin-top: 10px; font-size: 16px; color: #cbd5e1; }
         .fila { display: flex; gap: 12px; margin-top: 22px; flex-wrap: wrap; }
         button { border: 0; border-radius: 14px; padding: 15px 26px; font: inherit;
           font-size: 18px; font-weight: 700; cursor: pointer; min-height: 54px; }
@@ -1343,7 +1700,8 @@
       </style>
       <div class="caja" role="dialog" aria-label="Aviso de Unify">
         <div class="msg"></div>
-        <div class="fila"><button class="si">Sí, dale</button><button class="no">Ahora no</button></div>
+        <div class="detalle"></div>
+        <div class="fila"><button class="si">Sí, grabá y poné subtítulos</button><button class="no">Ahora no</button></div>
         <div class="pie"></div>
       </div>`;
     // El texto cambia según el momento: en la sala de espera se está
@@ -1352,6 +1710,12 @@
     root.querySelector(".msg").textContent = enEspera
       ? "Veo que te estás uniendo a una reunión de Google Meet. ¿Querés los subtítulos y grabar la reunión?"
       : "Veo que estás en una reunión de Google Meet. ¿Querés los subtítulos y grabar la reunión?";
+    // Que quede dicho ANTES de tocar: al decir que sí se graba, y la
+    // grabación termina en el historial con la transcripción. Es lo que la
+    // persona espera del «Sí» y lo que ahora hace de verdad.
+    root.querySelector(".detalle").textContent = enEspera
+      ? "Con «Sí», al entrar te dejo la grabación lista a un toque: al terminar queda en tu historial junto a la transcripción."
+      : "Con «Sí» empieza a grabar y, al terminar, queda en tu historial junto a la transcripción.";
     (document.body || document.documentElement).appendChild(host);
 
     const pie = root.querySelector(".pie");
@@ -1372,24 +1736,40 @@
         return;
       }
       cerrar();
-      // Auto-SÍ: se abre el panel con la transcripción. La GRABACIÓN sigue
-      // necesitando tu gesto (Chrome sólo la habilita así), y está a un clic
-      // en el panel que se acaba de abrir.
-      aceptar();
+      // Auto-SÍ: se abre el panel con la transcripción y la grabación queda
+      // armada para el primer clic real en la página (Chrome no deja pedir la
+      // pantalla desde un temporizador).
+      aceptar(false);
     }, 1000);
 
     // Aceptar en la SALA DE ESPERA no puede abrir un panel que todavía no
     // existe: se recuerda la respuesta y el panel se abre solo al entrar a la
     // llamada. Así, quien abrió el enlace de WhatsApp y dijo "sí" no tiene
     // que volver a decirlo del otro lado.
-    const aceptar = () => {
+    // `porGesto` distingue el clic real del "Sí" automático. Sólo el clic
+    // habilita getDisplayMedia: un temporizador no es un gesto y Chrome lo
+    // rechaza. Con el automático, el pedido queda armado para el próximo
+    // clic de verdad en la página, y así el «Sí» graba igual.
+    const aceptar = (porGesto) => {
       aceptado = code;
       if (ui.mounted) ui.toggleDrawer(true);
+      if (grabandoAca() || state.recording) return;
+      // EN LA SALA DE ESPERA NO SE GRABA. Decir que sí ahí es decir que sí a
+      // la reunión que está por empezar, no a que Chrome abra el selector de
+      // pantalla sobre la vista previa, con la persona todavía afuera. Se
+      // anota el pedido y, al entrar, queda el botón a un clic (para entonces
+      // este clic ya no sirve como gesto: Chrome los da por vencidos).
+      if (enEspera || !ui.mounted) {
+        quiereGrabar = code;
+        return;
+      }
+      if (porGesto) void iniciarGrabacionAca();
+      else ofrecerGrabar();
     };
 
     root.querySelector(".si").addEventListener("click", () => {
       cerrar();
-      aceptar();
+      aceptar(true);
     });
     root.querySelector(".no").addEventListener("click", () => {
       try { sessionStorage.setItem(`unify-no:${code}`, "1"); } catch { /* sin storage */ }
@@ -1405,8 +1785,12 @@
         barButton.remove();
         stopMicFallback();
       }
-      caps.region = null;
-      caps.observer?.disconnect();
+      soltarSubtitulos();
+      // SE TERMINÓ LA REUNIÓN: se cierra la grabación y se sube. Es la mitad
+      // que faltaba de «que se grabe solo y quede en el historial una vez
+      // terminado» -- si no, colgar con la pestaña abierta dejaba el grabador
+      // corriendo sobre una pantalla que ya no es la reunión.
+      if (grabandoAca()) detenerGrabacionAca();
 
       // ANTES DE ENTRAR: éste es el momento del enlace que te mandaron por
       // WhatsApp. Meet muestra la vista previa con "Unirse ahora" y Unify
@@ -1424,6 +1808,7 @@
       document.getElementById("unify-aviso")?.remove();
       toastMostrado = null;
       aceptado = null;
+      quiereGrabar = null;
       return;
     }
     ui.mount();
@@ -1435,11 +1820,30 @@
       if (toastTimer) { clearInterval(toastTimer); toastTimer = null; }
       ui.toggleDrawer(true);
       aceptado = null; // ya se cumplió; no reabrir si la persona lo cierra
+      // Dijo que sí antes de entrar: acá adentro es donde tiene sentido
+      // grabar, y queda a un clic.
+      if (quiereGrabar === code && !grabandoAca() && !state.recording) {
+        quiereGrabar = null;
+        ofrecerGrabar();
+      }
     } else {
       avisarEnMeet(code);
     }
 
-    const captionsOn = watchCaptions() || ensureCaptionsOn();
+    // NADA SE ESCUCHA HASTA QUE LA LLAMADA EMPEZÓ DE VERDAD. El panel puede
+    // aparecer antes (no molesta a nadie); leer la pantalla, no: es lo que
+    // hizo que los carteles de Meet entraran a la transcripción antes de
+    // entrar a la reunión.
+    if (!sePuedeTranscribir()) {
+      soltarSubtitulos();
+      stopMicFallback();
+      ui.setCaptionsReady(false);
+      ui.setStatus("live");
+      return;
+    }
+
+    watchCaptions();
+    ensureCaptionsOn();
     ui.setCaptionsReady(Boolean(caps.region));
     // Sin subtítulos de Meet no hay forma de oír a los demás; al menos que
     // quede la voz propia hasta que se activen.

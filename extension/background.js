@@ -140,7 +140,7 @@ async function pedirActualizacionYa() {
 }
 
 function hayReunionEnCurso() {
-  return recordingTabId != null || lastMeet.size > 0 || lastExternal.size > 0;
+  return recordingTabId != null || carrilBPorTab.size > 0 || lastMeet.size > 0 || lastExternal.size > 0;
 }
 
 function aplicarUpdateSiSePuede() {
@@ -169,6 +169,19 @@ function claveWebDePestana(url) {
   } catch {
     return null;
   }
+}
+
+// EL CÓDIGO DEL MEET ES LA SALA. La transcripción de Meet viaja al bridge con
+// el código pelado ("abc-defg-hij"), así que la grabación tiene que usar EXACTO
+// el mismo. Antes, si el panel no había alcanzado a mandar sus datos, el atajo
+// caía en la clave genérica de arriba ("externa:meet.google.com/abc-defg-hij"):
+// otra sala, otra reunión, y el video terminaba colgado de un historial vacío
+// mientras la transcripción quedaba en el de al lado. Eso es, tal cual, «si
+// grabara, no estaría en el historial».
+const MEET_URL_RE = /^https:\/\/meet\.google\.com\/([a-z]{3}-[a-z]{4}-[a-z]{3})(?:$|[/?#])/;
+function claveDeMeet(url) {
+  const m = String(url || "").match(MEET_URL_RE);
+  return m ? m[1] : null;
 }
 
 // Grabar la propia app de Unify por este camino sería duplicar: la reunión
@@ -228,7 +241,23 @@ async function toggleForTab(tabId) {
     await stopRecording();
     return { ok: true, recording: false };
   }
+  // Ya está grabando desde la propia página (carril B): el atajo la detiene,
+  // no arranca una segunda captura encima de la primera.
+  if (carrilBPorTab.has(tabId)) {
+    const puerto = carrilBPorTab.get(tabId);
+    try { puerto.postMessage({ kind: "cortar" }); } catch { /* página cerrada */ }
+    return { ok: true, recording: false };
+  }
   let payload = lastMeet.get(tabId);
+  if (!payload?.dbId) {
+    const codigo = claveDeMeet((await chrome.tabs.get(tabId).catch(() => null))?.url ?? "");
+    if (codigo) {
+      const s = await sesionDeSala(codigo);
+      const { serverBase, token } = await config();
+      payload = { dbId: s.dbId, serverBase, token, roomKey: codigo };
+      lastMeet.set(tabId, { dbId: s.dbId, serverBase, token });
+    }
+  }
   if (!payload?.dbId) {
     const ext = lastExternal.get(tabId);
     if (ext?.roomKey) {
@@ -278,9 +307,14 @@ chrome.commands?.onCommand.addListener(async (command) => {
 
 // --- CARRIL B: recibir la grabación que corre en la página --------------------
 
+// Qué pestañas están grabando por el carril B. Sirve para que el atajo y el
+// ícono no abran una SEGUNDA captura encima de una grabación en curso.
+const carrilBPorTab = new Map(); // tabId -> Port
+
 chrome.runtime.onConnect.addListener((puerto) => {
   if (puerto.name !== "unify-ext-rec") return;
   const tabId = puerto.sender?.tab?.id ?? null;
+  if (tabId != null) carrilBPorTab.set(tabId, puerto);
   let chunks = [];
   let bytes = 0;
   let roomKey = null;
@@ -362,6 +396,7 @@ chrome.runtime.onConnect.addListener((puerto) => {
   }
 
   puerto.onDisconnect.addListener(() => {
+    if (tabId != null && carrilBPorTab.get(tabId) === puerto) carrilBPorTab.delete(tabId);
     // La página murió con la grabación abierta: subir lo que alcanzó a llegar
     // es mejor que perderlo todo (es el motivo por el que los chunks viajan
     // apenas existen).
@@ -421,7 +456,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         isExternal,
         isWeb,
         ready: Boolean(id != null && (lastMeet.get(id)?.dbId || lastExternal.get(id)?.roomKey || isWeb)),
-        recording: id != null && recordingTabId === id,
+        // Grabando por cualquiera de los dos carriles: el popup tiene que
+        // ofrecer «Detener», no «Grabar», también cuando la grabación la
+        // arrancó la propia página.
+        recording: id != null && (recordingTabId === id || carrilBPorTab.has(id)),
       });
     });
     return true;
@@ -489,6 +527,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   lastMeet.delete(tabId);
   lastExternal.delete(tabId);
+  carrilBPorTab.delete(tabId);
   if (tabId === recordingTabId) void stopRecording();
   aplicarUpdateSiSePuede(); // se cerró la reunión: momento tranquilo
 });

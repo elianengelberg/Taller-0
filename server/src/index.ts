@@ -170,16 +170,33 @@ function corsOrigin(
 
 // Per-request CORS: the Google Meet bridge is written to by the Unify
 // extension running INSIDE meet.google.com, so its Origin is
-// https://meet.google.com -- never the app's origin. That endpoint must
-// therefore accept any origin (its payload is whitelisted, clamped and
+// https://meet.google.com -- never the app's origin. Those endpoints must
+// therefore accept any origin (their payload is whitelisted, clamped and
 // rate-limited, and treated as display-only, never as authority). Every
 // other endpoint keeps the strict CLIENT_ORIGIN allowlist.
+//
+// LA TRADUCCIÓN ENTRA ACÁ, Y ES LA CORRECCIÓN DE UN BUG REAL. La extensión
+// pide /api/translate desde meet.google.com igual que el bridge: como este
+// camino no la incluía, el navegador bloqueaba el pedido ANTES de salir
+// (preflight sin Access-Control-Allow-Origin), fetch tiraba un error de red,
+// y translateLine se lo tragaba en silencio. Resultado en una reunión de
+// verdad: elegir «Traducir: Español» no hacía absolutamente nada y los
+// subtítulos seguían en inglés. El endpoint ya es público (sin sesión), con
+// tope de largo y limitador por IP, así que abrirlo por origen no agrega
+// superficie: agrega la que ya estaba pensada.
+const RUTAS_DE_LA_EXTENSION = ["/api/meet-bridge/", "/api/translate"];
+
 function corsDelegate(
   req: Request,
   callback: (err: Error | null, options?: import("cors").CorsOptions) => void
 ): void {
-  if (req.path.startsWith("/api/meet-bridge/")) {
-    callback(null, { origin: true, methods: ["POST", "OPTIONS"] });
+  if (RUTAS_DE_LA_EXTENSION.some((r) => req.path === r || req.path.startsWith(r))) {
+    // GET incluido: la extensión LEE la sesión del bridge (`/session`) para
+    // saber a qué reunión del historial pertenece lo que graba. Con sólo
+    // POST permitido, ese GET moría en el preflight, la extensión nunca
+    // conseguía el id de la reunión, y la grabación terminaba colgada de una
+    // sala inventada en vez del historial de la reunión.
+    callback(null, { origin: true, methods: ["GET", "POST", "OPTIONS"] });
     return;
   }
   const origin = req.headers.origin;

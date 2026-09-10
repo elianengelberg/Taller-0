@@ -413,6 +413,11 @@ function mostrarCartel(segundos = 15) {
     skipTaskbar: true,
     center: true,
     show: false,
+    // Un cartel de aviso, no una ventana más: no se minimiza, no se maximiza
+    // y no se va a pantalla completa. (De Alt+Tab ya lo saca skipTaskbar.)
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
     webPreferences: {
       preload: path.join(__dirname, "preload-cartel.js"),
       contextIsolation: true,
@@ -420,13 +425,39 @@ function mostrarCartel(segundos = 15) {
       sandbox: true,
     },
   });
+  // EN LA CARA, HAGA LO QUE HAGA. `alwaysOnTop: true` a secas deja la ventana
+  // arriba de las ventanas NORMALES, y una reunión se mira en pantalla
+  // completa: ahí el cartel quedaba atrás y no se veía nunca -- que es lo
+  // mismo que no existir. El nivel "screen-saver" es el más alto que Electron
+  // ofrece y pasa por encima incluso de eso; `setVisibleOnAllWorkspaces` con
+  // `visibleOnFullScreen` es lo que lo consigue en macOS.
+  cartel.setAlwaysOnTop(true, "screen-saver");
+  try {
+    cartel.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  } catch { /* no todas las plataformas lo soportan */ }
   // El cartel nombra a la app detectada ("tu reunión de Microsoft Teams"):
   // decir siempre «Zoom» cuando la reunión es de Teams sonaría a error.
   cartel.loadFile(path.join(__dirname, "cartel.html"), {
     search: `seg=${segundos}&app=${encodeURIComponent(nombreApp)}`,
   });
-  cartel.once("ready-to-show", () => cartel.show());
+  cartel.once("ready-to-show", () => {
+    if (!cartel || cartel.isDestroyed()) return;
+    cartel.show();
+    cartel.moveTop();
+    // Con foco: hay que poder contestar con el teclado sin ir a buscar la
+    // ventana con el mouse.
+    cartel.focus();
+  });
+  // Windows baja el "siempre arriba" de una ventana cuando otra app se pone
+  // en pantalla completa por encima. Reafirmarlo mientras el cartel está
+  // abierto (son quince segundos) es lo que lo mantiene a la vista.
+  const insistir = setInterval(() => {
+    if (!cartel || cartel.isDestroyed()) return;
+    cartel.setAlwaysOnTop(true, "screen-saver");
+    cartel.moveTop();
+  }, 1000);
   ipcMain.once("cartel:respuesta", (_ev, valor) => {
+    clearInterval(insistir);
     if (cartel && !cartel.isDestroyed()) cartel.close();
     cartel = null;
     if (valor === "si") {
@@ -439,6 +470,7 @@ function mostrarCartel(segundos = 15) {
   // Cerrar el cartel con la cruz/Alt+F4 (sin responder) cuenta como "no":
   // cerrar es un gesto explícito, distinto de no tocar nada.
   cartel.on("closed", () => {
+    clearInterval(insistir);
     cartel = null;
   });
 }
