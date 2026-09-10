@@ -2322,6 +2322,10 @@ app.post("/api/meet-bridge/:meetId", bridgeLimit, (req, res) => {
         : null
       : (previo?.participants ?? null),
     at: Date.now(),
+    // Quién habla acá. El bot se identifica (`origen: "bot"`); cualquier otro
+    // reporte es de la extensión, en la pestaña de una persona -- incluidas
+    // las versiones instaladas que todavía no mandan `origen`.
+    extensionAt: b.origen === "bot" ? (previo?.extensionAt ?? 0) : Date.now(),
   };
   ultimoEstadoPorSala.set(meetId, state);
   if (ultimoEstadoPorSala.size > 500) {
@@ -2736,6 +2740,16 @@ interface EstadoSala {
   activeSpeakers: string[];
   participants: string[] | null;
   at: number;
+  /**
+   * CUÁNDO REPORTÓ LA EXTENSIÓN, que no es lo mismo que «cuándo reportó
+   * alguien». El bot escribe en este mismo estado, y la pantalla usaba `at`
+   * para decidir «esta persona ya está en la pestaña de Meet» y esconder el
+   * botón de entrar. Resultado en una reunión de verdad: mandaste el bot, el
+   * bot reportó, y la pantalla te sacó el botón para entrar VOS -- había que
+   * ir a Ajustes a buscarlo. El bot adentro de la reunión no dice
+   * absolutamente nada sobre dónde estás vos.
+   */
+  extensionAt: number;
 }
 const ultimoEstadoPorSala = new Map<string, EstadoSala>();
 

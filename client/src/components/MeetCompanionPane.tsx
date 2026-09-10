@@ -29,16 +29,25 @@ export default function MeetCompanionPane({
     const t = window.setInterval(() => setAhora(Date.now()), 5000);
     return () => window.clearInterval(t);
   }, []);
-  // Con la extensión conectada la persona ya está en la pestaña de Meet: el
-  // botón grande de entrar no tiene a quién ayudar y sólo ocupa lugar.
-  const enLaPestaña = meetState !== null && ahora - meetState.at < 30_000;
+  // ¿ESTA PERSONA ya está en la pestaña de Meet? Sólo entonces el botón
+  // grande de entrar no tiene a quién ayudar.
+  //
+  // Se mira `extensionAt` (cuándo reportó LA EXTENSIÓN) y no `at` (cuándo
+  // reportó cualquiera). El bot escribe en el mismo estado del puente, así
+  // que con `at` pasaba esto, tal cual, en una reunión real: mandabas el bot,
+  // el bot reportaba «estoy adentro», y la pantalla te sacaba el botón para
+  // entrar VOS -- había que ir a Ajustes a buscar por dónde entrar. Que el
+  // bot esté en la reunión no dice nada sobre dónde estás vos.
+  const reportóLaExtensión = meetState?.extensionAt ?? 0;
+  const enLaPestaña = reportóLaExtensión > 0 && ahora - reportóLaExtensión < 30_000;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* En pantalla chica el botón se va: ahí el espacio es de los
-          subtítulos, y abrir la reunión sigue estando en Ajustes. */}
+          subtítulos (entran dos renglones más de lo que se está diciendo), y
+          abrir la reunión sigue estando en Ajustes, a un toque. */}
       {!enLaPestaña && !compacto && (
-        <div className={`px-4 ${compacto ? "pt-2" : "pt-3"}`}>
+        <div className="px-4 pt-3">
           <a
             href={meetLink}
             target="_blank"

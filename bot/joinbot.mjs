@@ -112,8 +112,26 @@ const log = (...a) => console.log("[bot]", ...a);
 // propio camino (interim: true): el servidor lo reparte a la sala y lo
 // olvida. Es lo que hace que el subtítulo aparezca MIENTRAS se habla en vez
 // de varios segundos después.
+/**
+ * CON QUÉ NOMBRE SE FIRMA UNA LÍNEA.
+ *
+ * Cuando el bot transcribe la MEZCLA de audio no sabe quién habló, y firma
+ * «Voces de la reunión» (un hablante genérico que el servidor ya sabe
+ * fusionar con el nombre real si la misma frase llega firmada). Pero leyendo
+ * los subtítulos de Google, cada fila viene CON EL NOMBRE de quien la dijo:
+ * ahí se usa ese, que es lo que la persona espera ver en su transcripción.
+ */
+function nombreDeQuienHabla(quien) {
+  const n = String(quien || "").trim();
+  if (!n) return VOZ_DE_LA_SALA;
+  // El propio bot no habla: si Meet le atribuye una fila (un eco raro), se
+  // firma como la sala en vez de poner al bot diciendo cosas.
+  if (n.toLowerCase() === BOT_NAME.toLowerCase()) return VOZ_DE_LA_SALA;
+  return n.slice(0, 60);
+}
+
 let ultimoInterino = 0;
-async function postInterino(texto) {
+async function postInterino(texto, quien) {
   const t = String(texto || "").trim();
   if (!t) return;
   const ahora = Date.now();
@@ -125,22 +143,28 @@ async function postInterino(texto) {
     await fetch(`${SERVER_URL}/api/meet-bridge/${encodeURIComponent(ROOM_KEY)}/transcript`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ speaker: VOZ_DE_LA_SALA, text: t.slice(0, 300), lang: process.env.BOT_LANG || "es-AR", interim: true }),
+      body: JSON.stringify({
+        speaker: nombreDeQuienHabla(quien),
+        text: t.slice(0, 300),
+        lang: process.env.BOT_LANG || "es-AR",
+        interim: true,
+      }),
     });
   } catch {
     /* un interino perdido no importa: en un cuarto de segundo va otro */
   }
 }
 
-async function postLinea(texto, alts = []) {
+async function postLinea(texto, alts = [], quien) {
   const t = String(texto || "").trim();
   if (!t) return;
-  log("dice:", t.length > 90 ? `${t.slice(0, 90)}…` : t);
+  const firma = nombreDeQuienHabla(quien);
+  log(`dice (${firma}):`, t.length > 90 ? `${t.slice(0, 90)}…` : t);
   try {
     await fetch(`${SERVER_URL}/api/meet-bridge/${encodeURIComponent(ROOM_KEY)}/transcript`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ speaker: VOZ_DE_LA_SALA, text: t, lang: process.env.BOT_LANG || "es-AR", alts }),
+      body: JSON.stringify({ speaker: firma, text: t, lang: process.env.BOT_LANG || "es-AR", alts }),
     });
   } catch (e) {
     log("no se pudo postear la línea:", e.message);
@@ -151,7 +175,13 @@ async function postEstado(estado) {
     await fetch(`${SERVER_URL}/api/meet-bridge/${encodeURIComponent(ROOM_KEY)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(estado),
+      // `origen: "bot"` en TODOS los avisos del bot. El estado del puente lo
+      // escriben dos: la extensión (desde la pestaña de una persona) y el
+      // bot. La pantalla usaba «alguien reportó recién» para decidir «ya
+      // estás en la pestaña de Meet» y esconder el botón de entrar, así que
+      // mandar el bot te dejaba sin forma de entrar vos. Con esto, el
+      // servidor sabe cuál de los dos habló.
+      body: JSON.stringify({ ...estado, origen: "bot" }),
     });
   } catch { /* el estado es best-effort */ }
 }
@@ -576,18 +606,214 @@ const adaptadores = {
   },
 };
 
+/**
+ * LOS SUBTÍTULOS DE GOOGLE, QUE SON MUCHO MEJORES QUE LOS NUESTROS.
+ *
+ * El bot venía transcribiendo con el reconocimiento del navegador sobre una
+ * MEZCLA de todos los audios de la reunión. Eso es lo peor de los dos mundos:
+ * el reconocedor recibe varias voces sumadas, recomprimidas, sin saber cuál
+ * es cuál -- y escribe cualquier cosa. En una reunión real salió «Amanda's»
+ * donde nadie dijo nada parecido.
+ *
+ * Pero el bot está ADENTRO del Meet, con un Chrome de verdad. Google ya
+ * transcribe esa misma reunión con su propio motor, sobre la pista LIMPIA de
+ * cada participante y sabiendo quién habla: son los subtítulos (CC). Leerlos
+ * es gratis, es mejor, y encima trae el NOMBRE de quien dijo cada frase.
+ *
+ * Es exactamente lo que hace la extensión de Chrome dentro de la pestaña de
+ * la persona (extension/content.js); acá se aplican las mismas reglas que allá
+ * costaron reuniones reales aprender:
+ *   - la región se busca por su etiqueta accesible en varios idiomas, y por
+ *     los selectores propios de Meet;
+ *   - Meet REESCRIBE la misma fila mientras alguien habla, así que se manda
+ *     sólo lo NUEVO (comparando el prefijo común con lo ya emitido);
+ *   - una frase se da por terminada cuando la fila se queda quieta;
+ *   - los íconos de Material (que Meet escribe como texto: "arrow_downward")
+ *     y todo lo que viva adentro de un botón no son voces.
+ *
+ * Devuelve true si consiguió dejar los subtítulos leyéndose.
+ */
+async function leerSubtitulosDeMeet(page) {
+  const ok = await page.evaluate(() => {
+    if (window.__unifyLeyendoCC) return true;
+
+    const ETIQUETA = /subt[ií]tul|caption|legenda|sous-titre|untertitel|sottotitol|ondertitel|napisy|字幕|자막/i;
+
+    // 1. Encender los CC de Meet si están apagados.
+    const botonCC = () => {
+      for (const b of document.querySelectorAll('button, [role="button"]')) {
+        if (ETIQUETA.test(b.getAttribute("aria-label") || "")) return b;
+        const t = (b.textContent || "").trim();
+        if (t === "closed_caption" || t === "closed_caption_off" || t === "closed_caption_disabled") return b;
+      }
+      return document.querySelector('button[jsname="r8qRAd"]');
+    };
+
+    const region = () => {
+      for (const r of document.querySelectorAll('[role="region"][aria-label]')) {
+        if (ETIQUETA.test(r.getAttribute("aria-label") || "")) return r;
+      }
+      return (
+        document.querySelector('div[jsname="dsyhDe"]') ||
+        document.querySelector("[data-use-tweaked-caption-styles]")
+      );
+    };
+
+    const prender = () => {
+      if (region()) return true;
+      const b = botonCC();
+      if (!b) return false;
+      const et = (b.getAttribute("aria-label") || "").toLowerCase();
+      const txt = (b.textContent || "").trim();
+      const apagados =
+        /activar|turn on|ativar|activer|einschalten|attiva|inschakelen|włącz/.test(et) ||
+        b.getAttribute("aria-pressed") === "false" ||
+        txt === "closed_caption_off" ||
+        txt === "closed_caption_disabled";
+      if (apagados) b.click();
+      return Boolean(region());
+    };
+
+    // 2. Leer las filas. Mismo motor que la extensión, en chico.
+    const esIcono = (el) =>
+      Boolean(el.closest('i, [aria-hidden="true"], [class*="material-icon"], [class*="google-symbols"], [data-icon]'));
+    const esControl = (el) => Boolean(el.closest('button, [role="button"], [role="toolbar"]'));
+    const esLigadura = (t) => /^[a-z][a-z0-9]*(_[a-z0-9]+)+$/.test(t);
+    const pareceNombre = (t) => t.length > 0 && t.length <= 60 && t.split(/\s+/).length <= 6 && !/[.?!,]$/.test(t);
+
+    const leerFila = (nodo) => {
+      if (!nodo || nodo.nodeType !== 1) return null;
+      if (nodo.querySelector("a[href]")) return null;
+      const hojas = [];
+      nodo.querySelectorAll("*").forEach((el) => {
+        if (el.children.length) return;
+        if (esControl(el) || esIcono(el)) return;
+        const t = (el.textContent || "").replace(/\s+/g, " ").trim();
+        if (t && !esLigadura(t)) hojas.push(t);
+      });
+      if (!hojas.length) return null;
+      let quien = "";
+      let texto;
+      if (hojas.length >= 2 && pareceNombre(hojas[0])) {
+        quien = hojas[0];
+        texto = hojas.slice(1).join(" ").trim();
+      } else {
+        texto = hojas.join(" ").trim();
+      }
+      if (quien && texto.startsWith(quien)) texto = texto.slice(quien.length).trim();
+      if (/https?:\/\//.test(texto)) return null;
+      return texto ? { quien, texto } : null;
+    };
+
+    const prefijoComun = (a, b) => {
+      const n = Math.min(a.length, b.length);
+      let i = 0;
+      while (i < n && a[i] === b[i]) i++;
+      return i;
+    };
+
+    const filas = new Map(); // nodo -> { quien, texto, emitido, timer }
+    const ASENTAR_MS = 1600;
+
+    const cerrar = (nodo) => {
+      const rec = filas.get(nodo);
+      if (!rec) return;
+      clearTimeout(rec.timer);
+      rec.timer = null;
+      const pendiente = rec.texto.slice(prefijoComun(rec.emitido, rec.texto)).trim();
+      if (pendiente) {
+        rec.emitido = rec.texto;
+        try { window.botEmit(pendiente, [], rec.quien); } catch { /* puente caído */ }
+      }
+    };
+
+    const tocar = (nodo) => {
+      const leida = leerFila(nodo);
+      if (!leida) return;
+      let rec = filas.get(nodo);
+      if (!rec) {
+        rec = { quien: leida.quien, texto: leida.texto, emitido: "", timer: null };
+        filas.set(nodo, rec);
+      } else {
+        if (leida.quien) rec.quien = leida.quien;
+        if (leida.texto === rec.texto) return;
+        if (!leida.texto.startsWith(rec.emitido)) {
+          rec.emitido = rec.emitido.slice(0, prefijoComun(rec.emitido, leida.texto));
+        }
+        rec.texto = leida.texto;
+      }
+      clearTimeout(rec.timer);
+      rec.timer = setTimeout(() => cerrar(nodo), ASENTAR_MS);
+      const enCurso = rec.texto.slice(prefijoComun(rec.emitido, rec.texto)).trim();
+      if (enCurso && enCurso !== rec.ultimo) {
+        rec.ultimo = enCurso;
+        try { window.botEmitInterino(enCurso, rec.quien); } catch { /* puente caído */ }
+      }
+    };
+
+    const barrer = (r) => {
+      r.querySelectorAll(":scope > *").forEach(tocar);
+      for (const nodo of Array.from(filas.keys())) {
+        if (!r.contains(nodo)) {
+          cerrar(nodo);
+          clearTimeout(filas.get(nodo)?.timer);
+          filas.delete(nodo);
+        }
+      }
+    };
+
+    let observada = null;
+    let obs = null;
+    const enganchar = () => {
+      const r = region();
+      if (!r) return false;
+      if (r === observada) return true;
+      observada = r;
+      obs?.disconnect();
+      obs = new MutationObserver(() => barrer(r));
+      obs.observe(r, { childList: true, subtree: true, characterData: true });
+      barrer(r);
+      return true;
+    };
+
+    // Meet apaga sus subtítulos solo más de lo que uno cree (al reconectar, al
+    // cambiar de diseño): se insiste mientras el bot esté adentro.
+    let ultimoIntento = 0;
+    setInterval(() => {
+      if (enganchar()) return;
+      if (Date.now() - ultimoIntento < 12_000) return;
+      ultimoIntento = Date.now();
+      prender();
+      enganchar();
+    }, 2000);
+
+    prender();
+    const listo = enganchar();
+    window.__unifyLeyendoCC = true;
+    window.__unifyPararCC = () => {
+      obs?.disconnect();
+      for (const nodo of Array.from(filas.keys())) cerrar(nodo);
+    };
+    return listo;
+  }).catch(() => false);
+  log(ok
+    ? "subtítulos de Meet: LEYÉNDOSE (las palabras las escribe Google, con el nombre de quien habla)"
+    : "subtítulos de Meet: no se pudieron encender todavía; se sigue intentando y mientras tanto oye el reconocimiento propio");
+  return ok;
+}
+
 // La captura de audio + reconocimiento, inyectada en la página YA adentro.
 // Reusa la técnica de la extensión: tomar la pista de audio de la pestaña y
 // dársela al reconocimiento del navegador (Chrome 139+). Cada frase final
 // sube al bridge por el puente `botEmit`. En modo test la página llama a
 // botEmit directamente, así se prueba el pipeline sin el servicio de voz.
-async function arrancarEscucha(page) {
-  await page.exposeFunction("botEmit", async (texto, alts) => {
-    await postLinea(texto, Array.isArray(alts) ? alts : []);
+async function arrancarEscucha(page, { soloGrabar = false } = {}) {
+  await page.exposeFunction("botEmit", async (texto, alts, quien) => {
+    await postLinea(texto, Array.isArray(alts) ? alts : [], quien);
   });
   // Lo que se está diciendo, mientras se dice.
-  await page.exposeFunction("botEmitInterino", async (texto) => {
-    await postInterino(texto);
+  await page.exposeFunction("botEmitInterino", async (texto, quien) => {
+    await postInterino(texto, quien);
   });
   // El diagnóstico de la escucha sale por la consola del bot: es lo que
   // permite ver, en un host nuevo, exactamente en qué eslabón se corta la
@@ -624,7 +850,7 @@ async function arrancarEscucha(page) {
     recPath = joinPath(tmpdir(), `unify-bot-${process.pid}.webm`);
     recStream = createWriteStream(recPath);
   }
-  await page.evaluate(({ grabar, kbps, lang }) => {
+  await page.evaluate(({ grabar, kbps, lang, soloGrabar }) => {
     if (window.__unifyEscuchando) return;
     window.__unifyEscuchando = true;
     const diag = (m) => { try { window.botDiag(String(m)); } catch { /* sin diag */ } };
@@ -760,6 +986,11 @@ async function arrancarEscucha(page) {
           diag(`no pude grabar el video: ${e?.message || e}`);
         }
       }
+      // LOS SUBTÍTULOS DE GOOGLE YA ESTÁN LEYÉNDOSE: acá no hay nada que
+      // transcribir. Dejar además el reconocimiento propio sobre la mezcla
+      // sería mandar CADA FRASE DOS VECES -- una bien escrita y otra mal --,
+      // y encima gastar CPU que el video de la grabación necesita.
+      if (soloGrabar) { diag("transcribiendo desde los subtítulos de Meet; el reconocimiento propio queda apagado"); return; }
       // start(pista) llegó con available() (Chrome 139); sin eso, transcribir
       // el micrófono del bot sería inútil (el bot no habla).
       if (!track) return;
@@ -843,6 +1074,7 @@ async function arrancarEscucha(page) {
     grabar: GRABAR,
     kbps: Number(process.env.BOT_VIDEO_KBPS) > 0 ? Number(process.env.BOT_VIDEO_KBPS) : 2500,
     lang: process.env.BOT_LANG || "es-AR",
+    soloGrabar,
   });
 }
 
@@ -926,7 +1158,9 @@ async function arrancarEscucha(page) {
     saliendo = true;
     log("saliendo:", motivo);
     await postEstado({ inCall: false, participantCount: 0 });
-    try { await page.evaluate(() => window.__unifyParar?.()); } catch {}
+    // Cerrar las dos escuchas: el reconocimiento propio y el lector de
+    // subtítulos (que puede tener una frase a medio asentar).
+    try { await page.evaluate(() => { window.__unifyPararCC?.(); window.__unifyParar?.(); }); } catch {}
     // Cerrar la grabación ANTES de cerrar el navegador: stop() dispara el
     // último chunk, que todavía tiene que viajar por el puente botChunk.
     try { await page.evaluate(() => window.__unifyPararGrabacion?.()); } catch {}
@@ -965,7 +1199,13 @@ async function arrancarEscucha(page) {
   log("adentro de la reunión");
   await postEstado({ inCall: true, participantCount: 2, botFase: "adentro" });
 
-  await arrancarEscucha(page);
+  // EN MEET, PRIMERO LOS SUBTÍTULOS DE GOOGLE. Son de otro planeta comparados
+  // con transcribir la mezcla de audios: Google los hace sobre la pista limpia
+  // de cada participante y encima dice quién habló. El reconocimiento propio
+  // queda de respaldo para cuando no se pueden encender (una reunión con los
+  // subtítulos bloqueados por su organización, un Meet que no los ofrece).
+  const conSubtitulos = PLATFORM === "google-meet" ? await leerSubtitulosDeMeet(page) : false;
+  await arrancarEscucha(page, { soloGrabar: conSubtitulos });
 
   // Modo test: la página "dice" las líneas que le pasamos, simulando el
   // reconocimiento -> se prueba TODO el pipeline sin el servicio de voz.

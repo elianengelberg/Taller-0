@@ -36,6 +36,12 @@ export interface MeetBridgeState {
   activeSpeakers: string[];
   participants: string[] | null;
   at: number;
+  /**
+   * Cuándo reportó LA EXTENSIÓN (una pestaña de Meet de una persona), que no
+   * es lo mismo que `at` (el último reporte de quien sea: el bot también
+   * escribe acá). Es lo que decide si esta persona ya está en la pestaña.
+   */
+  extensionAt?: number;
 }
 
 export interface Participant {

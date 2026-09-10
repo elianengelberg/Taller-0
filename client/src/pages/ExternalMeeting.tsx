@@ -2,7 +2,6 @@ import { ReactNode, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import AiChatBox from "../components/AiChatBox";
 import BotButton from "../components/BotButton";
-import IconButton from "../components/IconButton";
 import JitsiEmbed from "../components/JitsiEmbed";
 import LiveCaption from "../components/LiveCaption";
 import CompanionRolesPanel from "../components/CompanionRolesPanel";
@@ -15,6 +14,7 @@ import EstadoDeEscucha, { ModoDeEscucha } from "../components/EstadoDeEscucha";
 import IframeEmbed from "../components/IframeEmbed";
 import MeetCompanionPane from "../components/MeetCompanionPane";
 import RecordingBanner from "../components/RecordingBanner";
+import { Accion, Barra, Interruptor, Selector, Separador } from "../components/BarraDeAcciones";
 import SaveMeetingPrompt from "../components/SaveMeetingPrompt";
 import SidePanel from "../components/SidePanel";
 import TeamsEmbed from "../components/TeamsEmbed";
@@ -1594,91 +1594,96 @@ export default function ExternalMeeting() {
         )}
       </div>
 
-      {/* LA BARRA DE ABAJO: sólo lo que HACE algo en esta reunión. Antes eran
-          seis o siete botones -- entre ellos «Salir de Unify» perdido entre
-          iconitos, y en algunas reuniones dos que no tocaban nada -- y ninguno
-          decía para qué servía hasta apretarlo. Ahora: los subtítulos (lo que
-          se está mirando), los flotantes (para leer sobre otra app), la
-          transcripción, la IA y Ajustes. Salir vive arriba, con su nombre. */}
-      <div className="flex items-center justify-center gap-1.5 border-t border-ink-800 bg-ink-900/95 px-2 py-2.5 shadow-top backdrop-blur-md sm:gap-3 sm:px-6">
-        <IconButton
-          label="Mostrar u ocultar los subtítulos en vivo"
-          caption="Subtítulos"
-          active={captionsOn}
+      {/* LA BARRA DE ABAJO. Cada control tiene la FORMA de lo que es (ver
+          BarraDeAcciones): interruptor = queda prendido o apagado; cápsula =
+          elegí uno de estos paneles; acción suelta al otro lado de una línea
+          = esto toca la reunión de verdad. Antes eran cinco círculos grises
+          idénticos, con «cortar la reunión» pegado a «ver la transcripción».
+          Salir sigue arriba, con su nombre escrito. */}
+      <Barra>
+        <Interruptor
+          // El nombre dice qué pasa AL TOCARLO, no en qué estado está: es lo
+          // que necesita saber quien lo va a apretar.
+          label={captionsOn ? "Pausar los subtítulos en vivo" : "Reanudar los subtítulos en vivo"}
+          nombre={captionsOn ? "Subtítulos" : "Pausados"}
+          encendido={captionsOn}
           onClick={() => setCaptionsOn((v) => !v)}
         >
           <CaptionsIcon className="h-5 w-5" />
-        </IconButton>
+        </Interruptor>
+
         {pipSoportado && (
-          <IconButton
-            // El nombre del botón ARRANCA con lo que se lee debajo de él: así
-            // se llama igual para quien mira, para un lector de pantalla y
-            // para una prueba. La explicación va después, no en lugar del
-            // nombre.
+          <Interruptor
             label={
               pipAbierto
-                ? "Flotantes ✓ — la ventanita de subtítulos está abierta; tocá para cerrarla"
+                ? "Subtítulos flotantes — cerrar la ventanita que queda encima de las demás apps"
                 : "Subtítulos flotantes — una ventanita con los subtítulos que queda SIEMPRE encima de las demás apps"
             }
-            caption={pipAbierto ? "Flotantes ✓" : "Subtítulos flotantes"}
-            active={pipAbierto}
+            nombre="Flotantes"
+            encendido={pipAbierto}
             onClick={() => void toggleFlotantes()}
           >
             <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" aria-hidden>
               <rect x="1.5" y="3.5" width="17" height="13" rx="2" stroke="currentColor" strokeWidth="1.6" />
               <rect x="9.5" y="9.5" width="7" height="5" rx="1.2" fill="currentColor" />
             </svg>
-          </IconButton>
+          </Interruptor>
         )}
-        <IconButton
-          label="Ver la transcripción completa y traducciones"
-          caption="Transcripción"
-          active={activePanel === "transcript"}
-          onClick={() => togglePanel("transcript")}
-        >
-          <TranscriptIcon className="h-5 w-5" />
-        </IconButton>
-        <IconButton
-          label="Abrir el asistente de IA de la reunión"
-          caption="IA"
-          active={activePanel === "ai"}
-          onClick={() => togglePanel("ai")}
-        >
-          <SparklesIcon className="h-5 w-5" />
-        </IconButton>
-        {/* Con la extensión en la pestaña de Meet, estos SÍ tocan la reunión:
-            ella aprieta los botones de Meet. Sin extensión no aparecen, en vez
-            de mostrar botones que no harían nada. */}
+
+        <Selector
+          opciones={[
+            {
+              clave: "transcript",
+              label: "Ver la transcripción completa y traducciones",
+              nombre: "Transcripción",
+              abierto: activePanel === "transcript",
+              onClick: () => togglePanel("transcript"),
+              icono: <TranscriptIcon className="h-5 w-5" />,
+            },
+            {
+              clave: "ai",
+              label: "Abrir el asistente de IA de la reunión",
+              nombre: "IA",
+              abierto: activePanel === "ai",
+              onClick: () => togglePanel("ai"),
+              icono: <SparklesIcon className="h-5 w-5" />,
+            },
+            {
+              clave: "ajustes",
+              label: "Ajustes de esta reunión: invitar, roles, grabar, texto grande",
+              nombre: "Ajustes",
+              abierto: activePanel === "ajustes",
+              onClick: () => togglePanel("ajustes"),
+              icono: <ShieldIcon className="h-5 w-5" />,
+            },
+          ]}
+        />
+
+        {/* Del otro lado de la línea, lo que TOCA la reunión. Y sólo con la
+            extensión en la pestaña de Meet, que es quien puede apretar de
+            verdad los botones de Google: sin ella no aparecen, en vez de
+            ofrecer botones que no harían nada. */}
         {extensionViva && (
           <>
-            <IconButton
+            <Separador />
+            <Accion
               label={meetState?.micMuted ? "Activar tu micrófono en Meet" : "Silenciar tu micrófono en Meet"}
-              caption={meetState?.micMuted ? "Activar mic" : "Silenciar"}
-              active={ordenEnCurso === "mic-toggle"}
-              danger={Boolean(meetState?.micMuted)}
+              nombre={meetState?.micMuted ? "Activar mic" : "Silenciar"}
               onClick={() => void ordenar("mic-toggle")}
             >
               {meetState?.micMuted ? <MicOffIcon className="h-5 w-5" /> : <MicIcon className="h-5 w-5" />}
-            </IconButton>
-            <IconButton
+            </Accion>
+            <Accion
               label="Cortar la reunión en Meet"
-              caption="Cortar"
-              danger
+              nombre="Cortar"
+              peligro
               onClick={() => void ordenar("colgar")}
             >
               <PhoneOffIcon className="h-5 w-5" />
-            </IconButton>
+            </Accion>
           </>
         )}
-        <IconButton
-          label="Ajustes de esta reunión: invitar, roles, grabar, texto grande"
-          caption="Ajustes"
-          active={activePanel === "ajustes"}
-          onClick={() => togglePanel("ajustes")}
-        >
-          <ShieldIcon className="h-5 w-5" />
-        </IconButton>
-      </div>
+      </Barra>
       {pendingLeave && <SaveMeetingPrompt onSave={confirmSaveMeeting} onSkip={skipSaveMeeting} />}
       {savingRecording && (
         // Tokens de tema (la versión anterior era texto blanco sobre una
