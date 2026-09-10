@@ -336,6 +336,58 @@ async function probarActualizador(check) {
   check("el workflow verifica que la versión subió antes de publicar", /Verificar que la versión subió/.test(wf) && /releases\/latest\/download\/latest\.yml/.test(wf) && /exit 1/.test(wf));
   const pkg = JSON.parse(fs.readFileSync(path.join(DESK, "package.json"), "utf8"));
   check("la versión de la app es mayor que la del último release publicado (1.7.1)", /^1\.(7\.[2-9]|[89]\.\d+)|^[2-9]\./.test(pkg.version), pkg.version);
+
+  // TOCAR LA APP SIN SUBIR LA VERSIÓN NO PUBLICA NADA, y hasta ahora eso se
+  // descubría DESPUÉS de empujar: el workflow de Windows fallaba en rojo
+  // («La version 1.7.3 ya esta publicada y este push cambia la app»). Es
+  // exactamente la verificación correcta, pero llega tarde. Acá se hace la
+  // misma pregunta sin red y antes de empujar: el último commit que tocó el
+  // CÓDIGO de la app tiene que venir con -- o antes que -- el último que
+  // tocó su versión.
+  {
+    const { execSync } = require("child_process");
+    const git = (cmd) => execSync(cmd, { cwd: "/home/user/Taller-0", encoding: "utf8" }).trim();
+    let commitCodigo = "";
+    let commitVersion = "";
+    try {
+      // Sólo lo que VIAJA ADENTRO de la app: el README y las pruebas no
+      // cambian lo que la persona instala.
+      commitCodigo = git(
+        'git log -1 --format=%H -- desktop ":(exclude)desktop/README.md" ":(exclude)desktop/package.json" ":(exclude)desktop/package-lock.json"'
+      );
+      commitVersion = git("git log -1 --format=%H -- desktop/package.json");
+    } catch {
+      /* sin git o con historial recortado: se dice y no se inventa */
+    }
+    if (!commitCodigo || !commitVersion) {
+      console.log("SKIP (sin historia de git para comparar código y versión de la app)");
+    } else if (commitCodigo === commitVersion) {
+      check("el último cambio en la app viene con su versión nueva (si no, nadie se actualiza)", true,
+        "el mismo commit sube el código y la versión");
+    } else {
+      let versionDespues = false;
+      try {
+        execSync(`git merge-base --is-ancestor ${commitCodigo} ${commitVersion}`, { cwd: "/home/user/Taller-0" });
+        versionDespues = true;
+      } catch {
+        versionDespues = false;
+      }
+      const cambios = (() => {
+        try {
+          return git(
+            `git diff --name-only ${commitVersion} HEAD -- desktop ":(exclude)desktop/README.md" ":(exclude)desktop/package.json"`
+          ).split("\n").filter(Boolean).join(", ");
+        } catch {
+          return "(no se pudo listar)";
+        }
+      })();
+      check("el último cambio en la app viene con su versión nueva (si no, nadie se actualiza)",
+        versionDespues,
+        versionDespues
+          ? `versión ${pkg.version} posterior al último cambio de código`
+          : `la app cambió después de la versión ${pkg.version}: ${cambios || commitCodigo.slice(0, 8)}`);
+    }
+  }
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
