@@ -278,7 +278,15 @@ const PAGE = (titulo) => `<!doctype html><html lang="es"><head><meta charset="ut
     await page.waitForTimeout(3500);
     const aviso = await page.locator(".aviso").textContent().catch(() => "");
     check("sin almacenamiento configurado, la falla de subida SE DICE",
-      /no pudimos subirla|no pudimos subir/i.test(aviso), aviso.slice(0, 80));
+      /no pudimos subir|no tiene configurado el guardado/i.test(aviso), aviso.slice(0, 120));
+    // Y DICE EL MOTIVO DE VERDAD. Un 503 acá significa que ESTE servidor no
+    // tiene configurado el guardado de grabaciones: la conexión anda
+    // perfecto y reintentar no va a cambiar nada. El aviso decía «revisá tu
+    // conexión», que manda a buscar un problema que no existe mientras el
+    // video se pierde igual.
+    check("y dice el motivo real (el servidor no guarda), sin mandarte a revisar la conexión",
+      /no tiene configurado el guardado/i.test(aviso) && !/revisá tu conexión/i.test(aviso),
+      aviso.slice(0, 120));
   }
 
   // ═══════ 4b. MICROSOFT TEAMS, el circuito entero ═══════
