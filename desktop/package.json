@@ -1,7 +1,7 @@
 {
   "name": "unify-escritorio",
   "productName": "Unify",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "description": "Unify para Windows: detecta tus reuniones de Zoom, Microsoft Teams, Webex, Jitsi y más apps, y las graba con subtítulos, traducción e IA.",
   "main": "main.js",
   "author": {
@@ -22,6 +22,7 @@
     "productName": "Unify",
     "files": [
       "main.js",
+      "bitacora.js",
       "detector.js",
       "puente.js",
       "cartel.html",

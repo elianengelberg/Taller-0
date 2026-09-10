@@ -296,6 +296,126 @@ async function probarDetector(check) {
 // versión sube. Lo que se pudo verificar en vivo contra GitHub (latest.yml,
 // hash del exe, app-update.yml adentro del instalador) vive en la memoria del
 // proyecto; acá queda lo que se puede ejercitar sin red.
+// ── EL PAQUETE LLEVA TODO LO QUE EL CÓDIGO PIDE ───────────────────────────
+//
+// Microsoft rechazó la app: «10.1.2.10 Functionality — The product crashes at
+// launch». El motivo, verificado abriendo el app.asar del appx publicado:
+// main.js hacía require("./bitacora") en la línea 30 y bitacora.js NO estaba
+// adentro del paquete. `build.files` es una LISTA BLANCA -- lo que no se
+// nombra, no viaja --, el archivo se agregó al proyecto y nadie lo agregó a
+// la lista. El proceso principal reventaba en su primer require, antes de
+// abrir una sola ventana.
+//
+// Y las pruebas lo dejaron pasar porque cargaban bitacora.js DEL CÓDIGO
+// FUENTE, con un require normal: probaban una copia que en la máquina de
+// pruebas siempre está, no la que se instala en la máquina de la gente.
+//
+// Esto compara las dos listas: lo que el código empaquetado pide, contra lo
+// que la lista blanca manda. Sigue los require de archivo en archivo, así que
+// también alcanza a lo que pida un módulo pedido por otro.
+function probarEmpaquetado(check) {
+  const pkg = JSON.parse(fs.readFileSync(path.join(DESK, "package.json"), "utf8"));
+  const lista = pkg.build?.files ?? [];
+  check("el paquete declara qué archivos lleva", Array.isArray(lista) && lista.length > 0);
+
+  // Todo lo nombrado tiene que existir: un nombre viejo en la lista es la
+  // misma clase de error mirado al revés.
+  const fantasmas = lista.filter((f) => !/[*?]/.test(f) && !fs.existsSync(path.join(DESK, f)));
+  check("todo lo que la lista nombra existe de verdad", fantasmas.length === 0, fantasmas.join(", "));
+
+  // Se arranca por la puerta de entrada (main) y por los preload, que Electron
+  // carga por ruta y no por require.
+  const raices = [pkg.main || "main.js", ...lista.filter((f) => /^preload-/.test(f))];
+  const vistos = new Set();
+  const faltan = [];
+  const pendientes = [...raices];
+  while (pendientes.length) {
+    const rel = pendientes.shift();
+    if (vistos.has(rel)) continue;
+    vistos.add(rel);
+    const abs = path.join(DESK, rel);
+    if (!fs.existsSync(abs) || !/\.js$/.test(rel)) continue;
+    const src = fs.readFileSync(abs, "utf8");
+    for (const m of src.matchAll(/require\(\s*["'](\.[^"']+)["']\s*\)/g)) {
+      // Se resuelve como lo resuelve Node: con o sin .js.
+      const pedido = m[1];
+      const destino = path.posix.normalize(path.posix.join(path.posix.dirname(rel), pedido));
+      const candidatos = [destino, `${destino}.js`, `${destino}.json`];
+      const real = candidatos.find((c) => fs.existsSync(path.join(DESK, c)));
+      if (!real) continue; // no existe ni en el código: lo agarra otra prueba
+      // package.json siempre viaja (electron-builder lo mete solo).
+      if (real === "package.json") continue;
+      if (!lista.includes(real)) faltan.push(`${rel} pide ${real}`);
+      pendientes.push(real);
+    }
+  }
+  // ESTA es la prueba que hubiera frenado el rechazo de la tienda.
+  check("NINGÚN require local del código empaquetado se queda afuera del paquete",
+    faltan.length === 0, faltan.join(" | "));
+  check("y bitacora.js viaja adentro (el que hizo crashear la app en la tienda)",
+    lista.includes("bitacora.js"));
+
+  // Las ventanas se cargan por ruta: sus HTML también tienen que viajar.
+  const main = fs.readFileSync(path.join(DESK, "main.js"), "utf8");
+  const htmls = [...main.matchAll(/["']([\w-]+\.html)["']/g)].map((m) => m[1]);
+  const htmlFuera = [...new Set(htmls)].filter((h) => fs.existsSync(path.join(DESK, h)) && !lista.includes(h));
+  check("y las pantallas que abre la app también viajan", htmlFuera.length === 0, htmlFuera.join(", "));
+}
+
+// ── Y ARRANCA DE VERDAD CON SÓLO LO QUE VIAJA ─────────────────────────────
+//
+// La prueba de arriba compara dos listas; ésta prende la app con NADA MÁS que
+// los archivos del paquete y mira si vive. Es la única que responde la
+// pregunta que hizo Microsoft: «¿arranca esto después de instalarlo?».
+//
+// Todas las demás pruebas corren sobre la carpeta del proyecto, donde están
+// TODOS los archivos -- incluidos los que no viajan. Por eso 117 de 117 en
+// verde convivieron con una app que reventaba en su primer require.
+async function probarArranqueEmpaquetado(check) {
+  const os = require("os");
+  const pkg = JSON.parse(fs.readFileSync(path.join(DESK, "package.json"), "utf8"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "unify-paquete-"));
+  try {
+    for (const f of pkg.build.files) fs.copyFileSync(path.join(DESK, f), path.join(dir, f));
+    // Lo que electron-builder pone solo: el package.json y las dependencias
+    // de producción.
+    fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({
+      name: pkg.name, productName: pkg.productName, version: pkg.version,
+      main: pkg.main, tienda: pkg.tienda,
+    }));
+    fs.symlinkSync(path.join(DESK, "node_modules"), path.join(dir, "node_modules"));
+
+    let salida = "";
+    const hijo = spawn(path.join(DESK, "node_modules/.bin/electron"), [".", "--no-sandbox"], {
+      cwd: dir,
+      env: { ...process.env, UNIFY_WEB: "http://localhost:4174", DISPLAY: process.env.DISPLAY },
+    });
+    hijo.stdout.on("data", (d) => { salida += d; });
+    hijo.stderr.on("data", (d) => { salida += d; });
+    const murio = await new Promise((r) => {
+      const t = setTimeout(() => r(false), 12_000);
+      hijo.once("exit", () => { clearTimeout(t); r(true); });
+    });
+    // Un módulo que falta revienta el proceso principal ANTES de abrir una
+    // sola ventana: es exactamente lo que la tienda ve como «crashes at
+    // launch», y lo que pasaba con bitacora.js.
+    const falta = /Cannot find module/i.exec(salida);
+    check("con SÓLO los archivos del paquete, no falta ningún módulo",
+      !falta, falta ? salida.slice(falta.index, falta.index + 90).split("\n")[0] : "");
+    check("y la app sigue viva (no revienta al arrancar, que es lo que vio la tienda)",
+      !murio, murio ? salida.split("\n").filter((l) => /Error/.test(l))[0] || "se cerró sola" : "");
+
+    await new Promise((r) => {
+      if (hijo.exitCode !== null) return r();
+      const forzar = setTimeout(() => { try { hijo.kill("SIGKILL"); } catch {} setTimeout(r, 500); }, 4000);
+      hijo.once("exit", () => { clearTimeout(forzar); setTimeout(r, 300); });
+      try { hijo.kill("SIGTERM"); } catch {}
+    });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 async function probarActualizador(check) {
   const { crearBitacora, TOPE } = require(path.join(DESK, "bitacora.js"));
   const os = require("os");
@@ -659,6 +779,8 @@ hijo.on("exit", async (c) => {
   await probarExtensionLocal(check).catch((e) => check("módulo de extensión local", false, String(e.message)));
   await probarTienda(check).catch((e) => check("copia de la Microsoft Store", false, String(e.message)));
   await probarActualizador(check).catch((e) => check("actualizador (bitácora y versión)", false, String(e.message)));
+  try { probarEmpaquetado(check); } catch (e) { check("el paquete lleva todo lo que el código pide", false, String(e.message)); }
+  await probarArranqueEmpaquetado(check).catch((e) => check("arranque con sólo lo empaquetado", false, String(e.message)));
   await probarCartel(check).catch((e) => check("cartel de escritorio", false, String(e.message)));
   await probarGrabadorSilencioso(check).catch((e) => check("grabador silencioso", false, String(e.message)));
   // La MISMA película, pero la reunión simulada es de TEAMS: la sala subida
