@@ -270,8 +270,15 @@ async function botonesChicos(p, minimo = 40) {
       check("tocarlo flota el video con los subtítulos (PiP de video)",
         await pf.evaluate(() => window.__pipVideo === 1),
         `pedidos=${await pf.evaluate(() => window.__pipVideo)}`);
-      check("y el botón queda como activo",
-        (await pf.getByRole("button", { name: /Flotantes ✓/i }).count()) > 0);
+      // «Activo» ya no es un ✓ pegado al nombre: el interruptor lo dice con
+      // aria-pressed (que un lector de pantalla ANUNCIA, cosa que el ✓ nunca
+      // hizo) y con la etiqueta, que pasa a contar qué hace tocarlo AHORA.
+      check("y el botón queda como activo (aria-pressed, no un ✓ decorativo)",
+        (await botonFlot.first().getAttribute("aria-pressed")) === "true",
+        String(await botonFlot.first().getAttribute("aria-pressed")));
+      check("y su etiqueta ya ofrece cerrarla",
+        /cerrar/i.test((await botonFlot.first().getAttribute("aria-label")) || ""),
+        String(await botonFlot.first().getAttribute("aria-label")).slice(0, 90));
       // Y NUNCA en blanco: antes de la primera frase, el canvas ya muestra
       // qué está esperando (una ventanita vacía parece rota — pasó con Zoom).
       check("la ventanita flotante nunca está en blanco (dice qué espera)",
@@ -296,11 +303,12 @@ async function botonesChicos(p, minimo = 40) {
       check("el video flotante vive y transmite el canvas",
         await pf.evaluate(() => [...document.querySelectorAll("video")].some(
           (v) => v.muted && v.srcObject && v.srcObject.getVideoTracks?.().some((t) => t.readyState === "live"))));
-      await pf.getByRole("button", { name: /Flotantes ✓/i }).first().tap();
+      await botonFlot.first().tap();
       await pf.waitForTimeout(400);
       check("tocarlo de nuevo lo apaga y limpia el video",
-        (await pf.getByRole("button", { name: /Subtítulos flotantes/i }).count()) > 0 &&
-        await pf.evaluate(() => ![...document.querySelectorAll("video")].some((v) => v.muted && v.srcObject)));
+        (await botonFlot.first().getAttribute("aria-pressed")) === "false" &&
+        await pf.evaluate(() => ![...document.querySelectorAll("video")].some((v) => v.muted && v.srcObject)),
+        `aria-pressed=${await botonFlot.first().getAttribute("aria-pressed")}`);
     }
     check("sin errores de JS en el camino de flotantes", bagF.length === 0, bagF[0] || "");
     await pf.close();
