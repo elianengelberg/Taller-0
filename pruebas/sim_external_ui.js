@@ -530,6 +530,41 @@ async function detectAndJoin(page, link, { passcode } = {}) {
       /^Automático \(Inglés/.test(opcionesDespues[0] || ""), opcionesDespues[0]);
     const cuerpo = (await p.locator("body").textContent()) || "";
     check("y avisa por qué cambió", /Los demás hablan en Inglés/.test(cuerpo), cuerpo.slice(0, 100).replace(/\s+/g, " "));
+
+    // EL AVISO NO PUEDE TAPAR EL CONTROL QUE ARREGLA EL PROBLEMA. Flotaba en
+    // `fixed top-24` y, en una reunión real, quedó clavado ENCIMA del selector
+    // de «Traducir»: el cartel decía «podés cambiarlo» sobre el control que
+    // había que tocar. Ahora ocupa su renglón, así que el selector recibe el
+    // clic en su propio centro.
+    {
+      const libre = await p.evaluate(() => {
+        const sel = document.querySelector('select[aria-label="Traducir los subtítulos a"]')
+          || document.querySelector('select[aria-label="Idioma en el que hablan los demás"]');
+        if (!sel) return "sin selector";
+        const r = sel.getBoundingClientRect();
+        const arriba = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return arriba && (arriba === sel || sel.contains(arriba)) ? "libre" : (arriba?.className || arriba?.tagName || "tapado");
+      });
+      check("y NO le queda encima del selector de idioma (el aviso ocupa su renglón)",
+        libre === "libre", String(libre));
+    }
+
+    // EL PING-PONG. Con una charla mezclada («hello» / «no no no»), la regla de
+    // «dos frases seguidas en otro idioma» se cumple una y otra vez EN LOS DOS
+    // SENTIDOS: el oído saltaba de inglés a español y de vuelta sin parar, con
+    // un cartel enorme cada vez. Se vio así en una PC de verdad. Ahora, para
+    // volver a cambiar hace falta mucha más evidencia y que pase un rato.
+    for (const text of ["bueno che entonces cerramos el presupuesto el viernes que viene", "dale perfecto así lo dejamos y seguimos con lo otro"]) {
+      await fetch(`http://localhost:4001/api/meet-bridge/${encodeURIComponent(`google-meet:${codigo}`)}/transcript`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ speaker: "Ellen", text, lang: "en-US" }),
+      });
+      await p.waitForTimeout(700);
+    }
+    await p.waitForTimeout(2500);
+    const trasElRebote = await seHabla.locator("option").allTextContents().catch(() => []);
+    check("y enseguida NO se vuelve a dar vuelta sola (dos idiomas mezclados no son un idioma nuevo)",
+      /^Automático \(Inglés/.test(trasElRebote[0] || ""), trasElRebote[0]);
     // EL ESCENARIO NO SE TAPA: en Meet/externa la frase vive UNA vez (en el
     // escenario grande). Antes las burbujas flotantes la repetían encima y
     // cubrían las últimas líneas del escenario.

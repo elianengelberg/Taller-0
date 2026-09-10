@@ -947,7 +947,7 @@
   // pedazos viajan al service worker apenas existen y se suben a LA MISMA
   // reunión del historial donde está la transcripción -- la clave de sala es
   // el código del Meet, el mismo que usa el bridge.
-  const grabacion = { recorder: null, port: null, pidiendo: false };
+  const grabacion = { recorder: null, port: null, pidiendo: false, mic: null, ctx: null, vigia: null };
 
   function aBase64(buf) {
     const bytes = new Uint8Array(buf);
@@ -1011,6 +1011,46 @@
       return;
     }
 
+    // EL VIDEO QUE NO SE ESCUCHA. La captura trae el audio de la pestaña
+    // SÓLO si se tildó «Compartir audio», y nunca trae TU micrófono (el
+    // navegador no te devuelve tu propia voz). Grabando el stream pelado, el
+    // archivo salía sin una sola voz propia -- y, sin la casilla tildada, sin
+    // ninguna voz: un video que pesa, se ve bien y no se oye. Acá se mezcla
+    // el micrófono con lo que haya traído la captura, como ya hacían el
+    // grabador de escritorio y el carril A.
+    let mezcla = stream;
+    let hayAudio = stream.getAudioTracks().length > 0;
+    try {
+      grabacion.mic = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+    } catch {
+      grabacion.mic = null; // sin permiso: queda el audio de la captura
+    }
+    if (grabacion.mic) hayAudio = true;
+    if (grabacion.mic || stream.getAudioTracks().length > 0) {
+      try {
+        const ctx = new AudioContext();
+        grabacion.ctx = ctx;
+        if (ctx.state === "suspended") await ctx.resume().catch(() => {});
+        const destino = ctx.createMediaStreamDestination();
+        const sumar = (s2) => {
+          if (!s2 || s2.getAudioTracks().length === 0) return;
+          ctx.createMediaStreamSource(new MediaStream(s2.getAudioTracks())).connect(destino);
+        };
+        sumar(stream);
+        sumar(grabacion.mic);
+        mezcla = new MediaStream([...stream.getVideoTracks(), ...destino.stream.getAudioTracks()]);
+      } catch {
+        mezcla = stream; // sin Web Audio: se graba lo que vino
+      }
+    }
+    if (!hayAudio) {
+      ui.avisarGrabacion(
+        "Ojo: esta grabación va a salir <b>sin sonido</b>. Detené, volvé a grabar y tildá <b>Compartir audio</b> al elegir la pestaña."
+      );
+    }
+
     // VP8 antes que VP9: VP9 en vivo se come la CPU que la reunión necesita.
     const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
       ? "video/webm;codecs=vp8,opus"
@@ -1019,8 +1059,9 @@
     if (pistaV) pistaV.contentHint = "motion";
     let rec;
     try {
-      rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 3_500_000, audioBitsPerSecond: 192_000 });
+      rec = new MediaRecorder(mezcla, { mimeType: mime, videoBitsPerSecond: 3_500_000, audioBitsPerSecond: 192_000 });
     } catch {
+      soltarAudioDeGrabacion();
       stream.getTracks().forEach((t) => t.stop());
       try { grabacion.port?.disconnect(); } catch { /* ya no está */ }
       grabacion.port = null;
@@ -1041,6 +1082,7 @@
     rec.onstop = () => {
       try { grabacion.port?.postMessage({ kind: "fin" }); } catch { /* port muerto */ }
       stream.getTracks().forEach((t) => t.stop());
+      soltarAudioDeGrabacion();
       grabacion.recorder = null;
       ui.setRecording(false);
     };
@@ -1052,10 +1094,49 @@
     pistaV?.addEventListener("ended", () => {
       if (rec.state !== "inactive") rec.stop();
     });
+    // Y el vigía: tener una pista de audio no garantiza que SUENE (la
+    // pestaña puede estar en silencio, el micrófono puede ser de un aparato
+    // apagado). Si a los doce segundos no entró nada, se avisa igual.
+    if (grabacion.ctx && mezcla !== stream) {
+      try {
+        const analizador = grabacion.ctx.createAnalyser();
+        analizador.fftSize = 512;
+        grabacion.ctx.createMediaStreamSource(new MediaStream(mezcla.getAudioTracks())).connect(analizador);
+        const muestras = new Uint8Array(analizador.fftSize);
+        const desde = Date.now();
+        grabacion.vigia = setInterval(() => {
+          analizador.getByteTimeDomainData(muestras);
+          let pico = 0;
+          for (const v of muestras) pico = Math.max(pico, Math.abs(v - 128));
+          if (pico > 2 || Date.now() - desde > 12_000) {
+            if (pico <= 2) {
+              ui.avisarGrabacion(
+                "Llevamos 12 segundos grabando y no entra <b>nada de sonido</b>. Detené, volvé a grabar y tildá <b>Compartir audio</b>."
+              );
+            }
+            clearInterval(grabacion.vigia);
+            grabacion.vigia = null;
+          }
+        }, 1000);
+      } catch { /* sin analizador: el aviso de «sin pista» ya cubre lo grave */ }
+    }
+
     rec.start(4000); // un pedazo cada 4 s
     grabacion.pidiendo = false;
     ui.setRecording(true);
     ui.avisarGrabacion("Grabando. Al terminar queda en tu historial, junto a la transcripción.", true);
+  }
+
+  // El micrófono y el AudioContext que abrimos para la mezcla son NUESTROS:
+  // si no se sueltan, Chrome deja el punto rojo de «te está escuchando»
+  // encendido después de terminar la grabación.
+  function soltarAudioDeGrabacion() {
+    clearInterval(grabacion.vigia);
+    grabacion.vigia = null;
+    try { grabacion.mic?.getTracks().forEach((t) => t.stop()); } catch { /* ya cerrado */ }
+    grabacion.mic = null;
+    try { grabacion.ctx?.close(); } catch { /* ya cerrado */ }
+    grabacion.ctx = null;
   }
 
   function detenerGrabacionAca() {

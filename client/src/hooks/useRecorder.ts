@@ -105,17 +105,50 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
   // useReconocimientoDePista. Null cuando se graba sólo audio del micrófono o
   // cuando la persona compartió sin tildar "compartir audio".
   const [remoteAudioTrack, setRemoteAudioTrack] = useState<MediaStreamTrack | null>(null);
+  /**
+   * EL VIDEO QUE NO SE ESCUCHA. Pasó en una reunión de verdad: se graba la
+   * pantalla, el archivo pesa, se ve perfecto... y no tiene una sola voz.
+   *
+   * Por qué: el audio de la grabación sale de un `MediaStreamDestination`, y
+   * ese nodo SIEMPRE entrega una pista de audio -- aunque no haya nada
+   * conectado. Si la persona compartió la pantalla sin tildar «Compartir
+   * audio» y no había micrófono, la mezcla queda en silencio absoluto, el
+   * archivo tiene su pista muda, pesa lo que tiene que pesar, y nada falla:
+   * el problema aparece recién al reproducirlo, cuando ya no se puede
+   * volver a grabar esa reunión.
+   *
+   * Este aviso existe para que se sepa MIENTRAS se graba, que es el único
+   * momento en que se puede arreglar.
+   */
+  const [avisoSonido, setAvisoSonido] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const displayStreamRef = useRef<MediaStream | null>(null);
   const ownAudioStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  // Vigía de silencio: mira el nivel de la mezcla mientras se graba.
+  const vigiaSonidoRef = useRef<number | null>(null);
+  /**
+   * QUÉ GRABACIÓN ES LA QUE ESTÁ CORRIENDO.
+   *
+   * «Agregar pantalla» hace `stop()` y enseguida `start()`. Pero `stop()` no
+   * termina en el acto: el `onstop` del grabador viejo llega DESPUÉS, cuando
+   * la grabación nueva ya abrió su micrófono y su AudioContext... y ese
+   * `onstop` llamaba a `cleanupStreams()`, que cerraba las pistas y el
+   * contexto DE LA NUEVA. Resultado: la grabación de pantalla quedaba con su
+   * mezcla muerta -- un video que pesa, se ve bien y no se escucha.
+   *
+   * Con un número de generación, la limpieza de una grabación sólo puede
+   * tocar sus propias cosas: si ya arrancó otra, no toca nada.
+   */
+  const generacionRef = useRef(0);
   // Reloj real de la grabación: la duración que mandamos al servidor ancla el
   // t=0 del video contra la transcripción en el historial.
   const startedAtRef = useRef(0);
 
-  const cleanupStreams = useCallback(() => {
+  const cleanupStreams = useCallback((generacion?: number) => {
+    if (generacion !== undefined && generacion !== generacionRef.current) return;
     displayStreamRef.current?.getTracks().forEach((track) => track.stop());
     displayStreamRef.current = null;
     setRemoteAudioTrack(null);
@@ -125,6 +158,10 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
     ownAudioStreamRef.current = null;
     audioContextRef.current?.close().catch(() => {});
     audioContextRef.current = null;
+    if (vigiaSonidoRef.current !== null) {
+      clearInterval(vigiaSonidoRef.current);
+      vigiaSonidoRef.current = null;
+    }
   }, []);
 
   const stop = useCallback(() => {
@@ -209,6 +246,7 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
   // micrófono ya dado -- que en una reunión externa siempre está, porque los
   // subtítulos lo usan -- la reunión queda grabada sin que nadie apriete nada.
   const startAudioOnly = useCallback(async () => {
+    const generacion = ++generacionRef.current;
     try {
       const source =
         micStream && micStream.getAudioTracks().some((t) => t.readyState === "live")
@@ -232,7 +270,9 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
         const contentType = (mimeType || "audio/webm").split(";")[0];
         const blob = new Blob(chunksRef.current, { type: contentType });
         const durationMs = startedAtRef.current ? Date.now() - startedAtRef.current : 0;
-        cleanupStreams();
+        // Sólo lo mío: si «Agregar pantalla» ya arrancó la grabación
+        // siguiente, cerrarle el micrófono la dejaría muda.
+        cleanupStreams(generacion);
         // Umbral mucho más bajo que el de video: un minuto de audio pesa
         // ~1 MB, y un audio corto igual es una grabación válida.
         if (blob.size < 2_000) {
@@ -248,7 +288,7 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
       recorder.onerror = () => {
         setError("Hubo un error grabando el audio de la reunión.");
         setStatus("error");
-        cleanupStreams();
+        cleanupStreams(generacion);
       };
       mediaRecorderRef.current = recorder;
       recorder.start(1000);
@@ -263,7 +303,7 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
           : "No pudimos acceder al micrófono para grabar la reunión."
       );
       setStatus("error");
-      cleanupStreams();
+      cleanupStreams(generacion);
     }
   }, [micStream, cleanupStreams, uploadRecording, meetingDbId]);
 
@@ -274,6 +314,7 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
     setUploadStatus("idle");
     setSelfCapture(false);
     setRemoteAudioTrack(null);
+    setAvisoSonido(null);
     const audioOnly = Boolean(options.audioOnly);
     setKind(audioOnly ? "audio" : "screen");
     if (!audioOnly && !options.stream && !screenCaptureSupported) {
@@ -285,6 +326,7 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
       await startAudioOnly();
       return;
     }
+    const generacion = ++generacionRef.current;
     try {
       const displayStream =
         options.stream ??
@@ -336,16 +378,49 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
       }
       const destination = audioContext.createMediaStreamDestination();
 
-      if (displayStream.getAudioTracks().length > 0) {
+      const hayAudioDeLaCaptura = displayStream.getAudioTracks().length > 0;
+      if (hayAudioDeLaCaptura) {
         audioContext
           .createMediaStreamSource(new MediaStream(displayStream.getAudioTracks()))
           .connect(destination);
       }
-      if (micStream && micStream.getAudioTracks().length > 0) {
+
+      // EL MICRÓFONO, SIEMPRE QUE SE PUEDA. La pantalla de reunión externa
+      // llama a este hook con `micStream: null`, así que la única fuente de
+      // sonido era la casilla «Compartir audio» del selector de Chrome. Sin
+      // tildarla -- que es lo que pasa la mayoría de las veces -- el video
+      // salía MUDO y sin un aviso, y eso no se descubre hasta reproducirlo,
+      // cuando ya no hay reunión que volver a grabar. Ahora, si la captura
+      // vino sin sonido, el grabador abre el micrófono por su cuenta:
+      // getUserMedia no exige un gesto del usuario, así que se puede pedir
+      // acá aunque el clic ya se lo haya llevado getDisplayMedia.
+      let micUsado =
+        micStream && micStream.getAudioTracks().some((t) => t.readyState === "live") ? micStream : null;
+      if (!micUsado) {
+        try {
+          const propio = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          });
+          ownAudioStreamRef.current = propio;
+          micUsado = propio;
+        } catch {
+          /* sin permiso de micrófono: queda lo que haya traído la captura */
+        }
+      }
+      const hayMicrofono = Boolean(micUsado && micUsado.getAudioTracks().length > 0);
+      if (micUsado && hayMicrofono) {
         audioContext
-          .createMediaStreamSource(new MediaStream(micStream.getAudioTracks()))
+          .createMediaStreamSource(new MediaStream(micUsado.getAudioTracks()))
           .connect(destination);
       }
+
+      // Ni la captura ni el micrófono: el archivo va a salir mudo, y hay que
+      // decirlo ahora.
+      setAvisoSonido(
+        hayAudioDeLaCaptura || hayMicrofono
+          ? null
+          : "Esta grabación está saliendo SIN SONIDO: se compartió la pantalla sin tildar «Compartir audio» y tampoco hay micrófono. Detené, volvé a grabar y tildá la casilla de audio."
+      );
 
       const combined = new MediaStream([
         ...displayStream.getVideoTracks(),
@@ -368,7 +443,7 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
         const contentType = (mimeType || "video/webm").split(";")[0];
         const blob = new Blob(chunksRef.current, { type: contentType });
         const durationMs = startedAtRef.current ? Date.now() - startedAtRef.current : 0;
-        cleanupStreams();
+        cleanupStreams(generacion);
         // A "successful" recording with (almost) no data means the capture
         // never produced frames -- typically a minimized window, a closed
         // source, or stopping immediately. Saying so beats handing the user
@@ -389,12 +464,50 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
       recorder.onerror = () => {
         setError("Hubo un error grabando la reunión.");
         setStatus("error");
-        cleanupStreams();
+        cleanupStreams(generacion);
       };
 
       // If the user stops sharing from the browser's own "Stop sharing" UI,
       // treat it the same as pressing our stop button.
       displayStream.getVideoTracks()[0]?.addEventListener("ended", stop);
+
+      // EL VIGÍA DE SILENCIO. Tener una fuente conectada no garantiza que
+      // suene: la pestaña compartida puede estar muda, el micrófono puede ser
+      // de un aparato apagado, y Chrome puede entregar la pista del audio del
+      // sistema sin nada adentro. Se mira el nivel REAL de la mezcla y, si a
+      // los doce segundos no entró absolutamente nada, se avisa igual --
+      // mientras todavía hay reunión para volver a grabar.
+      {
+        const analizador = audioContext.createAnalyser();
+        analizador.fftSize = 512;
+        if (destination.stream.getAudioTracks().length > 0) {
+          audioContext.createMediaStreamSource(destination.stream).connect(analizador);
+        }
+        const muestras = new Uint8Array(analizador.fftSize);
+        const desde = Date.now();
+        const cortar = () => {
+          if (vigiaSonidoRef.current !== null) {
+            clearInterval(vigiaSonidoRef.current);
+            vigiaSonidoRef.current = null;
+          }
+        };
+        vigiaSonidoRef.current = window.setInterval(() => {
+          analizador.getByteTimeDomainData(muestras);
+          let pico = 0;
+          for (const v of muestras) pico = Math.max(pico, Math.abs(v - 128));
+          if (pico > 2) {
+            setAvisoSonido(null);
+            cortar();
+            return;
+          }
+          if (Date.now() - desde > 12_000) {
+            setAvisoSonido(
+              "Llevamos 12 segundos grabando y no está entrando NADA de sonido. Detené, volvé a grabar y tildá «Compartir audio» en el selector de Chrome (o dale permiso al micrófono)."
+            );
+            cortar();
+          }
+        }, 1000);
+      }
 
       mediaRecorderRef.current = recorder;
       recorder.start(1000);
@@ -408,7 +521,7 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
       options.stream?.getTracks().forEach((t) => t.stop());
       setError(displayMediaErrorMessage(err, "iniciar la grabación"));
       setStatus("error");
-      cleanupStreams();
+      cleanupStreams(generacion);
     }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -454,5 +567,8 @@ export function useRecorder({ micStream, meetingDbId }: UseRecorderOptions) {
     };
   }, [stop]);
 
-  return { status, uploadStatus, error, resultUrl, resultType, kind, selfCapture, remoteAudioTrack, start, stop, reset };
+  return {
+    status, uploadStatus, error, resultUrl, resultType, kind, selfCapture, remoteAudioTrack,
+    avisoSonido, start, stop, reset,
+  };
 }

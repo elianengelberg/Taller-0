@@ -76,7 +76,7 @@ correr() { # nombre comando...
 # las del servidor, y la cola disruptiva al final.
 NORMALES="sim_fixes sim_botones sim_external_ui sim_errores sim_instalar sim_pwa sim_movil
   sim_perfil sim_verificacion sim_reconexion sim_malla sim_persona_zoom sim_av sim_companion
-  sim_toast sim_realext sim_voces_reunion sim_puente_salas sim_puerta_externa sim_meet_vivo sim_codigo sim_traduccion
+  sim_toast sim_realext sim_voces_reunion sim_grabacion_muda sim_puente_salas sim_puerta_externa sim_meet_vivo sim_codigo sim_traduccion
   sim_calendario sim_analiticas sim_bot sim_rtms sim_tienda sim_audit sim_bridge sim_ia_traducida sim_ultima_frase sim_cuentas sim_email
   sim_escritorio sim_estres sim_inputs sim_plataformas sim_seguridad"
 DISRUPTIVAS="sim_basecaida sim_renacer sim_carga sim_video_ia"
@@ -93,6 +93,9 @@ for s in $NORMALES; do
 done
 asegurar_stack
 correr sim_agenda env DATABASE_URL="$DB_URL" server/node_modules/.bin/tsx pruebas/sim_agenda.ts
+# Sin red ni navegador: mira el código del servidor de frente (qué de lo que
+# contesta el traductor gratuito es de verdad una traducción).
+correr sim_traduccion_basura server/node_modules/.bin/tsx pruebas/sim_traduccion_basura.ts
 
 for s in $DISRUPTIVAS; do
   asegurar_stack

@@ -252,6 +252,69 @@ async function translateWithClaude(
   throw new Error("Claude no devolvió texto traducido");
 }
 
+export interface RespuestaMyMemory {
+  responseData?: { translatedText?: string; match?: number | string };
+  responseStatus?: number | string;
+  matches?: Array<{
+    translation?: string;
+    quality?: number | string;
+    match?: number | string;
+    "created-by"?: string;
+  }>;
+}
+
+/**
+ * QUÉ DE TODO LO QUE CONTESTA MyMemory ES REALMENTE UNA TRADUCCIÓN.
+ *
+ * «hello» -> «testvalue». Eso apareció en pantalla, en una reunión de verdad.
+ * La memoria de traducción de MyMemory la escribe cualquiera, y para las
+ * palabras más comunes está llena de basura que subió gente probando
+ * formularios. Su `translatedText` devuelve la mejor coincidencia de esa
+ * memoria, contaminación incluida, y esa basura llegaba a los subtítulos como
+ * si fuera la traducción -- que es peor que no traducir, porque PARECE una
+ * traducción y nadie la puede desmentir.
+ *
+ * La salida está en su propio campo `matches`: las entradas hechas por
+ * máquina vienen firmadas «MT!» y son las únicas confiables para frases
+ * sueltas de una conversación. Se prefiere esa; si no hay, una entrada humana
+ * pero con coincidencia exacta y calidad alta; y si tampoco, se devuelve null
+ * y quien llama se queda con el original, que siempre es mejor que una
+ * mentira.
+ *
+ * Exportada para poder probarla con respuestas reales del proveedor, sin red.
+ */
+export function elegirDeMyMemory(data: RespuestaMyMemory): string | null {
+  const numero = (v: number | string | undefined): number => {
+    const n = typeof v === "string" ? Number(v) : v;
+    return Number.isFinite(n) ? (n as number) : 0;
+  };
+  const utilizable = (t: string | undefined): t is string =>
+    typeof t === "string" &&
+    t.trim().length > 0 &&
+    !/INVALID (SOURCE|TARGET) LANGUAGE|MYMEMORY WARNING|NO QUERY|QUERY LENGTH LIMIT/i.test(t);
+
+  const deMaquina = (data.matches ?? []).find(
+    (m) => /^MT!?$/i.test(String(m["created-by"] ?? "")) && utilizable(m.translation)
+  );
+  if (deMaquina?.translation) return deMaquina.translation;
+
+  const humanaFiable = (data.matches ?? [])
+    .filter((m) => utilizable(m.translation) && numero(m.match) >= 0.99 && numero(m.quality) >= 70)
+    .sort((a, b) => numero(b.quality) - numero(a.quality))[0];
+  if (humanaFiable?.translation) return humanaFiable.translation;
+
+  const suelta = data.responseData?.translatedText;
+  if (!utilizable(suelta)) return null;
+  // Sin una entrada de `matches` que la respalde, sólo se acepta una
+  // coincidencia casi exacta: es lo que separa «una traducción» de «lo que
+  // alguien dejó escrito ahí».
+  if (data.responseData?.match !== undefined && numero(data.responseData.match) < 0.85) return null;
+  // Y si vino con `matches` pero NINGUNO pasó los filtros de arriba, la
+  // suelta es exactamente ese material descartado: no se la acepta.
+  if ((data.matches ?? []).length > 0) return null;
+  return suelta;
+}
+
 async function translateWithMyMemory(text: string, from: string, to: string): Promise<string> {
   const url = new URL("https://api.mymemory.translated.net/get");
   url.searchParams.set("q", text);
@@ -263,10 +326,7 @@ async function translateWithMyMemory(text: string, from: string, to: string): Pr
     throw new Error(`Translation provider responded with ${response.status}`);
   }
 
-  const data = (await response.json()) as {
-    responseData?: { translatedText?: string };
-    responseStatus?: number | string;
-  };
+  const data = (await response.json()) as RespuestaMyMemory;
 
   // MyMemory contesta HTTP 200 hasta cuando falla: su estado real viene en el
   // JSON, y sus errores vienen como TEXTO adentro de translatedText. Sin
@@ -276,14 +336,11 @@ async function translateWithMyMemory(text: string, from: string, to: string): Pr
     throw new Error(`Translation provider status ${data.responseStatus}`);
   }
 
-  const translated = data.responseData?.translatedText;
-  if (!translated) {
-    throw new Error("Translation provider returned no result");
+  const elegida = elegirDeMyMemory(data);
+  if (!elegida) {
+    throw new Error("Translation provider returned no usable result");
   }
-  if (/INVALID (SOURCE|TARGET) LANGUAGE|MYMEMORY WARNING|NO QUERY|QUERY LENGTH LIMIT/i.test(translated)) {
-    throw new Error("Translation provider returned an error message instead of a translation");
-  }
-  return translated;
+  return elegida;
 }
 
 // "No sé en qué idioma está": el overlay de la extensión no siempre lo sabe.
@@ -336,10 +393,13 @@ export async function translateText(
       translated = await translateWithClaude(trimmed, source, target, context);
     } catch (err) {
       avisarFallaClaude(err);
-      translated = await translateWithMyMemory(trimmed, from, to);
+      // Si el respaldo tampoco tiene nada CONFIABLE, se devuelve el original.
+      // Mostrar la frase en su idioma es honesto; mostrar la basura de una
+      // memoria de traducción pública no lo es.
+      translated = await translateWithMyMemory(trimmed, from, to).catch(() => text);
     }
   } else {
-    translated = await translateWithMyMemory(trimmed, from, to);
+    translated = await translateWithMyMemory(trimmed, from, to).catch(() => text);
   }
 
   boundedCacheSet(key, translated);

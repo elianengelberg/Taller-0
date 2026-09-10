@@ -12,6 +12,12 @@ interface Props {
   kind?: RecordingKind;
   /** La captura incluye esta misma pantalla (efecto túnel). */
   selfCapture?: boolean;
+  /**
+   * «El video no se escucha». Un archivo mudo pesa y se ve igual que uno
+   * bueno: la única forma de que no arruine la reunión es decirlo MIENTRAS
+   * se graba, y con la letra más grande de este cartel.
+   */
+  avisoSonido?: string | null;
   /** Pasar de sólo audio a pantalla completa: necesita un clic (gesto). */
   onAddScreen?: () => void;
   /**
@@ -31,6 +37,7 @@ export default function RecordingBanner({
   resultType,
   kind = "screen",
   selfCapture,
+  avisoSonido,
   onAddScreen,
   onStop,
   onDismiss,
@@ -59,6 +66,11 @@ export default function RecordingBanner({
             </button>
           )}
         </div>
+        {avisoSonido && (
+          <div className="rounded-2xl border border-red-400 bg-red-600/95 px-3 py-2 text-xs font-semibold text-on-accent shadow-soft">
+            {avisoSonido}
+          </div>
+        )}
         {kind === "audio" ? (
           <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl bg-black/70 px-3 py-1.5 text-[11px] text-ink-200 shadow-soft">
             <span>Estamos grabando el audio. ¿Querés que quede el video y escuchar a TODOS (no sólo tu voz)?</span>

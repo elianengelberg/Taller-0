@@ -346,6 +346,7 @@ export default function ExternalMeeting() {
   const elegirIdiomaReunion = (valor: string) => {
     setIdiomaReunionElegido(valor);
     setAvisoIdiomaAjeno(null);
+    setReunionBilingue(false);
     try {
       if (valor) localStorage.setItem("unify_lang_reunion", valor);
       else localStorage.removeItem("unify_lang_reunion");
@@ -353,8 +354,18 @@ export default function ExternalMeeting() {
       /* modo privado: vale para esta reunión */
     }
   };
+  // CUÁNTAS VECES YA CAMBIÓ SOLO, Y CUÁNDO. En una reunión donde se mezclan
+  // dos idiomas (alguien dice «hello», otro contesta en español) la regla de
+  // «dos frases seguidas en otro idioma» se cumple UNA Y OTRA VEZ, en los dos
+  // sentidos: el oído saltaba de español a inglés y de vuelta sin parar, con
+  // un cartel enorme cada vez. Se vio así en una reunión real, con el aviso
+  // clavado en pantalla tapando el selector de «Traducir».
+  const ultimoCambioDeIdioma = useRef(0);
+  const cambiosDeIdioma = useRef(0);
+  const [reunionBilingue, setReunionBilingue] = useState(false);
   useEffect(() => {
     if (idiomaReunionElegido || !self) return; // lo eligió a mano: se respeta
+    if (reunionBilingue) return; // ya se rindió y le pasó la decisión a la persona
     const ajenas = (meeting?.transcript ?? []).filter((l) => l.speakerId !== self.id).slice(-3);
     const distintas = ajenas.filter((l) => l.sourceLang && shortLang(l.sourceLang) !== shortLang(langReunion));
     if (distintas.length === 0) return;
@@ -368,10 +379,32 @@ export default function ExternalMeeting() {
     // funcionaba»). Una línea de ocho palabras o más en otro idioma es al
     // menos tanta evidencia como dos cortas.
     const palabras = distintas.reduce((n, l) => n + l.text.trim().split(/\s+/).filter(Boolean).length, 0);
-    if (distintas.length < 2 && palabras < 8) return;
+    // El PRIMER cambio se hace con la evidencia de siempre: es el caso normal
+    // («te uniste y la reunión es en inglés»). Volver a cambiar cuesta mucho
+    // más -- tres frases seguidas o catorce palabras, y nunca antes de 45
+    // segundos del cambio anterior -- porque un ida y vuelta es la firma de
+    // una reunión bilingüe, no de un idioma nuevo.
+    const yaCambioAntes = cambiosDeIdioma.current > 0;
+    const minLineas = yaCambioAntes ? 3 : 2;
+    const minPalabras = yaCambioAntes ? 14 : 8;
+    if (distintas.length < minLineas && palabras < minPalabras) return;
+    if (yaCambioAntes && Date.now() - ultimoCambioDeIdioma.current < 45_000) return;
+
+    cambiosDeIdioma.current += 1;
+    ultimoCambioDeIdioma.current = Date.now();
+    // Al tercer cambio ya no es «cambió el idioma de la reunión»: es una
+    // reunión en dos idiomas, y adivinar es peor que preguntar. Se deja de
+    // cambiar solo y se lo dice una vez.
+    if (cambiosDeIdioma.current >= 3) {
+      setReunionBilingue(true);
+      setAvisoIdiomaAjeno(
+        "Acá se está hablando en más de un idioma, así que dejo de cambiar solo. Elegí en «Se habla» cuál querés que escuche."
+      );
+      return;
+    }
     setIdiomaReunionAuto(codigoCompletoDe(corto));
     setAvisoIdiomaAjeno(`Los demás hablan en ${etiquetaDeIdioma(corto)}: ahora los escucho en ${etiquetaDeIdioma(corto)} (podés cambiarlo en «Se habla»).`);
-  }, [meeting?.transcript, idiomaReunionElegido, langReunion, self]);
+  }, [meeting?.transcript, idiomaReunionElegido, langReunion, self, reunionBilingue]);
   useEffect(() => {
     if (!avisoIdiomaAjeno) return;
     const t = setTimeout(() => setAvisoIdiomaAjeno(null), 10_000);
@@ -1327,6 +1360,25 @@ export default function ExternalMeeting() {
         compacto={compacto}
       />
 
+      {/* LO QUE UNIFY ACABA DE DECIDIR, EN SU PROPIO RENGLÓN. Estos dos avisos
+          flotaban (`fixed top-24` y `top-28`) y caían justo sobre la barra:
+          en una reunión real el cartel del idioma quedó clavado ENCIMA del
+          selector de «Traducir», que es lo que la persona iba a tocar. Un
+          aviso que tapa el control que resuelve el problema no es un aviso.
+          Acá ocupan su renglón y empujan al resto, como todo lo demás. */}
+      {(avisoIdiomaAjeno || flotantesAviso) && (
+        <div className="flex flex-col gap-1.5 border-b border-ink-800 bg-ink-900/60 px-4 py-2">
+          {avisoIdiomaAjeno && (
+            <p role="status" className="text-center text-sm font-medium text-strong">
+              {avisoIdiomaAjeno}
+            </p>
+          )}
+          {flotantesAviso && (
+            <p className="text-center text-xs leading-snug text-warn">{flotantesAviso}</p>
+          )}
+        </div>
+      )}
+
       {/* QUIÉN ESTÁ ESCUCHANDO. Una sola pieza en lugar de las tres franjas de
           texto que había (aviso amarillo + nota gris + consejo), que entre
           todas no contestaban lo único que importa: si ahora mismo se está
@@ -1387,6 +1439,7 @@ export default function ExternalMeeting() {
         resultType={recorder.resultType}
         kind={recorder.kind}
         selfCapture={recorder.selfCapture}
+        avisoSonido={recorder.avisoSonido}
         // Pasar de sólo audio a pantalla necesita un clic: getDisplayMedia
         // exige un gesto del usuario, y este botón es ese gesto. En el
         // celular no existe capturar pantalla: ahí el botón ni aparece.
@@ -1442,20 +1495,6 @@ export default function ExternalMeeting() {
                 />
               }
             />
-          )}
-
-          {flotantesAviso && (
-            <div className="pointer-events-none fixed right-4 top-28 z-40 max-w-[260px] rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-snug text-warn shadow-lg backdrop-blur">
-              {flotantesAviso}
-            </div>
-          )}
-          {avisoIdiomaAjeno && (
-            <div
-              role="status"
-              className="pointer-events-none fixed left-1/2 top-24 z-40 max-w-[420px] -translate-x-1/2 rounded-xl border border-brand-400/50 bg-ink-900/95 px-4 py-2.5 text-sm font-medium text-strong shadow-lg backdrop-blur"
-            >
-              {avisoIdiomaAjeno}
-            </div>
           )}
 
           {/* Las burbujas sobre el video sólo cuando HAY video acá adentro
