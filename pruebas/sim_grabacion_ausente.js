@@ -43,6 +43,25 @@ const enLaBase = (accion, dbId, valor = "") =>
 
 const jsonp = (url, opts) => fetch(url, opts).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
 
+// LA REUNIÓN RECIÉN NACIDA TARDA UN INSTANTE EN SER LEÍBLE.
+//
+// Una sala companion existe en memoria apenas se la pide, y en la base un
+// momento después: `/session` crea la fila y la pone a tu nombre sin esperar
+// (fire-and-forget, con su propia paciencia adentro). Leer el historial en
+// ese hueco devuelve 404 -- que es exactamente lo que le pasó a esta suite
+// cuando la corrió una máquina cargada. La app real nunca lo nota (entre
+// entrar a la reunión y abrir el historial pasan minutos); una prueba que
+// mide en milisegundos, sí. Así que se espera a que la reunión esté, y
+// recién ahí se prueba lo que esta suite vino a probar.
+async function esperarReunion(dbId, token, intentos = 25) {
+  for (let i = 0; i < intentos; i++) {
+    const r = await fetch(`${API}/api/meetings/${dbId}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (r.ok) return (await r.json()).meeting ?? null;
+    await new Promise((res) => setTimeout(res, 400));
+  }
+  return null;
+}
+
 (async () => {
   // Una cuenta, y una sala externa a su nombre (por ahí pasa el bot).
   const reg = await fetch(`${API}/api/auth/register`, {
@@ -121,6 +140,7 @@ const jsonp = (url, opts) => fetch(url, opts).then(async (r) => ({ status: r.sta
     const s2 = await fetch(`${API}/api/meet-bridge/${encodeURIComponent(sala2)}/session`, {
       headers: { Authorization: `Bearer ${reg.token}` },
     }).then((r) => r.json());
+    check("la reunión sin grabación ya se puede leer", Boolean(await esperarReunion(s2.dbId, reg.token)));
     await page.goto(`${B}/historial/${s2.dbId}`, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(2500);
     const texto = await page.evaluate(() => document.body.innerText);
@@ -173,6 +193,7 @@ const jsonp = (url, opts) => fetch(url, opts).then(async (r) => ({ status: r.sta
     const s3 = await fetch(`${API}/api/meet-bridge/${encodeURIComponent(sala3)}/session`, {
       headers: { Authorization: `Bearer ${reg.token}` },
     }).then((r) => r.json());
+    check("la reunión de la subida ya se puede leer", Boolean(await esperarReunion(s3.dbId, reg.token)));
     const sub = await jsonp(`${API}/api/meetings/${s3.dbId}/recording-upload?durationMs=9000`, {
       method: "POST",
       headers: { "Content-Type": "video/webm" },

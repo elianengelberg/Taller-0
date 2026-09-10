@@ -238,6 +238,40 @@ const json = (b) => ({ method: "POST", headers: { "Content-Type": "application/j
     check("en el historial figura como reunión externa", rows[0]?.host_name === "Reunión externa", rows[0]?.host_name);
   }
 
+  // ═══════ LA REUNIÓN NUEVA QUEDA A TU NOMBRE, SIEMPRE ═══════
+  //
+  // El agujero más caro de todos, y el más silencioso: la reunión companion
+  // nace fire-and-forget (el INSERT va sin esperar) y el PRIMER GET de
+  // sesión la reclama para quien trae su sesión. Si el reclamo se cruzaba
+  // con el INSERT, `claimMeeting` miraba si la fila EXISTÍA -- no de quién
+  // era -- y una fila recién nacida sin dueño la leía como «es de otro»: se
+  // rendía para siempre y la reunión quedaba huérfana. La grabación y la
+  // transcripción subían perfectas a una reunión que el historial de nadie
+  // lista. Medido contra este mismo servidor: 5 de cada 8.
+  //
+  // Por eso se prueban VARIAS seguidas: una sola sala pasaba de casualidad
+  // (la carrera se pierde a veces, no siempre), que es como esto sobrevivió
+  // tanto tiempo.
+  console.log("\n── Cada reunión nueva queda a nombre de quien la abrió ──");
+  {
+    const reg = await api("/api/auth/register", json({
+      email: `duenio${Date.now()}@test.com`, password: "melon42Trueno", name: "Dueña",
+    }));
+    check("hay una cuenta para abrir salas", Boolean(reg.body.token));
+    const auth = { headers: { Authorization: `Bearer ${reg.body.token}` } };
+
+    const huerfanas = [];
+    for (let i = 0; i < 8; i++) {
+      const sala = `google-meet:hue-${rnd(3)}${i}-${rnd(3)}`;
+      const s = await api(`/api/meet-bridge/${encodeURIComponent(sala)}/session`, auth);
+      await sleep(1200);
+      const { rows } = await pg.query(`SELECT owner_id FROM meetings WHERE id = $1`, [s.body.dbId]);
+      if (!rows[0]?.owner_id) huerfanas.push(s.body.dbId.slice(0, 8));
+    }
+    check("NINGUNA de las 8 reuniones nuevas quedó sin dueño",
+      huerfanas.length === 0, `huérfanas=${huerfanas.length}/8 ${huerfanas.join(",")}`);
+  }
+
   await pg.end();
   const failed = results.filter((r) => !r).length;
   console.log(`\n${results.length - failed}/${results.length} OK`);

@@ -419,9 +419,20 @@ async function botonesChicos(p, minimo = 40) {
       await pd.waitForTimeout(2500);
       const txt = (await pd.locator("body").textContent()) || "";
       if (esIphone) {
-        check("en iPhone, la instrucción de ver las dos cosas es la de iPhone (flotantes)",
-          /subtítulos flotantes/i.test(txt) && !/Split View/i.test(txt),
-          txt.slice(0, 60).replace(/\s+/g, " "));
+        // OJO CON LO QUE MIDE ESTA PRUEBA. Antes buscaba «subtítulos
+        // flotantes» en el texto de la pantalla y pasaba... porque ese era el
+        // NOMBRE VISIBLE del botón de la barra, no la instrucción. Cuando el
+        // botón pasó a decir «Flotantes» (la barra rediseñada), la prueba se
+        // cayó y quedó a la vista que hacía años medía otra cosa.
+        //
+        // En un teléfono la instrucción está escondida a propósito: la
+        // pantalla es chica y el lugar es de los subtítulos. Lo que SÍ tiene
+        // que estar es el camino de iPhone para ver las dos cosas -- la
+        // ventanita flotante --, ofrecido con su nombre completo.
+        const flot = pd.getByRole("button", { name: /Subtítulos flotantes/i });
+        check("en iPhone, el camino para ver las dos cosas (flotantes) está ofrecido",
+          (await flot.count()) > 0 && !/Split View/i.test(txt),
+          `botones=${await flot.count()} texto=${txt.slice(0, 50).replace(/\s+/g, " ")}`);
         check("y NO le habla de Windows ni de Android",
           !/tecla Windows|En Android/i.test(txt));
       } else {

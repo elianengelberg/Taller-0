@@ -1525,16 +1525,30 @@ export function claimMeeting(id: string, ownerId: string): Promise<boolean> {
       );
       return (result.rowCount ?? 0) > 0;
     };
-    if (await reclamar()) return true;
     // Cero filas puede ser "ya tiene dueño" (correcto: no se pisa) o LA
     // CARRERA del nacimiento: la reunión companion se crea fire-and-forget
     // (companionForRoomKey) y el reclamo del PRIMER GET de sesión puede
-    // llegar antes que ese INSERT -- el UPDATE no tocaba nada y la reunión
-    // quedaba huérfana ("no aparece en mi historial", el bug ya sufrido).
-    const { rows } = await pool!.query(`SELECT 1 FROM meetings WHERE id = $1`, [id]);
-    if (rows.length > 0) return false; // existe y tiene dueño: se respeta
-    await new Promise((r) => setTimeout(r, 800));
-    return await reclamar();
+    // llegar antes que ese INSERT -- el UPDATE no toca nada y la reunión
+    // queda huérfana ("no aparece en mi historial", el bug ya sufrido).
+    //
+    // DISTINGUIR LAS DOS COSAS SE HACE MIRANDO EL DUEÑO, NO LA EXISTENCIA.
+    // Acá había un `SELECT 1 ... if (rows.length > 0) return false`, con el
+    // comentario "existe y tiene dueño" -- pero esa consulta nunca miraba el
+    // dueño. Si el INSERT caía justo entre el UPDATE y ese SELECT, la fila
+    // existía con owner_id NULL y el código la leía como "es de otro" y se
+    // rendía PARA SIEMPRE. Medido acá con el servidor real: 5 de cada 8
+    // reuniones nuevas quedaban huérfanas. La grabación y la transcripción
+    // subían perfectas... a una reunión que el historial de nadie lista.
+    for (let intento = 0; intento < 6; intento++) {
+      if (await reclamar()) return true;
+      const { rows } = await pool!.query(`SELECT owner_id FROM meetings WHERE id = $1`, [id]);
+      // Existe Y es de alguien: se respeta, no se pisa el dueño.
+      if (rows[0]?.owner_id) return false;
+      // O todavía no nació, o nació sin dueño y el UPDATE se cruzó con el
+      // INSERT: en los dos casos vale volver a intentar.
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    return false;
   }, false);
 }
 
