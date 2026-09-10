@@ -296,6 +296,13 @@ function migrate(): Promise<void> {
       .then(() =>
         pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS recording_started_at TIMESTAMPTZ;`)
       )
+      // QUÉ PASÓ CON LA GRABACIÓN, en palabras. Sin esto, una reunión sin
+      // video se ve EXACTAMENTE igual que una que nadie quiso grabar: el
+      // historial escondía el reproductor y no decía nada más. Quien mandó el
+      // bot a grabar se quedaba mirando una pantalla muda, sin saber si falló
+      // la captura, si el servidor no guarda grabaciones, o si se olvidó de
+      // apretar algo.
+      .then(() => pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS recording_note TEXT;`))
       .then(() => undefined)
       .catch((err) => {
         console.error("No se pudo preparar la base de datos:", err.message);
@@ -382,6 +389,12 @@ export interface MeetingDetail extends MeetingSummary {
   report: string | null;
   reportGeneratedAt: string | null;
   recordingStartedAt: string | null;
+  // QUÉ PASÓ CON LA GRABACIÓN cuando no hay video. Antes, una reunión sin
+  // grabación no mostraba NADA: ni reproductor ni explicación, y desde
+  // afuera era imposible distinguir "nadie grabó" de "se grabó y se
+  // perdió". Reporte real, con la foto del historial en la mano: «la
+  // grabación no se realizó». Acá queda escrito el porqué.
+  recordingNote: string | null;
   // True when the viewer is not the owner but reached this meeting through a
   // folder shared with them -- the UI uses it to present a read-only view.
   sharedView?: boolean;
@@ -1438,16 +1451,53 @@ export function markRecordingStarted(id: string): Promise<void> {
 // didn't ping.
 export function attachRecording(id: string, url: string, durationMs?: number): Promise<void> {
   return safe(async () => {
+    // La nota se BORRA al guardar: un intento que falló antes no puede
+    // quedar diciendo "no se grabó" al lado de un video que sí está.
     if (typeof durationMs === "number" && durationMs > 0 && durationMs < 24 * 3600_000) {
       await pool!.query(
         `UPDATE meetings
            SET recording_url = $2,
+               recording_note = NULL,
                recording_started_at = COALESCE(recording_started_at, now() - ($3 || ' milliseconds')::interval)
          WHERE id = $1`,
         [id, url, String(Math.round(durationMs))]
       );
     } else {
-      await pool!.query(`UPDATE meetings SET recording_url = $2 WHERE id = $1`, [id, url]);
+      await pool!.query(
+        `UPDATE meetings SET recording_url = $2, recording_note = NULL WHERE id = $1`,
+        [id, url]
+      );
+    }
+  }, undefined);
+}
+
+// POR QUÉ ESTA REUNIÓN NO TIENE VIDEO.
+//
+// Reporte real, con la foto del historial: «la grabación no se realizó».
+// Hasta acá el fracaso vivía en dos lugares que la persona no puede mirar --
+// el journal del host del bot y un Map en memoria del servidor que se va con
+// el reinicio --, así que la reunión guardada simplemente no mostraba nada.
+// Un silencio no se puede leer: no dice si nadie grabó, si se grabó y se
+// perdió, o si falta configurar algo. Esto lo deja escrito en la fila de la
+// reunión, que es donde se va a mirar dentro de una semana.
+//
+// No pisa una nota por una grabación que YA está: si hay `recording_url`, lo
+// que pasó antes ya no importa.
+export function anotarGrabacion(id: string, nota: string): Promise<void> {
+  return safe(async () => {
+    const escribir = () =>
+      pool!.query(
+        `UPDATE meetings SET recording_note = $2 WHERE id = $1 AND recording_url IS NULL`,
+        [id, nota.slice(0, 400)]
+      );
+    const r = await escribir();
+    // PACIENTE, como el resto de las puertas de grabación: la reunión de una
+    // sala companion existe en memoria al instante y en la base un momento
+    // después. Sin este respiro, un aviso que llega en ese hueco se perdía
+    // en silencio -- que es justo el silencio que esto viene a arreglar.
+    if ((r.rowCount ?? 0) === 0) {
+      await new Promise((res) => setTimeout(res, 800));
+      await escribir();
     }
   }, undefined);
 }
@@ -1562,6 +1612,7 @@ async function buildDetail(meeting: {
   report: string | null;
   report_generated_at: string | null;
   recording_started_at: string | null;
+  recording_note: string | null;
 }): Promise<MeetingDetail> {
   const { rows: messageRows } = await pool!.query(
     `SELECT id, kind, sender_name, role_name, text, source_lang, created_at
@@ -1591,6 +1642,7 @@ async function buildDetail(meeting: {
     report: meeting.report,
     reportGeneratedAt: meeting.report_generated_at,
     recordingStartedAt: meeting.recording_started_at,
+    recordingNote: meeting.recording_note,
     messageCount: messages.length,
     messages,
   };

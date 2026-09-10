@@ -93,6 +93,9 @@ export interface MeetingHistoryDetail extends MeetingHistorySummary {
   // When the recording started (ISO, server clock) -- t=0 of the video, used
   // to line the transcript up with playback.
   recordingStartedAt: string | null;
+  // Por qué esta reunión no tiene video, cuando no lo tiene. Sin esto, una
+  // reunión sin grabación no mostraba absolutamente nada al respecto.
+  recordingNote?: string | null;
   sharedView?: boolean;
 }
 
@@ -602,6 +605,33 @@ export async function markRecordingStarted(meetingDbId: string): Promise<void> {
     });
   } catch {
     // best-effort -- attachRecording still back-computes a start from duration
+  }
+}
+
+// POR QUÉ ESTA REUNIÓN NO VA A TENER VIDEO.
+//
+// Va un CÓDIGO, no una frase: el texto lo escribe el servidor (la puerta es
+// anónima, como todas las de grabación, y no puede aceptar texto libre de
+// cualquiera que sepa el código de una reunión).
+export type MotivoSinGrabacion =
+  | "sin-almacenamiento"
+  | "microfono-ocupado"
+  | "permiso-denegado"
+  | "sin-captura"
+  | "apagada";
+
+export async function notarSinGrabacion(
+  meetingDbId: string,
+  motivo: MotivoSinGrabacion
+): Promise<void> {
+  try {
+    await fetchWithTimeout(`${SERVER_URL}/api/meetings/${meetingDbId}/recording-note`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ motivo }),
+    });
+  } catch {
+    // best-effort: sin la nota la reunión sigue guardándose igual
   }
 }
 

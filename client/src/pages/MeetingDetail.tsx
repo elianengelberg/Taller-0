@@ -409,6 +409,25 @@ function MeetingDetailView({ meeting }: { meeting: MeetingHistoryDetail }) {
           </div>
         )}
 
+        {/* SIN VIDEO, PERO NO EN SILENCIO.
+            Reporte real, con la foto del historial en la mano: «la grabación
+            no se realizó». Y la reunión guardada no decía NADA -- ni
+            reproductor ni motivo --, porque todo el bloque de arriba se
+            escondía cuando no había `recordingUrl`. Un hueco no se puede
+            leer: no distingue "nadie apretó grabar" de "se grabó y se
+            perdió" de "falta configurar el servidor". Acá se dice. */}
+        {!meeting.recordingUrl && (
+          <div className={`${cardClass} mt-6`}>
+            <h2 className="text-base font-semibold text-strong">Grabación</h2>
+            <p className="mt-1.5 text-sm leading-relaxed text-ink-300">
+              {meeting.recordingNote || "Esta reunión no tiene grabación guardada."}
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-ink-400">
+              Lo que se dijo quedó igual en la transcripción de más abajo.
+            </p>
+          </div>
+        )}
+
         <ResumenTiles messages={meeting.messages} />
 
         <AiChatBox

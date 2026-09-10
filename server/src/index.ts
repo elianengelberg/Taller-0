@@ -23,6 +23,7 @@ import {
   verifyTokenClaims,
 } from "./auth";
 import {
+  anotarGrabacion,
   applyPasswordReset,
   attachRecording,
   bumpTokenVersion,
@@ -1462,6 +1463,15 @@ app.post("/api/meetings/:id/report", requireAuth, aiLimit, async (req, res) => {
 // 404 ("no encontramos esa reunión") por una carrera de milisegundos. Misma
 // regla que recordMessage/claimMeeting: si no está, se le da un respiro y se
 // vuelve a mirar una vez.
+// Cuando el servidor no tiene dónde guardar videos, la grabación se pierde
+// ENTERA y en silencio: se graba, se sube, rebota con un 503 y la reunión
+// queda sin nada. Que la reunión guardada lo diga con todas las letras --
+// es lo único que separa "no configuraron el almacenamiento" de "esta app
+// no graba", que es lo que parecía desde afuera.
+const SIN_ALMACEN =
+  "No se guardó la grabación: este servidor todavía no tiene configurado el almacenamiento de videos. " +
+  "La transcripción sí quedó completa.";
+
 async function meetingExistsPaciente(id: string): Promise<boolean> {
   if (await meetingExists(id)) return true;
   await new Promise((r) => setTimeout(r, 800));
@@ -1470,6 +1480,7 @@ async function meetingExistsPaciente(id: string): Promise<boolean> {
 
 app.post("/api/meetings/:id/recording-upload-url", uploadLimit, async (req, res) => {
   if (!storageEnabled) {
+    void anotarGrabacion(req.params.id, SIN_ALMACEN);
     res.status(503).json({ error: "El almacenamiento de grabaciones no está configurado." });
     return;
   }
@@ -1508,6 +1519,40 @@ app.post("/api/meetings/:id/recording-started", async (req, res) => {
   res.json({ ok: true });
 });
 
+// POR QUÉ NO HAY VIDEO, dicho por el aparato que lo sabe.
+//
+// Esta puerta es ANÓNIMA (los invitados también graban), así que NO recibe
+// texto libre: recibe un CÓDIGO de una lista cerrada y el texto lo pone el
+// servidor. Si aceptara texto, cualquiera que conozca el código de una
+// reunión podría escribir lo que quisiera en el historial de otro.
+const MOTIVOS_SIN_GRABACION: Record<string, string> = {
+  "sin-almacenamiento": SIN_ALMACEN,
+  "microfono-ocupado":
+    "No se grabó: en este teléfono o tablet el micrófono es de una sola cosa a la vez, " +
+    "y se lo dejamos a los subtítulos en vivo. La transcripción quedó completa.",
+  "permiso-denegado":
+    "No se grabó: el navegador no dio permiso para capturar el audio de la reunión. " +
+    "La transcripción quedó completa.",
+  "sin-captura":
+    "No se grabó: no se pudo capturar la reunión desde este navegador. " +
+    "La transcripción quedó completa.",
+  apagada: "No se grabó: la grabación automática estaba apagada para esta reunión.",
+};
+
+app.post("/api/meetings/:id/recording-note", async (req, res) => {
+  const nota = MOTIVOS_SIN_GRABACION[String(req.body?.motivo ?? "")];
+  if (!nota) {
+    res.status(400).json({ error: "Motivo desconocido." });
+    return;
+  }
+  if (dbEnabled && !(await meetingExistsPaciente(req.params.id))) {
+    res.status(404).json({ error: "No encontramos esa reunión." });
+    return;
+  }
+  await anotarGrabacion(req.params.id, nota);
+  res.json({ ok: true });
+});
+
 app.post("/api/meetings/:id/recording-complete", async (req, res) => {
   const { publicUrl } = req.body ?? {};
   if (typeof publicUrl !== "string" || !publicUrl) {
@@ -1541,6 +1586,7 @@ app.post("/api/meetings/:id/recording-complete", async (req, res) => {
 // to read the body twice.
 app.post("/api/meetings/:id/recording-upload", uploadLimit, async (req, res) => {
   if (!storageEnabled) {
+    void anotarGrabacion(req.params.id, SIN_ALMACEN);
     res.status(503).json({ error: "El almacenamiento de grabaciones no está configurado." });
     return;
   }
@@ -2339,14 +2385,26 @@ app.post("/api/meet-bridge/:meetId", bridgeLimit, (req, res) => {
   // CÓMO VIENE LA GRABACIÓN del bot: "no se grabó" tiene que poder verse
   // desde la reunión, no sólo en el journal del host del bot.
   if (typeof b.botGrabacion === "string" && b.botGrabacion) {
-    grabacionPorSala.set(roomKey, {
-      estado: String(b.botGrabacion).slice(0, 20),
-      detalle: typeof b.botGrabacionDetalle === "string" ? String(b.botGrabacionDetalle).slice(0, 300) : null,
-      at: Date.now(),
-    });
+    const estado = String(b.botGrabacion).slice(0, 20);
+    const detalle =
+      typeof b.botGrabacionDetalle === "string" ? String(b.botGrabacionDetalle).slice(0, 300) : null;
+    grabacionPorSala.set(roomKey, { estado, detalle, at: Date.now() });
     if (grabacionPorSala.size >= 500) {
       const primera = grabacionPorSala.keys().next().value;
       if (primera !== undefined) grabacionPorSala.delete(primera);
+    }
+    // Y ADEMÁS, EN LA FILA DE LA REUNIÓN. Este Map se borra con cada
+    // reinicio del servidor y sólo se puede mirar desde la reunión en vivo:
+    // al día siguiente, en el historial, un "no se grabó" guardado ahí no
+    // existe. Reporte real: la reunión guardada no mostraba NADA sobre la
+    // grabación -- ni video ni motivo -- y desde afuera parecía que la app
+    // simplemente no graba.
+    if (estado === "fallo") {
+      const meeting = companionForRoomKey(roomKey);
+      void anotarGrabacion(
+        meeting.dbId,
+        detalle || "El bot no pudo guardar la grabación de esta reunión."
+      );
     }
   }
   if (typeof b.botFase === "string" && b.botFase) {

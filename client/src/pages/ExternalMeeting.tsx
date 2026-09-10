@@ -41,7 +41,13 @@ import {
   pedirCartelDeMedios,
   usePermisoDeMicrofono,
 } from "../hooks/usePermisoDeMicrofono";
-import { askMeetingAI, fetchPlatformConfig, ordenarEnLaReunion, type PlatformConfig } from "../lib/api";
+import {
+  askMeetingAI,
+  fetchPlatformConfig,
+  notarSinGrabacion,
+  ordenarEnLaReunion,
+  type PlatformConfig,
+} from "../lib/api";
 import { usePantallaChica } from "../lib/pantalla";
 import { SERVER_URL } from "../lib/socket";
 import { LANGUAGES, codigoCompletoDe, etiquetaDeIdioma, shortLang } from "../lib/languages";
@@ -823,8 +829,20 @@ export default function ExternalMeeting() {
     if (autoStartedRef.current) return;
     if (connectionStatus !== "connected" || !meeting?.dbId) return;
     autoStartedRef.current = true;
+    // CADA SALIDA DEJA DICHO POR QUÉ. Antes, cuando la grabación automática
+    // no arrancaba, no pasaba nada visible: la reunión terminaba y el
+    // historial no mostraba ni video ni explicación, así que parecía que
+    // Unify simplemente no graba (reporte real, con la foto en la mano).
+    // Ojo con lo que NO se hace acá: no se espera la configuración del
+    // servidor para arrancar. Ese fetch tiene 55 segundos de paciencia, y
+    // esperarlo sería empezar a grabar un minuto tarde -- o no empezar. Si
+    // resulta que el servidor no tiene dónde guardar videos, la subida
+    // rebota con un 503 y es EL SERVIDOR el que deja la nota; de este lado
+    // sólo se anotan los motivos que sólo se saben acá.
+    const dbId = meeting.dbId;
     if (!autoRecordEnabled()) {
       discardStashedDisplayStream();
+      void notarSinGrabacion(dbId, "apagada");
       return;
     }
     // En el flujo de la APP DE WINDOWS el video ya lo graba el grabador
@@ -838,7 +856,10 @@ export default function ExternalMeeting() {
     // perdían las dos cosas. Sin captura de pantalla que grabar, no se
     // arranca sola -- manda el subtítulo, y el botón de grabar sigue ahí
     // para quien prefiera el audio.
-    if (!stream && grabacionCedida) return;
+    if (!stream && grabacionCedida) {
+      void notarSinGrabacion(dbId, "microfono-ocupado");
+      return;
+    }
     void startRef.current(stream ? { stream } : { audioOnly: true });
   }, [connectionStatus, meeting?.dbId, grabacionCedida]);
 
@@ -1561,9 +1582,16 @@ export default function ExternalMeeting() {
                   : "Grabar el audio por el micrófono"
               }
               notaGrabar={
-                grabacionCedida
-                  ? `En ${aparato.corto} el micrófono es de una sola cosa a la vez: mientras grabás, los subtítulos se pausan. Si querés las dos cosas, que escuche Unify desde el servidor.`
-                  : null
+                // ANTES, NO DESPUÉS. Si el servidor no tiene dónde guardar
+                // videos, grabar una hora entera termina en un 503 y la
+                // reunión queda sin nada: se avisa acá, con el botón
+                // todavía sin tocar, en vez de dejarlo descubrir en el
+                // historial vacío.
+                platforms && !platforms.recording
+                  ? "Este servidor todavía no tiene configurado dónde guardar los videos: si grabás, la grabación no va a poder quedar en el historial. La transcripción sí se guarda."
+                  : grabacionCedida
+                    ? `En ${aparato.corto} el micrófono es de una sola cosa a la vez: mientras grabás, los subtítulos se pausan. Si querés las dos cosas, que escuche Unify desde el servidor.`
+                    : null
               }
               abrir={
                 enlaceDeLaReunion
