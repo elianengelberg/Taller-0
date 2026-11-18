@@ -1,0 +1,3 @@
+media/raw/*
+media/edits/*
+!media/**/.gitkeep
