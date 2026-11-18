@@ -40,3 +40,10 @@ Hype pero limpio. Frases cortas. Un emoji máximo (🌴 ⏳ 👀 🎥 💀). "GT
 - Edición: `tools/editar_clip.py` (ffmpeg + Whisper + voz IA), CapCut para retoques manuales.
 - Branding/diseños: Higgsfield.
 - Almacenamiento: Google Drive (carpeta `Clipersgta`).
+
+## Rutina de búsqueda de clips (la hace Claude)
+1. `python3 tools/buscar_clips.py --horas 6` → ranking de Twitch (clips + en vivo) y YouTube en `ojeo/`.
+2. Búsqueda web de lo que explota en X/TikTok y en Streams Charts.
+3. Elegir 3–5 clips: mezcla de EN y ES, priorizando creadores con campañas de clipping (permiso).
+4. Editarlos con `tools/editar_clip.py` y dejarlos en `media/edits/` (o en Drive).
+Frecuencia: 10:00, 15:00, 21:00 ART.
